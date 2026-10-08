@@ -237,7 +237,7 @@ function Station({
       <span
         aria-hidden
         className={cn(
-          "figure mt-4 block text-2xl",
+          "figure mt-4 block text-figure",
           !known || count === 0 ? "text-fg-subtle" : "text-fg",
           animate && loaded && "thread-pop"
         )}
@@ -308,7 +308,7 @@ function StationRow({
           </span>
         )}
       </span>
-      <span className={cn("figure text-2xl", !known || count === 0 ? "text-fg-subtle" : "text-fg")}>
+      <span className={cn("figure text-figure", !known || count === 0 ? "text-fg-subtle" : "text-fg")}>
         {known ? formatCount(count) : "–"}
       </span>
     </>

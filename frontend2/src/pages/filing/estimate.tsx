@@ -39,7 +39,7 @@ function Amount({ calc, calcBusy, calcFailed, countOnly, className }: Pick<Estim
   }
   if (amount == null) return <p className={cn("text-base text-fg-muted", className)}>Not enough yet</p>
   return (
-    <p className={cn("figure text-2xl", amount === 0 && "text-caution", className)}>
+    <p className={cn("figure tabular text-figure", amount === 0 && "text-caution", className)}>
       {money(amount)}
       {/* On the figure itself: the ERP showed a number with no such word
           near it and people budgeted against it. */}

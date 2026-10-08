@@ -29,7 +29,7 @@ import {
 } from "@/ui/field"
 import { money } from "@/ui/paper"
 import { Avatar } from "@/ui/person"
-import { Callout, ErrorState, SkeletonRows } from "@/ui/state"
+import { Callout, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { ColumnLabel, Meta, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { PageHeader } from "@/ui/page-header"
@@ -163,10 +163,7 @@ export function Policy() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          title="Not open to this account"
-          message="The policy sheet is an oversight document. A claimant sees what their own paper is worth on the paper itself."
-        />
+        <NotOpen message="The policy sheet is an oversight document. A claimant sees what their own paper is worth on the paper itself." />
       </div>
     )
   }
@@ -976,7 +973,7 @@ function ExampleAnswer({
         {problem ? (
           <span className="font-semibold text-critical">nothing</span>
         ) : (
-          <span className="text-xl font-semibold tabular">{money(amount)}</span>
+          <span className="text-lg font-semibold tabular">{money(amount)}</span>
         )}
       </p>
 

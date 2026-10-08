@@ -24,7 +24,7 @@ import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { Avatar, initialsOf } from "@/ui/person"
 import { useQueueKeys } from "@/ui/queue-keys"
-import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { Callout, EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { ColumnLabel, Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { unshout } from "@/lib/names"
@@ -187,11 +187,7 @@ export function Duplicates() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          art="closed-gate"
-          title="Not open to this account"
-          message="The research office and the Principal review these. They are not shown to the Director or Finance."
-        />
+        <NotOpen message="The research office and the Principal review these. They are not shown to the Director or Finance." />
       </div>
     )
   }

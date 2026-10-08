@@ -84,7 +84,7 @@ export function Figure({
       ) : (
         <p
           className={cn(
-            "mt-0.5 text-2xl font-semibold tabular",
+            "mt-0.5 figure text-figure font-semibold tabular",
             tone === "critical" && "text-critical",
             tone === "positive" && "text-positive",
             tone === "caution" && "text-caution",

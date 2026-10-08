@@ -219,7 +219,7 @@ export function CompactMonth({
       <div role="grid" aria-label="Month" className="rounded-panel bg-surface p-2 ring-1 ring-line">
         <div role="row" className="grid grid-cols-7">
           {WEEKDAYS.map((d) => (
-            <div role="columnheader" key={d} className="py-1 text-center text-[11px] font-medium text-fg-muted">
+            <div role="columnheader" key={d} className="py-1 text-center text-xs font-medium text-fg-muted">
               {d[0]}
             </div>
           ))}
@@ -349,7 +349,7 @@ export function WeekView({
         className="grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))] border-b border-line"
         style={{ gridTemplateRows: `repeat(${laneCount}, 1.375rem)` }}
       >
-        <div style={{ gridRow: `1 / span ${laneCount}` }} className="px-1 pt-1 text-[11px] text-fg-subtle">
+        <div style={{ gridRow: `1 / span ${laneCount}` }} className="px-1 pt-1 text-xs text-fg-subtle">
           All day
         </div>
         {days.map((d, col) => (
@@ -379,7 +379,7 @@ export function WeekView({
       <div className="grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))]">
         <div>
           {hours.map((h) => (
-            <div key={h} style={{ height: HOUR_PX }} className="-mt-px pr-1 text-right text-[11px] tabular text-fg-subtle">
+            <div key={h} style={{ height: HOUR_PX }} className="-mt-px pr-1 text-right text-xs tabular text-fg-subtle">
               {clock(`${h}:00`, true)}
             </div>
           ))}
@@ -414,7 +414,7 @@ export function WeekView({
                       height: Math.max(((end - start) / 60) * HOUR_PX - 2, 20),
                     }}
                   >
-                    <EventChip item={item} onOpen={onOpen} className="h-full items-start bg-surface pt-0.5 shadow-sm" />
+                    <EventChip item={item} onOpen={onOpen} className="h-full items-start bg-surface pt-0.5" />
                   </div>
                 )
               })}

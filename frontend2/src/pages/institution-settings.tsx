@@ -144,7 +144,7 @@ export function InstitutionSettings() {
 
         <Section title="How the sign-in screen reads">
           <div className="rounded-panel bg-sunken p-6 text-center shadow-well">
-            <p className="display text-2xl">{shownName}</p>
+            <p className="display text-display">{shownName}</p>
             {signInNote.trim() && <p className="mt-2 text-sm text-fg-muted">{signInNote.trim()}</p>}
             <p className="mt-4 text-sm text-fg-muted">
               {supportEmail.trim() ? `Need help? Write to ${supportEmail.trim()}.` : "No support email is set."}

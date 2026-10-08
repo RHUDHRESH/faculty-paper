@@ -477,7 +477,7 @@ function NeedsYouSection({ own, assigned }: { own: OwnPapers; assigned: MyAssign
       {(sentBack.length > 0 || drafts.length > 0) && (
         <Section title="Needs you" aria-label="Needs you" data-area="record">
           <Rows>
-            {sentBack.map((c) => {
+            {sentBack.map((c, i) => {
               const why = reasonOf(c.status_note)
               return (
                 <li key={c.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-4">
@@ -495,7 +495,7 @@ function NeedsYouSection({ own, assigned }: { own: OwnPapers; assigned: MyAssign
                       )}
                     </p>
                   </div>
-                  <Button kind="primary" asChild>
+                  <Button kind={i === 0 ? "primary" : "default"} asChild>
                     <Link to={`/papers/${c.id}#fix`}>
                       Fix this claim
                       <ArrowRight />
@@ -960,35 +960,34 @@ function AssignedRow({ assignment: a }: { assignment: MyAssignment & { partner_p
 export function MoneyStrip({ own }: { own: OwnPapers }) {
   const { claims, paymentCount, moving, received, since, thisYear, coming, lastPaidOn } = own
   return (
-    <section
-      aria-label="Your money"
-      className="grid gap-px overflow-hidden rounded-lg bg-line ring-1 ring-line sm:grid-cols-3"
-    >
-      <Stat
-        label="Received this academic year"
-        value={money(thisYear)}
-        hint={`Since ${sinceLabel(since)}`}
-      />
-      <Stat
-        label="Received to date"
-        value={money(received)}
-        hint={
-          paymentCount
-            ? `${paymentCount} payment${paymentCount === 1 ? "" : "s"}${lastPaidOn ? `, latest ${lastPaidOn}` : ""}`
-            : claims.length
-              ? "Nothing paid out yet"
-              : "New account — nothing filed yet"
-        }
-      />
-      <Stat
-        label="On the way"
-        value={money(coming)}
-        hint={
-          moving.length
-            ? `${moving.length} paper${moving.length === 1 ? "" : "s"} moving${moving.some((c) => c.remuneration_is_estimate) ? " · includes estimates" : ""}`
-            : "Nothing filed, so nothing is due"
-        }
-      />
+    <section aria-label="Your money">
+      <dl className="grid gap-6 sm:grid-cols-3">
+        <Stat
+          label="Received this academic year"
+          value={money(thisYear)}
+          hint={`Since ${sinceLabel(since)}`}
+        />
+        <Stat
+          label="Received to date"
+          value={money(received)}
+          hint={
+            paymentCount
+              ? `${paymentCount} payment${paymentCount === 1 ? "" : "s"}${lastPaidOn ? `, latest ${lastPaidOn}` : ""}`
+              : claims.length
+                ? "Nothing paid out yet"
+                : "New account — nothing filed yet"
+          }
+        />
+        <Stat
+          label="On the way"
+          value={money(coming)}
+          hint={
+            moving.length
+              ? `${moving.length} paper${moving.length === 1 ? "" : "s"} moving${moving.some((c) => c.remuneration_is_estimate) ? " · includes estimates" : ""}`
+              : "Nothing filed, so nothing is due"
+          }
+        />
+      </dl>
     </section>
   )
 }
@@ -1003,7 +1002,7 @@ export function NeedsYou({ sentBack, drafts }: { sentBack: Claim[]; drafts: Clai
         <Meta className="block">Nothing happens to these until you act on them.</Meta>
       </div>
       <ul className="space-y-2">
-        {sentBack.map((c) => (
+        {sentBack.map((c, i) => (
           <li
             key={c.id}
             className="rounded-lg bg-caution-wash p-4 ring-1 ring-inset ring-caution/25"
@@ -1019,7 +1018,7 @@ export function NeedsYou({ sentBack, drafts }: { sentBack: Claim[]; drafts: Clai
                   </p>
                 )}
               </div>
-              <Button kind="primary" asChild>
+              <Button kind={i === 0 ? "primary" : "default"} asChild>
                 <Link to={`/papers/${c.id}`}>
                   Fix this claim
                   <ArrowRight />
@@ -1096,7 +1095,7 @@ export function PaidList({ payments }: { payments: Payment[] }) {
         <SectionTitle>Paid</SectionTitle>
         <Meta>From the college ledger, newest first</Meta>
       </div>
-      <ul className="divide-y divide-line rounded-lg ring-1 ring-line">
+      <ul className="divide-y divide-line border-y border-line">
         {payments.slice(0, 8).map((p) => {
           const body = (
             <>
@@ -1137,10 +1136,16 @@ export function PaidList({ payments }: { payments: Payment[] }) {
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="bg-surface p-5">
-      <p className="text-sm text-fg-muted">{label}</p>
-      <p className="figure mt-1 text-2xl">{value}</p>
-      {hint && <p className="mt-1 text-sm text-fg-muted">{hint}</p>}
+    <div>
+      <dt>
+        <Meta>{label}</Meta>
+      </dt>
+      <dd className="figure tabular text-figure">{value}</dd>
+      {hint && (
+        <dd>
+          <Meta>{hint}</Meta>
+        </dd>
+      )}
     </div>
   )
 }

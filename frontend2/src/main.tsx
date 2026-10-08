@@ -16,6 +16,7 @@ import { QueryClientProvider } from "@tanstack/react-query"
 
 import { AuthProvider, useAuth, type Role } from "@/app/auth"
 import { REDIRECTS } from "@/app/nav"
+import { ToolsRedirect } from "@/pages/research-tools-tabs"
 import { prefetchHome } from "@/app/home-data"
 import { usePalette } from "@/app/palette-hook"
 import { Shell } from "@/app/shell"
@@ -433,6 +434,7 @@ function App() {
           {Object.entries(REDIRECTS).map(([from, to]) => (
             <Route key={from} path={from} element={<Navigate to={to} replace />} />
           ))}
+          <Route path="/tools" element={<ToolsRedirect />} />
           <Route path="/discover" element={<Discover />} />
           <Route path="/scout" element={<Scout />} />
           <Route path="/compass" element={<Compass />} />

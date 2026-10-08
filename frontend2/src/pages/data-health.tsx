@@ -382,7 +382,7 @@ function FindingRow({
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-3">
-          <span className={cn("figure text-2xl tabular", TONE[f.severity])}>{count(f.count)}</span>
+          <span className={cn("figure text-figure tabular", TONE[f.severity])}>{count(f.count)}</span>
           {fixLabel ? (
             <Button kind="default" size="sm" onClick={onFix} disabled={busy}>
               <Wrench aria-hidden />

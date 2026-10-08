@@ -13,7 +13,7 @@ import { Answer } from "@/ui/answer"
 import { PageHeader } from "@/ui/page-header"
 import { Section } from "@/ui/section"
 import { Pagination } from "@/ui/pagination"
-import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { ColumnLabel, Meta, SectionTitle } from "@/ui/text"
 import { useQueueKeys } from "@/ui/queue-keys"
 
@@ -128,11 +128,7 @@ export function Flags() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          art="closed-gate"
-          title="Not open to this account"
-          message="Flags are raised and reviewed by the research office, the coordinator, the Principal and the super admin. By the college's rule they are not shown to the Director, Finance or the claimant."
-        />
+        <NotOpen message="Flags are raised and reviewed by the research office, the coordinator, the Principal and the super admin. By the college's rule they are not shown to the Director, Finance or the claimant." />
       </div>
     )
   }

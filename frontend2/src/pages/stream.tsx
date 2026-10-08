@@ -35,7 +35,7 @@ export function useRising(enabled = true) {
 /** A line saying where a card came from; the badge on a post says what it is. */
 export function Badge({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex h-5 items-center rounded-sm bg-sunken px-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-muted">
+    <span className="inline-flex h-5 items-center rounded-sm bg-sunken px-1.5 text-xs font-medium text-fg-muted">
       {children}
     </span>
   )

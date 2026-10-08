@@ -23,7 +23,7 @@ import {
 } from "@/pages/hod-parts"
 import { Lead } from "@/pages/principal-parts"
 import { days, MAIN_STAGES, type TrackPayload } from "@/pages/track-data"
-import { Answer } from "@/ui/answer"
+import { Answer, AnswerLine, AnswerWord } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { Celebrations } from "@/ui/celebrations"
 import { Section } from "@/ui/section"
@@ -48,6 +48,26 @@ function tone(b: Brief): "positive" | "caution" | "critical" | "neutral" {
   if (pubs) return VERDICT[pubs.verdict].tone
   if (b.year < new Date(b.as_of).getFullYear()) return "neutral"
   return b.totals.this_year_to_date >= b.totals.last_year_to_date ? "positive" : "caution"
+}
+
+/** This year to today against last year to the same date, with no target set. */
+function PaceAnswer({ b }: { b: Brief }) {
+  const t = b.totals
+  const d = t.this_year_to_date - t.last_year_to_date
+  const word = d > 0 ? "ahead" : d < 0 ? "behind" : "level with"
+  const wordTone = d > 0 ? "sage" : d < 0 ? "amber" : "navy"
+  return (
+    <div className="space-y-2">
+      <AnswerLine>
+        {b.department} is <AnswerWord tone={wordTone}>{word}</AnswerWord>
+        {d === 0 ? "" : " of"} last year's pace.
+      </AnswerLine>
+      <p className="text-base text-fg-muted">
+        {n(t.this_year_to_date)} {t.this_year_to_date === 1 ? "paper" : "papers"} by today against{" "}
+        {n(t.last_year_to_date)} by this date in {b.year - 1}. No target is set.
+      </p>
+    </div>
+  )
 }
 
 /** The department's claims, in one sentence: nothing here is a desk or an amount. */
@@ -121,7 +141,11 @@ export function HodHome() {
         </Delayed>
       ) : (
         <>
-          <Lead>{leadSentence(b)}</Lead>
+          {!b.targets.some((x) => x.metric === "PUBLICATIONS") && b.year >= new Date(b.as_of).getFullYear() ? (
+            <PaceAnswer b={b} />
+          ) : (
+            <Lead>{leadSentence(b)}</Lead>
+          )}
 
           <Answer
             items={[

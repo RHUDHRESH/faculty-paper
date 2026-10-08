@@ -51,7 +51,7 @@ import { PageHeader } from "@/ui/page-header"
 import { AskTheData } from "@/pages/insights-link"
 import { Avatar } from "@/ui/person"
 import { Details, Rows, Section } from "@/ui/section"
-import { Delayed, ErrorState, SkeletonRows } from "@/ui/state"
+import { Delayed, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { ColumnLabel, Meta, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
@@ -163,11 +163,7 @@ export function Department() {
   if (!isHod) {
     return (
       <div className="page py-8">
-        <ErrorState
-          title="Not open to this account"
-          message="This is a head of department's own view of their department. Everybody else has the college-wide reports."
-          onRetry={false}
-        />
+        <NotOpen message="This is a head of department's own view of their department. Everybody else has the college-wide reports." />
       </div>
     )
   }
@@ -271,7 +267,7 @@ export function Department() {
                   aria-current={tab === t.key ? "page" : undefined}
                   onClick={() => setTab(t.key)}
                   className={cn(
-                    "-mb-px min-h-10 rounded-t-control border-b-2 px-3 text-sm font-medium",
+                    "-mb-px min-h-10 border-b-2 px-3 text-sm font-medium",
                     tab === t.key ? "border-accent text-fg" : "border-transparent text-fg-muted hover:text-fg"
                   )}
                 >

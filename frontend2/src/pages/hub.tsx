@@ -7,7 +7,7 @@ import { AdminDirectory } from "@/pages/admin-directory"
 import { PageHeader } from "@/ui/page-header"
 import { MoneyDesk } from "@/pages/money-desk"
 import type { IllustrationName } from "@/ui/illustration"
-import { ErrorState } from "@/ui/state"
+import { NotOpen } from "@/ui/state"
 import { HodReportsHub } from "@/pages/hod-reports-hub"
 import { PrincipalMoneyHub, PrincipalReportsHub } from "@/pages/principal-reports-hub"
 import { Meta, SectionTitle } from "@/ui/text"
@@ -62,7 +62,7 @@ function Hub({ hub }: { hub: HubKey }) {
   if (me && !pagesFor(me.role).some((p) => p.to === HUB_PAGE[hub])) {
     return (
       <div className="page py-8">
-        <ErrorState art="closed-gate" title="Not open to this account" message="Ask the research office if you think it should be yours." />
+        <NotOpen message="Ask the research office if you think it should be yours." />
       </div>
     )
   }

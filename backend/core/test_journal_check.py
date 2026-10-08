@@ -81,6 +81,8 @@ class JournalCheckTests(TestCase):
         self.assertEqual(len(body["matches"]), 1)
         self.assertEqual(body["college"]["papers"], 1)
         self.assertEqual(body["college"]["colleagues"][0]["name"], "Dr Colleague")
+        self.assertIn("photo_url", body["college"]["colleagues"][0])
+        self.assertTrue(body["college"]["colleagues"][0]["initials"])
         self.assertEqual(body["college"]["claims"]["paid"], 1)
         self.assertEqual(len(body["college"]["mine"]), 1)
         two = self.get("energy letters").json()

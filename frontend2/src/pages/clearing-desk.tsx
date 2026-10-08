@@ -422,7 +422,7 @@ function Fig({ label, value, note }: { label: string; value: string; note?: stri
   return (
     <div>
       <dt className="text-xs text-fg-muted">{label}</dt>
-      <dd className="text-xl tabular">{value}</dd>
+      <dd className="text-lg font-semibold tabular">{value}</dd>
       {note && <dd className="text-xs text-fg-muted">{note}</dd>}
     </div>
   )

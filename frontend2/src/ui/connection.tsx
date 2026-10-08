@@ -38,7 +38,7 @@ export function ConnectionPath({
             <Fragment key={i}>
               {i > 0 && (
                 <li aria-hidden className="flex min-w-10 flex-1 flex-col items-center">
-                  <span className="text-[10px] leading-3 whitespace-nowrap text-fg-muted">{h.evidence}</span>
+                  <span className="text-xs leading-3 whitespace-nowrap text-fg-muted">{h.evidence}</span>
                   <span className="mt-0.5 h-px w-full bg-(--area-line)" />
                 </li>
               )}
@@ -50,7 +50,7 @@ export function ConnectionPath({
                 ) : (
                   <Avatar person={h.person} size="sm" />
                 )}
-                <span className="max-w-16 truncate text-[11px] text-fg-muted">{i === 0 ? "You" : firstName(h.person.name) || h.person.name}</span>
+                <span className="max-w-16 truncate text-xs text-fg-muted">{i === 0 ? "You" : firstName(h.person.name) || h.person.name}</span>
               </li>
             </Fragment>
           ))}

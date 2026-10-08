@@ -15,7 +15,7 @@ import {
 } from "@/pages/coordination-parts"
 import { PageHeader } from "@/ui/page-header"
 import { Tabs } from "@/ui/tabs"
-import { ErrorState, SkeletonRows } from "@/ui/state"
+import { ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 
 /**
  * Coordination: what the research coordinator, the research cell and the
@@ -54,11 +54,7 @@ export function Coordination() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          art="closed-gate"
-          title="Not open to this account"
-          message="Coordination is for the research coordinator, the research office and the super admin."
-        />
+        <NotOpen message="Coordination is for the research coordinator, the research office and the super admin." />
       </div>
     )
   }

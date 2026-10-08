@@ -240,7 +240,8 @@ class WithAIOff(_Fixture):
         by = {x["key"]: x for x in paths["paths"]}
         self.assertEqual([(m["now"], m["target"]) for m in by["q1_author"]["metrics"]], [(2, 4)])
         self.assertEqual([(m["now"], m["target"]) for m in by["cross_dept"]["metrics"]], [(0, 2)])
-        self.assertEqual(by["cross_dept"]["peers"], [{"id": self.b.id, "name": "Dr Bala Converter", "dept": "ECE"}])
+        self.assertEqual(by["cross_dept"]["peers"], [{"id": self.b.id, "name": "Dr Bala Converter", "dept": "ECE",
+                                                      "photo_url": None, "initials": "BC"}])
         for x in paths["paths"]:
             self.assertTrue(x["name"] and x["why"])
 
@@ -411,6 +412,12 @@ class TheModelOnlyChoosesAndExplains(_Fixture):
         text = json.dumps(body)
         for invented in ("ghost-user", self.far.id, "astronaut", "Go to space"):
             self.assertNotIn(invented, text)
+
+    def test_counted_paths_read_no_database(self):
+        # The AI eval harness builds the counted paths from fixed facts, with no database.
+        facts = self.facts()
+        with self.assertNumQueries(0):
+            compass.counted_paths(facts)
 
     @override_settings(**GROQ)
     def test_a_plan_cites_only_candidates_and_its_refs_come_from_the_record(self):
@@ -608,6 +615,23 @@ class TheScoutPointsToTheCompass(_Fixture):
             self.assertEqual(r.status_code, 200, r.content)
             self.assertEqual(r.json(), {"available": False, "moved_to": "/compass"})
         self.assertFalse(ScoutRun.objects.exists())
+
+
+class PeersCarryTheirFaces(_Fixture):
+    """The API adds each path's peer faces on the way out, so the service's
+    answer and the eval harness never need a photo."""
+
+    @override_settings(**NOTHING)
+    def test_the_step_and_the_page_both_show_a_face_on_each_peer(self):
+        self.b.photo = "avatars/b.jpg"
+        self.b.save(update_fields=["photo"])
+        made = self.post("/api/compass/paths").json()
+        page = self.client.get("/api/compass").json()
+        for body in (made, page):
+            peer = next(x for x in body["paths"] if x["key"] == "cross_dept")["peers"][0]
+            self.assertEqual(peer["id"], self.b.id)
+            self.assertTrue(peer["photo_url"].endswith("avatars/b.jpg"), peer)
+            self.assertEqual(peer["initials"], "BC")
 
 
 class TheCountedWordsReadWell(TestCase):

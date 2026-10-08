@@ -10,7 +10,7 @@ import { Button } from "@/ui/button"
 import { ConfirmDialog } from "@/ui/dialog"
 import { PageHeader } from "@/ui/page-header"
 import { Details, Rows, Section } from "@/ui/section"
-import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
@@ -144,7 +144,7 @@ export function Jobs() {
   if (!allowed)
     return (
       <div className="page py-8">
-        <ErrorState art="closed-gate" title="Not open to this account" message="Only the super admin sees the job queue." />
+        <NotOpen message="Only the super admin sees the job queue." />
       </div>
     )
 

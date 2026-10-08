@@ -3,7 +3,9 @@ import { Link } from "react-router-dom"
 
 import { cn } from "@/lib/cn"
 import { unshout } from "@/lib/names"
+import { Button } from "@/ui/button"
 import { Chip } from "@/ui/chip"
+import { Meta } from "@/ui/text"
 import { StageTrack, type StageInfo } from "@/ui/paper"
 import { JournalCover } from "@/ui/journal-cover"
 import { Avatar, type PersonBrief } from "@/ui/person"
@@ -323,6 +325,111 @@ export function JournalCard({
             {colleagues} {colleagues === 1 ? "colleague" : "colleagues"} published here
           </p>
         )}
+      </div>
+    </article>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
+/* PersonRow, JournalRow: the hairline-list versions of the cards above       */
+/* ------------------------------------------------------------------------ */
+
+/** A person as one row of a hairline list. Same props as `PersonCard`. */
+export function PersonRow({
+  person,
+  to,
+  context,
+  onMessage,
+  messageTo,
+  path,
+  className,
+}: {
+  person: Pick<PersonBrief, "name" | "initials" | "photo_url"> & Partial<PersonBrief>
+  to?: string
+  affiliation?: string | null
+  context?: React.ReactNode
+  onMessage?: () => void
+  messageTo?: string
+  path?: React.ReactNode
+  className?: string
+}) {
+  const sub = [person.department, person.designation].filter(Boolean).join(" · ")
+  return (
+    <article data-area="people" className={cn("flex items-center gap-3 py-3", className)}>
+      <Avatar person={person} size="md" />
+      <div className="min-w-0 flex-1">
+        <h3 className="truncate text-base font-medium text-fg">
+          {to ? (
+            <Link to={to} className="underline-offset-4 hover:underline">
+              {person.name}
+            </Link>
+          ) : (
+            person.name
+          )}
+        </h3>
+        {sub && <Meta className="block truncate">{sub}</Meta>}
+        {context && <Meta className="line-clamp-2 block">{context}</Meta>}
+        {path}
+      </div>
+      {messageTo ? (
+        <Button kind="quiet" size="sm" asChild className="shrink-0">
+          <Link to={messageTo}>Message</Link>
+        </Button>
+      ) : onMessage ? (
+        <Button kind="quiet" size="sm" className="shrink-0" onClick={onMessage}>
+          Message
+        </Button>
+      ) : null}
+    </article>
+  )
+}
+
+/** A journal as one row of a hairline list. Same props as `JournalCard`. */
+export function JournalRow({
+  name,
+  to,
+  quartile,
+  colleagues,
+  subjects,
+  className,
+  detail,
+}: {
+  name: string
+  to?: string
+  publisher?: string | null
+  quartile?: string | null
+  snip?: number | null
+  colleagues?: number | null
+  subjects?: string[]
+  className?: string
+  detail?: boolean
+}) {
+  const line = [
+    ...(subjects ?? []).slice(0, 3),
+    colleagues != null && colleagues > 0 ? `${colleagues} ${colleagues === 1 ? "colleague" : "colleagues"} published here` : null,
+  ].filter(Boolean)
+  return (
+    <article data-area="research" className={cn("flex items-center gap-3 py-3", className)}>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <h3 className="min-w-0 truncate text-base font-medium text-fg">
+            {detail ? (
+              <DetailLink kind="journal" name={name} className="underline-offset-4" />
+            ) : to ? (
+              <Link to={to} className="underline-offset-4 hover:underline">
+                {name}
+              </Link>
+            ) : (
+              name
+            )}
+          </h3>
+          {quartile && (
+            <Chip tone={quartile === "Q1" ? "gold" : "neutral"} icon={quartile === "Q1" ? Gem : undefined} className="shrink-0">
+              {quartile}
+            </Chip>
+          )}
+        </div>
+        {line.length > 0 && <Meta className="block truncate">{line.join(" · ")}</Meta>}
       </div>
     </article>
   )

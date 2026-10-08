@@ -22,7 +22,7 @@ import {
 } from "@/ui/dialog"
 import { Field, Input, NumberInput } from "@/ui/field"
 import { money } from "@/ui/paper"
-import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows } from "@/ui/state"
+import { Callout, EmptyState, ErrorState, NotOpen, Skeleton, SkeletonRows } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, SectionTitle } from "@/ui/text"
 import { PageHeader } from "@/ui/page-header"
@@ -155,10 +155,7 @@ export function Budget() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          title="Not open to this account"
-          message="The budget is money. Finance, the Principal and the research office can read it; a head of department cannot."
-        />
+        <NotOpen message="The budget is money. Finance, the Principal and the research office can read it; a head of department cannot." />
       </div>
     )
   }

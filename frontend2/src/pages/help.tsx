@@ -89,7 +89,7 @@ export function Help() {
             ))}
             {!can(me?.role).clear && (
             <section className="py-6">
-              <h2 className="display text-xl">Still stuck?</h2>
+              <h2 className="display text-display">Still stuck?</h2>
               <p className="mt-1 text-fg-muted">Ask the research office.</p>
               <Button kind="default" asChild className="mt-4">
                 <Link to="/messages/office">
@@ -110,7 +110,7 @@ export function Help() {
 function GuideSection({ guide: g }: { guide: Guide }) {
   return (
     <section id={g.id} className="scroll-mt-6 py-6 first:pt-0">
-      <h2 className="display text-xl">{g.title}</h2>
+      <h2 className="display text-display">{g.title}</h2>
       <p className="mt-1 text-fg-muted">{g.when}</p>
       <ol className="mt-3 list-decimal space-y-1.5 pl-5">
         {g.steps.map((s) => (

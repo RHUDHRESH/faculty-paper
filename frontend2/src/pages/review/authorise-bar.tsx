@@ -149,7 +149,7 @@ function Bar({ children }: { children: React.ReactNode }) {
 
 function Key({ children }: { children: string }) {
   return (
-    <kbd aria-hidden="true" className="ml-1 hidden rounded border border-current/25 px-1 text-[10px] leading-4 opacity-70 lg:inline">
+    <kbd aria-hidden="true" className="ml-1 hidden rounded border border-current/25 px-1 text-xs leading-4 opacity-70 lg:inline">
       {children}
     </kbd>
   )

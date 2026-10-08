@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn"
 import { Button } from "@/ui/button"
 import { PageHeader } from "@/ui/page-header"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { AnswerLine, AnswerWord } from "@/ui/answer"
 import { Meta } from "@/ui/text"
 
 import { formatBytes } from "./filing/bits"
@@ -70,7 +71,7 @@ function ProofCard({ proof }: { proof: Proof }) {
             <RefreshCw className={cn(recheck.isPending && "animate-spin")} />
             Check again
           </Button>
-          <Button size="icon" kind="quiet" aria-label={`Remove ${proof.filename}`} onClick={() => remove.mutate()}>
+          <Button size="icon" kind="quiet" aria-label={`Remove ${proof.filename}`} title={`Remove ${proof.filename}`} onClick={() => remove.mutate()}>
             <Trash2 className="text-critical" />
           </Button>
         </div>
@@ -108,6 +109,9 @@ export function ProofLocker() {
     for (const f of Array.from(files || [])) upload.mutate(f)
   }
   const items = locker.data?.items ?? []
+  const count = items.length
+  const look = items.filter((p) => p.worst === "warn" || p.worst === "bad").length
+  const files = count === 1 ? "1 file is" : `${count} files are`
 
   return (
     <div className="page space-y-6 pb-24 sm:pb-6">
@@ -120,6 +124,18 @@ export function ProofLocker() {
           </Button>
         }
       />
+
+      {!locker.isLoading && !locker.isError && count > 0 && (
+        <AnswerLine>
+          {look === 0 ? (
+            `${files} kept safe.`
+          ) : (
+            <>
+              {files} kept safe, <AnswerWord tone="amber">{look === 1 ? "1 needs a look" : `${look} need a look`}</AnswerWord>.
+            </>
+          )}
+        </AnswerLine>
+      )}
 
       <div
         className={cn(

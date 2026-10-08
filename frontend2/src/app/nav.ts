@@ -78,6 +78,8 @@ export type NavItem = {
   groupFor?: { roles: Role[]; group: string }
   /** Match only this exact path, for an index route. */
   end?: boolean
+  /** Other paths that light this entry up, for a door that leads to several pages. */
+  activeFor?: string[]
   /** Shown in the palette even when the sidebar hides it. */
   keywords?: string[]
   /** The Convocation area colour (docs/ux/00 §1): heading dot, active wash. */
@@ -129,7 +131,7 @@ const OFFICE: Role[] = ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR"]
 //: research as well as track others'".
 const OFFICERS: Role[] = ["RESEARCH_CELL", "RESEARCH_COORDINATOR", "PRINCIPAL", "DIRECTOR", "FINANCE"]
 //: Mirrors `rbac.CLAIMANT_ROLES`: the people who file their own papers.
-const CLAIMANTS: Role[] = ["FACULTY", "HOD", ...OFFICERS]
+export const CLAIMANTS: Role[] = ["FACULTY", "HOD", ...OFFICERS]
 //: Where an officer's own papers sit in their sidebar, apart from the desk.
 const MY_RESEARCH = { roles: OFFICERS, group: "My research" }
 //: Mirrors `rbac.can_review_flags`: the desks that judge a paper. Not the
@@ -271,11 +273,30 @@ const PAGES: NavItem[] = [
     ],
   },
   {
+    // One door for the three research tools; each keeps its own route and
+    // leaves the sidebar, so they are reached here or by Ctrl K.
+    to: "/tools",
+    label: "Research tools",
+    icon: Compass,
+    group: "Research",
+    area: "research",
+    activeFor: ["/compass", "/discover", "/journal-check", "/scout"],
+    purpose: "Your research compass, ideas to explore, and a check before you submit to a journal.",
+    keywords: [
+      "ideas", "topics", "what is new", "ai",
+      "journal", "safe", "predatory", "hijacked", "discontinued", "scopus", "issn", "website", "fake journal",
+      "watch list", "is this journal good",
+      "compass", "scout", "who am i", "path", "plan", "next steps", "strengths", "journals to aim for",
+      "collaborators", "goals",
+    ],
+  },
+  {
     to: "/discover",
     label: "Discover",
     icon: Lightbulb,
     group: "Research",
     area: "research",
+    findOnly: true,
     keywords: ["ideas", "topics", "what is new", "ai"],
   },
   {
@@ -284,6 +305,7 @@ const PAGES: NavItem[] = [
     icon: ShieldCheck,
     group: "Research",
     area: "research",
+    findOnly: true,
     purpose: "See whether a journal is safe and worth it before you submit.",
     keywords: [
       "journal", "safe", "predatory", "hijacked", "discontinued", "scopus", "issn", "website", "fake journal",
@@ -296,6 +318,7 @@ const PAGES: NavItem[] = [
     icon: Compass,
     group: "Research",
     area: "research",
+    findOnly: true,
     purpose: "See who you are as a researcher, where you could go and what to do next.",
     keywords: [
       "compass", "scout", "who am i", "path", "plan", "next steps", "strengths", "journals to aim for",
@@ -345,7 +368,7 @@ const PAGES: NavItem[] = [
     to: "/leaderboard",
     label: "Leaderboard",
     icon: Trophy,
-    group: "Honours",
+    group: "People",
     area: "honours",
     keywords: [
       "ranking", "rank", "top", "standings", "department", "q1", "score", "position",
@@ -1113,7 +1136,8 @@ export const DOOR_LABELS: Record<string, string> = Object.fromEntries(DOORS.map(
 
 /** The pages an office role reaches through the folded Research group. */
 const RESEARCH_PAGES = [
-  "/papers", "/papers/new", "/research", "/events", "/discover", "/journal-check", "/compass", "/scout",
+  "/papers", "/papers/new", "/research", "/events", "/tools",
+  "/compass", "/discover", "/journal-check", "/scout",
   "/collaborate", "/messages", "/discussions", "/leaderboard",
 ]
 
@@ -1138,6 +1162,15 @@ export function activeDoor(role: Role | undefined, pathname: string): string | u
     if (len >= 0 && (!best || len > best.len)) best = { to: d.to, len }
   }
   return best?.to
+}
+
+/**
+ * True when a sidebar entry is the current one for this path: its own route,
+ * or, for an entry with `activeFor`, any of the paths it stands for.
+ */
+export function isCurrentEntry(item: NavItem, pathname: string): boolean {
+  const within = (p: string) => pathname === p || pathname.startsWith(p + "/")
+  return within(item.to) || (item.activeFor ?? []).some(within)
 }
 
 /** True when this path lies inside the folded Research group. */

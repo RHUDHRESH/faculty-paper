@@ -40,10 +40,10 @@ export function Stamp({
         className
       )}
     >
-      <span aria-hidden className="font-display text-2xl italic leading-none tracking-tight">
+      <span aria-hidden className="font-display text-display italic leading-none tracking-tight">
         {verb}
       </span>
-      <span aria-hidden className="mt-1 text-[0.6875rem] font-medium leading-none tabular">
+      <span aria-hidden className="mt-1 text-xs font-medium leading-none tabular">
         {when}
       </span>
     </span>

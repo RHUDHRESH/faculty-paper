@@ -272,6 +272,24 @@ export function EmptyState({
 }
 
 /* ------------------------------------------------------------------------ */
+/* NotOpen                                                                  */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * A page this account may not open. That is a closed gate, not an error: no
+ * wash, no alert role, no retry, and a real h1 so the page has a title.
+ */
+export function NotOpen({ message, className }: { message: string; className?: string }) {
+  return (
+    <div className={cn("flex flex-col items-center gap-1.5 px-6 py-12 text-center", className)}>
+      <Plate name={ART_ILLUSTRATION["closed-gate"]} width={132} className="mb-3" />
+      <h1 className="text-lg font-semibold text-fg">Not open to this account</h1>
+      <p className="max-w-sm text-pretty text-base text-fg-muted">{message}</p>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
 /* ErrorState                                                               */
 /* ------------------------------------------------------------------------ */
 

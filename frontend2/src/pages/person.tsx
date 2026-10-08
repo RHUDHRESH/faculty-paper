@@ -562,7 +562,7 @@ function CitationBars({ rows }: { rows: ReturnType<typeof citationsByYear> }) {
           </button>
         ))}
       </div>
-      <div className="mt-1 flex justify-between text-[11px] tabular text-fg-subtle">
+      <div className="mt-1 flex justify-between text-xs tabular text-fg-subtle">
         <span>{rows[0]?.year}</span>
         <span>{rows.at(-1)?.year}</span>
       </div>
@@ -773,7 +773,7 @@ function Counts({ counts }: { counts: Profile["counts"] }) {
     <div className="flex flex-wrap gap-x-8 gap-y-2">
       {items.map((i) => (
         <span key={i.label} className="flex items-baseline gap-2">
-          <Figure className="text-2xl">{i.value}</Figure>
+          <Figure className="text-figure">{i.value}</Figure>
           <Meta>{i.label}</Meta>
         </span>
       ))}

@@ -99,7 +99,7 @@ function Result({ c }: { c: ClaimCheck }) {
       </div>
 
       <section aria-label="The verdict" className="panel-lead p-5 sm:p-6">
-        <p className="text-pretty text-xl" data-testid="check-headline">
+        <p className="text-pretty text-lg" data-testid="check-headline">
           {c.headline}
         </p>
         <Meta className="mt-1 block text-xs">

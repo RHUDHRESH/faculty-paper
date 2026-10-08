@@ -1,14 +1,12 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
-import { ArrowRight } from "lucide-react"
+import { X } from "lucide-react"
 
 import { firstName } from "@/lib/names"
 import { useAuth, type Me } from "@/app/auth"
 import { guidesFor, ROLE_INTRO } from "@/app/guides"
 import { api } from "@/lib/api"
 import { Button } from "@/ui/button"
-import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/ui/dialog"
-import { Picture } from "@/ui/picture"
 
 const FACULTY_FIRST: { id: string; title: string; when: string; to: string }[] = [
   { id: "file", title: "File a paper", when: "Pull it from your Scopus record, tick three things, attach the files.", to: "/papers/new" },
@@ -21,15 +19,25 @@ export function shouldWelcome(me: Me | null): boolean {
   return !!me && !me.impersonated_by && me.welcome_seen === false && !me.must_change_password
 }
 
+/** Whether the welcome note belongs on this page: Home only, never over other content. */
+export function welcomeOnHome(me: Me | null, pathname: string): boolean {
+  return pathname === "/" && shouldWelcome(me)
+}
+
 /**
- * The first-sign-in welcome: the three things this role does most, each a
- * link to the page. Closed once, remembered on the server, never shown again.
- * Never opens while a super admin is viewing as someone.
+ * The first-sign-in welcome: an inline note at the top of Home, never a dialog.
+ * The three things this role does most, each a link to the page. Closed once,
+ * remembered on the server, never shown again. Never shows while a super admin
+ * is viewing as someone.
  */
 export function Welcome() {
   const { me } = useAuth()
-  const [open, setOpen] = useState(() => shouldWelcome(me))
-  if (!me || !shouldWelcome(me)) return null
+  // Open until closed here. Not seeded from `me`: the auth load may still be
+  // in flight when this mounts, and the note appears once `me` arrives.
+  const [open, setOpen] = useState(true)
+  // On phones only the first item shows until the person asks for the rest.
+  const [showRest, setShowRest] = useState(false)
+  if (!me || !open || !shouldWelcome(me)) return null
 
   const close = () => {
     setOpen(false)
@@ -43,49 +51,44 @@ export function Welcome() {
   const first = firstName(me.name) || me.name
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && close()}>
-      <DialogContent size="lg" data-testid="welcome">
-        <DialogHeader>
-          <DialogTitle>{me.placeholder ? "Welcome" : `Welcome, ${first}`}</DialogTitle>
-          <DialogDescription>{ROLE_INTRO[me.role]}</DialogDescription>
-        </DialogHeader>
-        <DialogBody className="space-y-4">
-          <div className="flex items-center gap-4">
-            <Picture name="onboard-welcome" eager className="size-24 shrink-0 max-sm:size-16" />
-            <p className="text-sm text-fg-muted">The three things you will do most. Each one opens the right page.</p>
-          </div>
-          <ol className="divide-y divide-line">
-            {top.map((g, i) => (
-              <li key={g.id}>
-                <Link
-                  to={g.to}
-                  onClick={close}
-                  className="group flex items-start gap-3 py-3 hover:text-accent"
-                >
-                  <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">
-                    {i + 1}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-medium text-fg group-hover:text-accent">{g.title}</span>
-                    <span className="block text-sm text-fg-muted">{g.when}</span>
-                  </span>
-                  <ArrowRight className="mt-1 size-4 shrink-0 text-fg-subtle" aria-hidden />
-                </Link>
-              </li>
-            ))}
-          </ol>
-        </DialogBody>
-        <DialogFooter>
-          <Button kind="quiet" asChild>
-            <Link to="/help" onClick={close}>
-              All help guides
+    <section aria-label="Welcome" data-testid="welcome" className="rounded-2xl bg-surface px-5 py-4 ring-1 ring-line">
+      <div className="flex items-start justify-between gap-4">
+        <h2 className="text-lg font-semibold">{me.placeholder ? "Welcome" : `Welcome, ${first}`}</h2>
+        <Button kind="quiet" size="icon-sm" aria-label="Dismiss the welcome" onClick={close}>
+          <X aria-hidden />
+        </Button>
+      </div>
+      <p className="mt-1 max-w-[65ch] text-sm text-fg-muted">{ROLE_INTRO[me.role]}</p>
+      <ol className="mt-4 grid gap-x-6 gap-y-3 sm:grid-cols-3">
+        {top.map((g, i) => (
+          <li key={g.id} className={i > 0 && !showRest ? "hidden sm:block" : undefined}>
+            <Link to={g.to} onClick={close} className="group flex items-start gap-3 hover:text-accent">
+              <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">
+                {i + 1}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium text-fg group-hover:text-accent">{g.title}</span>
+                <span className="block text-sm text-fg-muted">{g.when}</span>
+              </span>
             </Link>
-          </Button>
-          <Button kind="primary" onClick={close}>
-            Got it
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </li>
+        ))}
+      </ol>
+      {!showRest && top.length > 1 && (
+        <Button kind="quiet" size="sm" className="mt-3 sm:hidden" onClick={() => setShowRest(true)}>
+          Show the rest
+        </Button>
+      )}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <Button kind="default" size="sm" onClick={close}>
+          Got it
+        </Button>
+        <Button kind="quiet" size="sm" asChild>
+          <Link to="/help" onClick={close}>
+            All help guides
+          </Link>
+        </Button>
+      </div>
+    </section>
   )
 }

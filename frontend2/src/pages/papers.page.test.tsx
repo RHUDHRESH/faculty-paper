@@ -1,4 +1,5 @@
 import { screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -91,10 +92,54 @@ describe("My papers", () => {
     expect(screen.getByText("Not eligible: the title says this paper was retracted.")).toBeTruthy()
   })
 
-  it("flags the same paper listed twice and offers to report it", async () => {
+  it("folds the same paper listed twice under one row with a version count", async () => {
     mount()
     await screen.findByText("Title open-1")
-    expect(screen.getAllByText("Listed twice")).toHaveLength(2)
+    expect(screen.queryByText("Listed twice")).toBeNull()
+    const toggle = screen.getByRole("button", { name: "2 versions" })
+    expect(toggle.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.queryByText("Another version")).toBeNull()
+    await userEvent.click(toggle)
+    expect(screen.getByRole("button", { name: "2 versions" }).getAttribute("aria-expanded")).toBe("true")
+    expect(screen.getAllByText("Another version")).toHaveLength(1)
+  })
+
+  it("folds two versions whose titles differ by a typo into one row", async () => {
+    const t1 =
+      "An Experimental Research on Two-Fold Text: To Transform Sustainable Education for First-Year Engineering Graduates in India"
+    const t2 = t1.toUpperCase().replace("GRADUATES", "GRADUTES")
+    mount("/papers", [paper("n1", { title: t1 }), paper("n2", { title: t2 })])
+    expect(await screen.findByRole("button", { name: "2 versions" })).toBeTruthy()
+    expect(screen.getAllByRole("button", { name: /versions$/ })).toHaveLength(1)
+    expect(screen.queryByText("Another version")).toBeNull()
+  })
+
+  it("shows three versions of one title as one row, and reveals the two others on click", async () => {
+    const three = [
+      paper("v1", { title: "Same study of things", year: 2024, venue: null }),
+      paper("v2", { title: "Same study of things.", claim: { id: "c7", stage: "Under review", days_waiting: 12 } }),
+      paper("v3", { title: "same STUDY of things" }),
+    ]
+    mount("/papers", three)
+    await screen.findByRole("button", { name: "3 versions" })
+    expect(screen.getAllByText("Same study of things", { exact: false })).toHaveLength(1)
+    expect(screen.queryByText("Another version")).toBeNull()
+    await userEvent.click(screen.getByRole("button", { name: "3 versions" }))
+    expect(screen.getAllByText("Another version")).toHaveLength(2)
+  })
+
+  it("leads with the version whose claim is in progress", async () => {
+    const three = [
+      paper("v1", { title: "Same study of things", claim: { id: "c1", stage: "Paid", days_waiting: null, amount: 1600, paid_month: "2026-03" } }),
+      paper("v2", { title: "Same study of things.", claim: { id: "c2", stage: "Under review", days_waiting: 4 } }),
+      paper("v3", { title: "same STUDY of things" }),
+    ]
+    mount("/papers", three)
+    await screen.findByRole("button", { name: "3 versions" })
+    expect(screen.getByText(/^Being checked/).textContent).toBe("Being checked, 4 days")
+    expect(screen.queryByText("Paid Mar 2026")).toBeNull()
+    await userEvent.click(screen.getByRole("button", { name: "3 versions" }))
+    expect(screen.getByText("Paid Mar 2026")).toBeTruthy()
   })
 
   it("never names the desk holding a claim", async () => {

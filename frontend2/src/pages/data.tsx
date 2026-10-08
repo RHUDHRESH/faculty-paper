@@ -27,7 +27,7 @@ import {
 import { Checkbox, Field, Input, Textarea } from "@/ui/field"
 import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
-import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { Callout, EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { PageHeader } from "@/ui/page-header"
 import { Details } from "@/ui/section"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
@@ -119,11 +119,7 @@ export function Data() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          art="closed-gate"
-          title="Not open to this account"
-          message="The raw tables are an admin tool."
-        />
+        <NotOpen message="The raw tables are an admin tool." />
       </div>
     )
   }

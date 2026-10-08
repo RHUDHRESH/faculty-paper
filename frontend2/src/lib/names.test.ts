@@ -1,6 +1,23 @@
 import { describe, expect, it } from "vitest"
 
-import { firstName, paperTitle } from "./names"
+import { deptLabel, firstName, paperTitle } from "./names"
+
+describe("deptLabel", () => {
+  it("title-cases shouted whole words of five letters or more", () => {
+    expect(deptLabel("TRAINING")).toBe("Training")
+    expect(deptLabel("CIVIL")).toBe("Civil")
+    expect(deptLabel("S&H-ENGLISH")).toBe("S&H-English")
+  })
+  it("keeps short codes and mixed-case names as written", () => {
+    expect(deptLabel("CSE")).toBe("CSE")
+    expect(deptLabel("ECE")).toBe("ECE")
+    expect(deptLabel("S&H-ENG")).toBe("S&H-ENG")
+    expect(deptLabel("Mechanical Engineering")).toBe("Mechanical Engineering")
+  })
+  it("returns empty text for a missing name", () => {
+    expect(deptLabel(null)).toBe("")
+  })
+})
 
 describe("paperTitle", () => {
   it("reads placeholders as Untitled", () => {

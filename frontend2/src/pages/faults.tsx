@@ -259,7 +259,7 @@ function FaultRow({ fault, isOffice }: { fault: Fault; isOffice: boolean }) {
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-3">
-          <span className={cn("figure text-2xl tabular", SEVERITY_TEXT[fault.severity])}>{count(fault.count)}</span>
+          <span className={cn("figure text-figure tabular", SEVERITY_TEXT[fault.severity])}>{count(fault.count)}</span>
           {isOffice && to && action && (
             <Button kind="default" size="sm" asChild>
               <Link to={to}>{action}</Link>

@@ -15,7 +15,6 @@ import { AnswerLine, AnswerWord, tieNumbers } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { PageHeader } from "@/ui/page-header"
 import { Avatar, initialsOf } from "@/ui/person"
-import { Picture } from "@/ui/picture"
 import { InlineError, Skeleton } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
 
@@ -73,8 +72,7 @@ function AttentionList({ items, ok }: Pick<Attention, "items" | "ok">) {
   return (
     <section aria-label="What needs you" className="space-y-3">
       {items.length === 0 ? (
-        <div className="flex items-center gap-5 border-y border-line py-6">
-          <Picture name="spot-approvals" className="w-24 shrink-0 max-sm:hidden" />
+        <div className="border-y border-line py-6">
           <p className="text-base text-fg-muted">Come back when a claim is filed or an import is due.</p>
         </div>
       ) : (
@@ -119,11 +117,7 @@ function ToClear() {
     <Waiting>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <SectionTitle>Waiting to be cleared</SectionTitle>
-        <Button asChild size="sm">
-          <Link to="/clearing">
-            {waiting ? `Open all ${waiting.toLocaleString("en-IN")}` : "Open claims"}
-          </Link>
-        </Button>
+        {waiting != null && <Meta>{`${waiting.toLocaleString("en-IN")} filed`}</Meta>}
       </div>
       {clearing.isError ? (
         <InlineError message="Could not load the claims waiting to be cleared." onRetry={() => void clearing.refetch()} />
@@ -166,7 +160,7 @@ function ToClear() {
                 >
                   {days(d)}
                 </span>
-                <Button size="sm" asChild>
+                <Button kind="default" size="sm" asChild>
                   <Link to={`/review/${c.id}`} aria-label={`Clear: ${paperTitle(c.paper_title)}`}>
                     Clear
                   </Link>

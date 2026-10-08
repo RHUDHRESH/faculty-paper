@@ -716,7 +716,7 @@ function MessageRow({
             className={cn(
               "whitespace-pre-wrap break-words rounded-2xl px-3 py-1.5 text-sm leading-snug",
               m.mine
-                ? cn("bg-accent text-accent-fg [&_a]:text-accent-fg", last && "rounded-br-md", !first && "rounded-tr-md")
+                ? cn("bg-navy-wash text-fg [&_a]:text-accent", last && "rounded-br-md", !first && "rounded-tr-md")
                 : cn("bg-sunken text-fg", last && "rounded-bl-md", !first && "rounded-tl-md"),
               m.failed && "bg-sunken text-fg ring-1 ring-inset ring-critical"
             )}
@@ -739,10 +739,10 @@ function MessageRow({
             </button>
           </p>
         ) : m.pending ? (
-          <Meta className="block px-1 text-right text-[11px]">Sending…</Meta>
+          <Meta className="block px-1 text-right text-xs text-fg-muted">Sending…</Meta>
         ) : (
           last && (
-            <Meta className={cn("block px-1 text-[11px]", m.mine && "text-right")}>
+            <Meta className={cn("block px-1 text-xs", m.mine && "text-right text-fg-muted")}>
               {new Date(m.created_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
             </Meta>
           )

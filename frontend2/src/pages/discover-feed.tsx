@@ -147,7 +147,7 @@ export function DirectionCard({ item, feature, onHide, plain }: { item: FeedItem
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <CardHead item={item} icon={Compass} label="Direction" onHide={onHide} />
-        <h3 className={cn("font-semibold text-fg", feature ? "text-2xl" : "text-lg")}>{item.title}</h3>
+        <h3 className={cn("font-semibold text-fg", "text-lg")}>{item.title}</h3>
         {p.papers != null && (
           <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
             <span>
@@ -162,12 +162,9 @@ export function DirectionCard({ item, feature, onHide, plain }: { item: FeedItem
           {item.why}
         </p>
         <div className="flex flex-wrap gap-2">
-          <Link
-            to={topicHref(topic)}
-            className="inline-flex h-8 items-center rounded-md bg-accent px-3 text-sm font-medium text-accent-fg hover:bg-accent-hover"
-          >
-            See the papers
-          </Link>
+          <Button asChild kind="default" className="h-8 rounded-md px-3 text-sm font-medium">
+            <Link to={topicHref(topic)}>See the papers</Link>
+          </Button>
           <FollowButton topic={topic} />
         </div>
       </div>
@@ -303,10 +300,34 @@ export function PaperItem({ item, onHide, plain }: { item: FeedItem; onHide: () 
 
 /** A feed item as one row of a hairline list (the Directions and Fresh papers tabs). */
 export function FeedRow({ item, onHide }: { item: FeedItem; onHide: () => void }) {
-  return item.kind === "direction" ? (
-    <DirectionCard item={item} onHide={onHide} plain />
-  ) : (
-    <PaperItem item={item} onHide={onHide} plain />
+  switch (item.kind) {
+    case "direction":
+      return <DirectionCard item={item} onHide={onHide} plain />
+    case "venue":
+      return <VenueRow item={item} onHide={onHide} />
+    case "person":
+      return <PersonLine item={item} onHide={onHide} />
+    default:
+      return <PaperItem item={item} onHide={onHide} plain />
+  }
+}
+
+/** A colleague as one line of a hairline list: face, name, why, and the way out. */
+function PersonLine({ item, onHide }: { item: FeedItem; onHide: () => void }) {
+  const p = item.payload as { user_id: string; initials?: string; photo_url?: string | null }
+  return (
+    <article data-area="people" className="flex min-w-0 items-center gap-3">
+      <Avatar person={{ name: item.title, initials: p.initials || initialsOf(item.title), photo_url: p.photo_url ?? null }} size="sm" />
+      <div className="min-w-0 flex-1">
+        <h3 className="truncate text-base font-medium text-fg">
+          <Link to={`/u/${p.user_id}`} className="underline-offset-4 hover:underline">
+            {item.title}
+          </Link>
+        </h3>
+        <p className="truncate text-sm text-fg-muted">{item.why}</p>
+      </div>
+      <Dismiss onHide={onHide} label={item.title} />
+    </article>
   )
 }
 
@@ -340,7 +361,7 @@ export function ModelCard() {
   })
   const first = q.data?.directions[0]
   return (
-    <article className="panel flex min-w-0 flex-col gap-3 p-5 shadow-[inset_0_0_0_1px_#6d4bc233]">
+    <article className="panel flex min-w-0 flex-col gap-3 p-5 ring-1 ring-line">
       <div className="flex items-center gap-2">
         <Sparkles aria-hidden className="size-4 text-accent" strokeWidth={1.75} />
         <span className="text-sm font-medium text-accent">

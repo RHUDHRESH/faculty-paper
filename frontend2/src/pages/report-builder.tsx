@@ -15,6 +15,7 @@ import {
   Callout,
   EmptyState,
   ErrorState,
+  NotOpen,
   InlineError,
   Skeleton,
   SkeletonRows,
@@ -356,10 +357,7 @@ export function ReportBuilder() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          title="Not open to this account"
-          message="Reports are college-wide. A head of department sees their own department's papers instead."
-        />
+        <NotOpen message="Reports are college-wide. A head of department sees their own department's papers instead." />
         <div className="mt-4 flex justify-center">
           <Button kind="default" size="sm" asChild>
             <Link to="/reports">Open your department's report</Link>

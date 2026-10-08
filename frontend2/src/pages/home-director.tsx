@@ -189,7 +189,7 @@ export function DirectorHome() {
         <MoneyThread />
       </Section>
 
-      <MonthPaperwork title="The month's statement" primary={statementPrimary} />
+      <MonthPaperwork title="The month's statement" />
 
       <Details label="what the college researches" className="border-t border-line pt-6">
         <ResearchAreas />

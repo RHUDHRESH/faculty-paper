@@ -175,7 +175,7 @@ export function Insights() {
       />
 
       <form
-        className="flex max-w-3xl gap-2"
+        className="flex min-w-0 max-w-3xl gap-2"
         onSubmit={(e) => {
           e.preventDefault()
           submit(text)
@@ -201,9 +201,9 @@ export function Insights() {
       ) : chips.length > 0 ? (
         <div className="space-y-2">
           <Meta className="block">{s.data?.ai ? "Or try one of these." : "AI is off right now. These questions still work."}</Meta>
-          <div className="flex max-w-4xl flex-wrap gap-2" role="group" aria-label="Try asking">
+          <div className="flex min-w-0 max-w-4xl flex-wrap gap-2" role="group" aria-label="Try asking">
             {chips.map((c) => (
-              <Button key={c.label} size="sm" kind="quiet" className="ring-control-edge" disabled={busy} onClick={() => runQuery(c.query, c.params)}>
+              <Button key={c.label} size="sm" kind="quiet" className="ring-control-edge h-auto min-h-10 whitespace-normal py-2 text-left shrink max-w-full" disabled={busy} onClick={() => runQuery(c.query, c.params)}>
                 {c.label}
               </Button>
             ))}
@@ -249,7 +249,7 @@ function AnswerView({
   return (
     <section aria-label="The answer" className="space-y-8">
       <div className="space-y-3">
-        <p role="status" className="display text-display max-w-[40ch] text-balance text-fg">
+        <p role="status" className="display text-display max-w-[40ch] break-words text-balance text-fg">
           {a.answer}
         </p>
         {a.notices.map((n) => (
@@ -260,9 +260,9 @@ function AnswerView({
       </div>
 
       {offered.length > 0 && (
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Questions I can answer">
+        <div className="flex min-w-0 flex-wrap gap-2" role="group" aria-label="Questions I can answer">
           {offered.map((c) => (
-            <Button key={c.label} size="sm" kind="quiet" className="ring-control-edge" onClick={() => onChip(c)}>
+            <Button key={c.label} size="sm" kind="quiet" className="ring-control-edge h-auto min-h-10 whitespace-normal py-2 text-left shrink max-w-full" onClick={() => onChip(c)}>
               {c.label}
             </Button>
           ))}
@@ -270,7 +270,11 @@ function AnswerView({
       )}
 
       {shown && <Settings a={a} s={s} role={role} onChange={onRefine} />}
-      {shown && a.chart && a.series.length > 0 && <AnswerChart a={a} role={role} />}
+      {shown && a.chart && a.series.length > 0 && (
+        <div className="min-w-0 max-w-full overflow-x-auto">
+          <AnswerChart a={a} role={role} />
+        </div>
+      )}
 
       {shown && a.counted_how && (
         <Section title="How this was counted">
@@ -433,7 +437,7 @@ function AnswerList({ a, role }: { a: InsightAnswer; role: Role | undefined }) {
               {r.kind === "person" && (
                 <Avatar size="sm" person={{ name: r.label, initials: r.initials ?? initialsOf(r.label), photo_url: r.photo_url ?? null }} />
               )}
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 break-words">
                 {href?.external ? (
                   <a href={href.to} target="_blank" rel="noreferrer" className="font-medium underline-offset-4 hover:underline">
                     {label}

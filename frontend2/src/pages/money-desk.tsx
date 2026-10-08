@@ -13,7 +13,7 @@ import { Button } from "@/ui/button"
 import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
 import { Section } from "@/ui/section"
-import { ErrorState } from "@/ui/state"
+import { NotOpen } from "@/ui/state"
 import { Meta } from "@/ui/text"
 
 /**
@@ -89,7 +89,7 @@ export function MoneyDesk({ role }: { role: "DIRECTOR" | "FINANCE" }) {
   if (!me || !GROUPS[role]) {
     return (
       <div className="page py-8">
-        <ErrorState title="Not open to this account" message="Ask the research office if you think it should be yours." />
+        <NotOpen message="Ask the research office if you think it should be yours." />
       </div>
     )
   }

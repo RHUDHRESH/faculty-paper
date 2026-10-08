@@ -15,7 +15,7 @@ import { Combobox } from "@/ui/combobox"
 import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
 import { Details, Section } from "@/ui/section"
-import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { ColumnLabel, Meta, SectionTitle } from "@/ui/text"
 import { unshout } from "@/lib/names"
@@ -125,10 +125,7 @@ export function Statements() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          title="Not open to this account"
-          message="Monthly statements show what each person was paid. Finance, the Director and the Principal can read them."
-        />
+        <NotOpen message="Monthly statements show what each person was paid. Finance, the Director and the Principal can read them." />
       </div>
     )
   }
@@ -472,7 +469,7 @@ export function BudgetBurn({ fy }: { fy: FinancialYear }) {
         {fy.allocation != null && (
           <g>
             <line x1={pad.l} x2={W - pad.r} y1={y(alloc)} y2={y(alloc)} stroke="var(--color-critical)" strokeDasharray="4 4" />
-            <text x={W - pad.r} y={y(alloc) - 4} textAnchor="end" className="fill-fg-muted text-[11px]">
+            <text x={W - pad.r} y={y(alloc) - 4} textAnchor="end" className="fill-fg-muted text-xs">
               Allocation {money(alloc)}
             </text>
           </g>
@@ -490,7 +487,7 @@ export function BudgetBurn({ fy }: { fy: FinancialYear }) {
             >
               <title>{`${m.label}: ${money(m.amount)} paid, ${money(m.cumulative)} so far`}</title>
             </rect>
-            <text x={pad.l + step * i + step / 2} y={H - 8} textAnchor="middle" className="fill-fg-muted text-[11px]">
+            <text x={pad.l + step * i + step / 2} y={H - 8} textAnchor="middle" className="fill-fg-muted text-xs">
               {m.label}
             </text>
           </g>

@@ -22,6 +22,7 @@ from django.db.models import Max, Q
 from django.utils import timezone
 
 from core import hod
+from core import social
 from core.models import (
     Authorship,
     Claim,
@@ -31,6 +32,7 @@ from core.models import (
     Publication,
     Role,
     ScimagoJournal,
+    User,
 )
 from core.services import discover
 from core.services.journal_watch import watch_for
@@ -400,9 +402,21 @@ def college_for(user, facts: dict[str, Any] | None, q: str) -> dict[str, Any]:
             "paid": sum(1 for s in statuses if s == ClaimStatus.PAID),
             "sent_back": sum(1 for s in statuses if s == ClaimStatus.REJECTED),
         }
+    shown = sorted(people.items(), key=lambda kv: kv[1])[:20]
+    # One query for the faces of the colleagues shown, never one per colleague.
+    by_id = {u.id: u for u in User.objects.filter(id__in=[k for k, _ in shown])}
+    colleagues = []
+    for k, v in shown:
+        u = by_id.get(k)
+        colleagues.append({
+            "id": k,
+            "name": v,
+            "photo_url": social.photo_url(u) if u else None,
+            "initials": social.initials(v),
+        })
     return {
         "papers": len(pub_ids),
-        "colleagues": [{"id": k, "name": v} for k, v in sorted(people.items(), key=lambda kv: kv[1])[:20]],
+        "colleagues": colleagues,
         "colleague_count": len(people),
         "mine": mine,
         "claims": {"total": len(statuses), **claims},

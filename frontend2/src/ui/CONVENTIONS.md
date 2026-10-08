@@ -108,8 +108,8 @@ answer sentence), `text-figure` (36) and `text-figure-xl` (56).
 
 **There is no size between 16 and 32.** A 22px heading is the lukewarm size
 that made every old page read at one volume. A step is a UI step or a display
-step. `text-xl`, `text-2xl` and `text-3xl` remain for older pages; new work does
-not reach for them.
+step. `text-xl` and `text-2xl` are no longer used anywhere; `text-3xl` is not
+used in new work.
 
 Classes: `.display` (page title), `.display-xl` (answer sentence; always pair
 with `.display`), `.figure` (a number that is an answer; tabular, lining).
@@ -187,7 +187,7 @@ Motion: `--ease-out --ease-in-out --dur-1 --dur-2 --dur-3 --dur-4 --dur-5`
 (80, 140, 220, 360 and 640ms)
 Type: `--font-sans --font-display --font-mono`,
 `text-xs text-sm text-base text-lg text-lead text-display text-display-xl
-text-figure text-figure-xl` (and the older `text-xl text-2xl text-3xl`)
+text-figure text-figure-xl` (`text-xl` and `text-2xl` are no longer used anywhere)
 Every one of those is declared in `@theme`, so Tailwind generates a real
 utility for it. Drop the `--color-` / `--radius-` / `--shadow-` prefix and
 write the plain name: `bg-hover`, `text-fg-muted`, `border-line`, `ring-field`,

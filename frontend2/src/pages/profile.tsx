@@ -994,7 +994,7 @@ function PhotoRow({
   })
   return (
     <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3">
-      <Avatar person={{ name, initials: initialsOf(name), photo_url: photoUrl }} size="xl" className="size-20 shrink-0 text-2xl" />
+      <Avatar person={{ name, initials: initialsOf(name), photo_url: photoUrl }} size="xl" className="size-20 shrink-0 text-lg" />
       <div className="min-w-0 flex-1 basis-56">
         <p className="text-lg font-semibold text-fg break-words">{name}</p>
         <p className="text-sm text-fg-muted break-words">{email}</p>

@@ -65,8 +65,11 @@ function useFollowToggle() {
   })
 }
 
-/** Follow or unfollow one subject area or journal. */
-export function FollowTopicButton({ topic, journal }: About) {
+/**
+ * Follow or unfollow one subject area or journal. `idleKind` is the button's
+ * weight while not followed; pages with another primary action pass "default".
+ */
+export function FollowTopicButton({ topic, journal, idleKind = "primary" }: About & { idleKind?: "primary" | "default" }) {
   const follows = useFollows()
   const toggle = useFollowToggle()
   const name = topic || journal
@@ -75,7 +78,7 @@ export function FollowTopicButton({ topic, journal }: About) {
   const following = !!list?.some((t) => t.toLowerCase() === name.toLowerCase())
   return (
     <Button
-      kind={following ? "default" : "primary"}
+      kind={following ? "default" : idleKind}
       size="sm"
       aria-pressed={following}
       disabled={follows.isPending || toggle.isPending}

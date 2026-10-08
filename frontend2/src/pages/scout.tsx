@@ -10,7 +10,6 @@ import { Callout, InlineError, SkeletonRows } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
 import { cn } from "@/lib/cn"
 import { Avatar, initialsOf } from "@/ui/person"
-import { Picture, topicPicture } from "@/ui/picture"
 import { StreamingText, ThinkingIndicator, useTypewriter } from "@/ui/motion/stream"
 
 type Source = { url: string; title: string }
@@ -180,7 +179,7 @@ function CallRow({ o, d, days, closed }: { o: Opportunity; d: Date | null; days:
       <div className="text-right">
         {d ? (
           <>
-            <p className="font-display text-2xl leading-none text-fg">{d.getDate()}</p>
+            <p className="font-display text-lg font-semibold tabular-nums leading-none text-fg">{d.getDate()}</p>
             <p className="mt-1 text-sm text-fg-muted">
               {d.toLocaleDateString(undefined, { month: "short" })} {d.getFullYear()}
             </p>
@@ -234,7 +233,6 @@ export function Scout() {
   const lead = cut > 0 ? summary.slice(0, cut) : summary
   const rest = cut > 0 ? summary.slice(cut).trim() : ""
   const typed = useTypewriter(lead)
-  const leadPicture = r ? topicPicture(lead, ...r.profile.topics.slice(0, 3)) : null
   const calls = r ? sortCalls(r.web.opportunities) : { open: [], closed: [] }
   const venues = r
     ? [...new Map(r.literature.filter((l) => l.venue).map((l) => [l.venue, r.literature.filter((x) => x.venue === l.venue)])).entries()]
@@ -302,15 +300,14 @@ export function Scout() {
 
       {r && (
         <>
-          <section aria-label="The direction" className="grid items-center gap-6 md:grid-cols-[1fr_14rem]">
+          <section aria-label="The direction" className="grid items-center gap-6">
             <div className="space-y-4">
               <p className="text-sm text-(--area)">The direction, for {r.profile.name}</p>
-              <p className="font-display text-2xl leading-snug text-fg sm:text-[1.75rem]">
+              <p className="font-display text-lg font-semibold leading-snug text-fg">
                 <StreamingText text={typed} />
               </p>
               {rest && <p className="max-w-prose text-fg-muted">{rest}</p>}
             </div>
-            {leadPicture && <Picture name={leadPicture} className="hidden w-56 md:block" />}
           </section>
 
           <Section id="calls" title="Open calls and deadlines" web>
@@ -336,7 +333,7 @@ export function Scout() {
             <ol className="space-y-6">
               {r.web.directions.map((d, i) => (
                 <li key={d.title} className="grid grid-cols-[2.5rem_1fr] gap-3">
-                  <span className="font-display text-2xl leading-none text-fg-subtle">{String(i + 1).padStart(2, "0")}</span>
+                  <span className="font-display text-lg font-semibold tabular-nums leading-none text-fg-subtle">{String(i + 1).padStart(2, "0")}</span>
                   <div className="min-w-0 space-y-1">
                     <p className="text-lg font-medium text-fg">{d.title}</p>
                     {d.builds_on && <p className="text-sm text-(--area)">Builds on {d.builds_on}</p>}

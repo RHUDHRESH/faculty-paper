@@ -19,13 +19,14 @@ the Director and the office for the whole college.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import date, timedelta
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-from django.db.models import Count, Exists, F, OuterRef, Q
+from django.db.models import Count, Exists, F, OuterRef, Q, Subquery
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 from ninja import Schema
@@ -34,8 +35,8 @@ from ninja.errors import HttpError
 from core import discussions, hod
 from core.api.calendar import PRIVATE, _dates, _editable, _times, _visible_events
 from core.api.common import api, require_user, session_auth
-from core.models import CalendarEvent, EventRsvp, Role, Thread, User
-from core.services import ics, rbac, research_highlights
+from core.models import AuditLog, CalendarEvent, EventInvite, EventRsvp, Role, Thread, User
+from core.services import event_people, ics, rbac, research_highlights
 from core.services import notify as notify_service
 
 logger = logging.getLogger("core.events")
@@ -168,9 +169,20 @@ def _hub_events(user: User):
 
 
 def _with_going(qs, user: User):
+    """What a card shows about each event: how many are going, and what this person was asked.
+
+    The invite count is a subquery rather than a join: joined beside the RSVPs
+    it would multiply every row by the number of invitees.
+    """
+    mine = EventInvite.objects.filter(event=OuterRef("pk"), user=user)
+    invited = EventInvite.objects.filter(event=OuterRef("pk")).order_by().values("event").annotate(n=Count("pk")).values("n")
     return qs.select_related("created_by").annotate(
         going_count=Count("rsvps", distinct=True),
         going=Exists(EventRsvp.objects.filter(event=OuterRef("pk"), user=user)),
+        invited_count=Subquery(invited),
+        invited_me=Exists(mine),
+        invited_by_me_id=Subquery(mine.values("invited_by_id")[:1]),
+        invited_by_me_name=Subquery(mine.values("invited_by__name")[:1]),
     )
 
 
@@ -195,7 +207,16 @@ def _month_q(today: date) -> Q:
     return Q(starts_on__lte=last) & (Q(ends_on__gte=first) | Q(ends_on__isnull=True, starts_on__gte=first))
 
 
+def _can_edit(user: User, event: CalendarEvent) -> bool:
+    """Whoever posted it, and the office: who may change it, find people for it, and see who was asked."""
+    return event.created_by_id == user.id or discussions.is_office(user.role)
+
+
 def _event(e: CalendarEvent, user: User) -> dict[str, Any]:
+    editor = _can_edit(user, e)
+    invited_by = None
+    if getattr(e, "invited_me", False) and getattr(e, "invited_by_me_id", None):
+        invited_by = {"id": e.invited_by_me_id, "name": e.invited_by_me_name}
     return {
         "id": e.id,
         "title": e.title,
@@ -217,7 +238,10 @@ def _event(e: CalendarEvent, user: User) -> dict[str, Any]:
         "created_by_id": e.created_by_id,
         "going_count": getattr(e, "going_count", 0),
         "going": bool(getattr(e, "going", False)),
-        "can_edit": e.created_by_id == user.id or discussions.is_office(user.role),
+        "can_edit": editor,
+        # Only whoever may edit the event sees how many were asked; a reader sees their own invite.
+        "invited_count": (getattr(e, "invited_count", 0) or 0) if editor else 0,
+        "invited_by": invited_by,
     }
 
 
@@ -417,6 +441,72 @@ def event_delete(request: HttpRequest, event_id: str):
     return {"ok": True}
 
 
+# ---------- finding and inviting people ----------
+
+#: Most people one invitation names, and the longest note that goes with it.
+MAX_INVITES, NOTE_MAX = 200, 500
+
+
+class EventInviteIn(Schema):
+    user_ids: list[str]
+    note: str = ""
+
+
+def _editors_only(user: User, event: CalendarEvent) -> None:
+    if not _can_edit(user, event):
+        raise HttpError(403, "Only whoever posted this event, or the office, can invite people to it.")
+
+
+def _announce_invite(event: CalendarEvent, inviter: User, people: list[User], note: str) -> None:
+    """Tell each person just asked, once. A failure to tell somebody leaves the invitations standing, as `_announce` does."""
+    title = f"{inviter.name} invites you: {event.title}"
+    body = when_in_words(event) + (f". {note}" if note else "")
+    href = f"/events?event={event.id}"
+    try:
+        notify_service.notify_many(people, "event", title, body, href, actor=inviter)
+    except Exception:  # noqa: BLE001 -- see the docstring
+        logger.exception("could not tell people about an invitation to event %s", event.id)
+
+
+@api.get("/events/{event_id}/people", auth=session_auth)
+def event_people_view(request: HttpRequest, event_id: str, department: Optional[str] = None, q: Optional[str] = None):
+    """People to find for this event: the topics it is about, and who on the record works on them."""
+    user = require_user(request)
+    event = _one(user, event_id)
+    _editors_only(user, event)
+    return event_people.suggest(event, user, department=(department or "").strip() or None, q=q)
+
+
+@api.post("/events/{event_id}/invite", auth=session_auth)
+def event_invite(request: HttpRequest, event_id: str, payload: EventInviteIn):
+    """Ask people to the event. Each newly asked person is told once; the counts go to the audit log."""
+    user = require_user(request)
+    event = _one(user, event_id)
+    _editors_only(user, event)
+    if not 1 <= len(payload.user_ids) <= MAX_INVITES:
+        raise HttpError(400, f"Choose between 1 and {MAX_INVITES} people to invite.")
+    note = (payload.note or "").strip()
+    if len(note) > NOTE_MAX:
+        raise HttpError(400, f"The note is too long. Keep it under {NOTE_MAX} characters.")
+    counts, asked = event_people.invite(event, user, payload.user_ids, note)
+    if asked:
+        _announce_invite(event, user, asked, note)
+    AuditLog.objects.create(
+        actor=user, action="EVENT_INVITES_SENT", entity="CalendarEvent", entity_id=event.id,
+        detail_json=json.dumps(counts),
+    )
+    return counts
+
+
+@api.get("/events/{event_id}/invites", auth=session_auth)
+def event_invites(request: HttpRequest, event_id: str):
+    """Who has been asked to this event, who invited them, and how many of them are going."""
+    user = require_user(request)
+    event = _one(user, event_id)
+    _editors_only(user, event)
+    return event_people.invitees(event)
+
+
 # ---------- the research showcase ----------
 
 
@@ -433,10 +523,14 @@ def research_highlights_view(request: HttpRequest, period: str = research_highli
 
 __all__ = [
     "EventHubIn",
+    "EventInviteIn",
     "event_delete",
+    "event_invite",
+    "event_invites",
     "event_going",
     "event_ics",
     "event_not_going",
+    "event_people_view",
     "event_update",
     "events_create",
     "events_list",

@@ -298,7 +298,7 @@ function Tile({ card, wide, anonymous = false }: { card: WallCard; wide: boolean
   const href = paperHref(card, me)
   const depts = card.departments ?? Array.from(new Set(card.authors.map((a) => a.department).filter(Boolean)))
   const title = (
-    <span className={cn("line-clamp-3 text-pretty", wide ? "honour text-xl" : "text-base font-semibold")}>
+    <span className={cn("line-clamp-3 text-pretty", wide ? "honour text-lg font-semibold" : "text-base font-semibold")}>
       {unshout(card.title)}
     </span>
   )
@@ -438,12 +438,12 @@ export function WallKiosk({ department, month }: { department: string; month: st
       <div className="flex flex-1 items-center justify-center py-8">
         {card ? (
           <SharePlate ribbon={card.quartile === "Q1" ? "gold" : "navy"} className="aspect-video w-full max-w-5xl p-10 sm:p-14">
-            <div className="flex h-full flex-col justify-center [&_.honour]:text-4xl [&_p]:text-xl">
+            <div className="flex h-full flex-col justify-center [&_.honour]:text-4xl [&_p]:text-lg [&_p]:font-semibold">
               <Tile card={card} wide anonymous />
             </div>
           </SharePlate>
         ) : (
-          <p className="text-2xl text-fg-muted">No new papers yet this month. The first one filed will lead the wall.</p>
+          <p className="text-lg font-semibold text-fg-muted">No new papers yet this month. The first one filed will lead the wall.</p>
         )}
       </div>
       {cards.length > 1 && (

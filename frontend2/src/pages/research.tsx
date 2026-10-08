@@ -11,7 +11,7 @@ import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { MixBar, RankedBars, Sparkline, Trend } from "@/ui/chart"
 import { Chip } from "@/ui/chip"
-import { JournalCard, PersonCard } from "@/ui/entity"
+import { JournalRow, PersonRow } from "@/ui/entity"
 import { Input } from "@/ui/field"
 import { GoalRing } from "@/ui/goal-rings"
 import { PageHeader } from "@/ui/page-header"
@@ -218,7 +218,7 @@ function MeTab({ q }: { q: Q<MyResearch> }) {
   return (
     <>
       <div className="space-y-6">
-        {d?.headline && <p className="display max-w-[30ch] text-balance text-3xl leading-tight text-fg">{d.headline}</p>}
+        {d?.headline && <p className="display max-w-[30ch] text-balance text-display leading-tight text-fg">{d.headline}</p>}
         <CompassCard variant="research" />
       </div>
       <Answer
@@ -506,18 +506,19 @@ function Present({ d }: { d: MyResearch }) {
       {d.venues.length > 0 && (
         <div className="space-y-3">
           <h3 className="text-base font-semibold text-fg">Where you publish</h3>
-          <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-3">
+          <ul className="divide-y divide-line border-y border-line">
             {d.venues.slice(0, 3).map((v) => (
-              <JournalCard
-                key={v.id}
-                name={v.name}
-                quartile={v.quartile}
-                colleagues={v.colleagues}
-                subjects={[`${v.papers} of yours`]}
-                detail
-              />
+              <li key={v.id}>
+                <JournalRow
+                  name={v.name}
+                  quartile={v.quartile}
+                  colleagues={v.colleagues}
+                  subjects={[`${v.papers} of yours`]}
+                  detail
+                />
+              </li>
             ))}
-          </div>
+          </ul>
           {mix.length > 1 && <MixBar title="Kinds of work" dimension="Kind" points={mix} />}
         </div>
       )}
@@ -535,55 +536,59 @@ const IDEA_LABEL: Record<Idea["kind"], string> = {
   person: "Someone to write with",
 }
 
+/** One idea as a row of the hairline list under "Ideas for what's next". */
 export function IdeaCard({ idea }: { idea: Idea }) {
   const follow = useApiMutation<{ topic: string }>("/api/follows/topics", { invalidates: [["discover"]] })
   return (
-    <article
-      data-area="research"
-      className="flex min-w-[17rem] snap-start flex-col gap-3 rounded-panel bg-(--area-wash) p-5 shadow-[inset_0_0_0_1px_var(--area-line)] sm:min-w-0"
-    >
-      <div className="flex items-center justify-between gap-2">
-        <p className="flex items-center gap-1.5 text-sm font-medium text-(--area)">
-          <Lightbulb aria-hidden className="size-4" strokeWidth={1.75} />
-          {IDEA_LABEL[idea.kind]}
-        </p>
-        <Chip tone={idea.source === "counted" ? "area" : "neutral"}>
-          {idea.source === "counted" ? "Counted" : "A suggestion"}
-        </Chip>
-      </div>
-      <h3 className="text-lg font-semibold text-fg">
-        {idea.title}
-        {idea.quartile && (
-          <Chip tone={idea.quartile === "Q1" ? "gold" : "neutral"} className="ml-2 align-middle">
-            {idea.quartile}
+    <article data-area="research" className="flex items-center gap-3 py-3">
+      <Lightbulb aria-hidden className="size-4 shrink-0 text-(--area)" strokeWidth={1.75} />
+      <div className="min-w-0 flex-1">
+        <h3 className="flex min-w-0 items-center gap-2 text-base font-medium text-fg">
+          {idea.kind === "topic" && idea.to ? (
+            <Link to={idea.to} className="min-w-0 truncate underline-offset-4 hover:underline">
+              {idea.title}
+            </Link>
+          ) : (
+            <span className="min-w-0 truncate">{idea.title}</span>
+          )}
+          {idea.quartile && (
+            <Chip tone={idea.quartile === "Q1" ? "gold" : "neutral"} className="shrink-0">
+              {idea.quartile}
+            </Chip>
+          )}
+        </h3>
+        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2">
+          <Meta className="min-w-0 truncate">
+            {IDEA_LABEL[idea.kind]} · <span>{idea.reason}</span>
+          </Meta>
+          <Chip tone={idea.source === "counted" ? "area" : "neutral"} className="shrink-0">
+            {idea.source === "counted" ? "Counted" : "A suggestion"}
           </Chip>
-        )}
-      </h3>
-      <p className="text-sm text-fg-muted">{idea.reason}</p>
-      <div className="mt-auto flex flex-wrap gap-2">
-        {idea.to && (
-          <Button size="sm" asChild>
-            <Link to={idea.to}>{idea.kind === "person" ? "See their profile" : idea.kind === "venue" ? "See the journal" : "See papers"}</Link>
-          </Button>
-        )}
-        {idea.kind === "topic" && (
-          <Button
-            size="sm"
-            disabled={follow.isPending || follow.isSuccess}
-            onClick={() =>
-              follow.mutate(
-                { topic: idea.title },
-                {
-                  onSuccess: () => toast.ok(`Following ${idea.title}`),
-                  onError: (e) => toast.fail(e),
-                }
-              )
-            }
-          >
-            {follow.isSuccess ? "Following" : "Follow topic"}
-          </Button>
-        )}
+        </div>
       </div>
+      {idea.kind === "topic" ? (
+        <Button
+          kind="default"
+          size="sm"
+          className="shrink-0"
+          disabled={follow.isPending || follow.isSuccess}
+          onClick={() =>
+            follow.mutate(
+              { topic: idea.title },
+              {
+                onSuccess: () => toast.ok(`Following ${idea.title}`),
+                onError: (e) => toast.fail(e),
+              }
+            )
+          }
+        >
+          {follow.isSuccess ? "Following" : "Follow topic"}
+        </Button>
+      ) : idea.to ? (
+        <Button kind="default" size="sm" asChild className="shrink-0">
+          <Link to={idea.to}>{idea.kind === "person" ? "See their profile" : "See the journal"}</Link>
+        </Button>
+      ) : null}
     </article>
   )
 }
@@ -592,11 +597,13 @@ function Future({ d }: { d: MyResearch }) {
   return (
     <Section eyebrow="Future" title="Ideas for what's next">
       {d.ideas.length > 0 ? (
-        <div className="-mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:grid sm:grid-cols-3 sm:overflow-visible sm:px-0 sm:pb-0">
+        <ul className="divide-y divide-line border-y border-line">
           {d.ideas.map((i) => (
-            <IdeaCard key={`${i.kind}-${i.id}`} idea={i} />
+            <li key={`${i.kind}-${i.id}`}>
+              <IdeaCard idea={i} />
+            </li>
           ))}
-        </div>
+        </ul>
       ) : (
         <Meta className="block">
           Ideas appear once we know your topics, from your papers or from the topics you follow in{" "}
@@ -763,7 +770,7 @@ function CollegeTab() {
   return (
     <div className="space-y-8">
       <div className="space-y-2">
-        <p className="text-balance text-2xl font-semibold text-fg">
+        <p className="display text-balance text-display text-fg">
           {college} published <span className="figure text-(--area)">{formatCount(d.totals.papers)}</span>{" "}
           papers across {d.totals.departments} departments
         </p>
@@ -819,17 +826,18 @@ function CollegeTab() {
 
       <Section eyebrow="People" title="Near you">
         {d.near_me.length ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="divide-y divide-line border-y border-line">
             {d.near_me.map((p) => (
-              <PersonCard
-                key={p.id}
-                person={{ id: p.id, name: p.name, initials: p.initials ?? initialsOf(p.name), photo_url: p.photo_url ?? null, department: p.department, designation: p.designation }}
-                to={`/u/${p.id}`}
-                context={p.reason}
-                messageTo={`/messages/${p.id}`}
-              />
+              <li key={p.id}>
+                <PersonRow
+                  person={{ id: p.id, name: p.name, initials: p.initials ?? initialsOf(p.name), photo_url: p.photo_url ?? null, department: p.department, designation: p.designation }}
+                  to={`/u/${p.id}`}
+                  context={p.reason}
+                  messageTo={`/messages/${p.id}`}
+                />
+              </li>
             ))}
-          </div>
+          </ul>
         ) : (
           <Meta>People working on your topics appear here once your record has topics.</Meta>
         )}

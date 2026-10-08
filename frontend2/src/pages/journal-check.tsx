@@ -8,9 +8,11 @@ import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Input } from "@/ui/field"
 import { PageHeader } from "@/ui/page-header"
+import { ResearchToolsTabs } from "@/pages/research-tools-tabs"
 import { money } from "@/ui/paper"
+import { Avatar, initialsOf } from "@/ui/person"
 import { Section } from "@/ui/section"
-import { Callout, ErrorState, SkeletonRows } from "@/ui/state"
+import { ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta } from "@/ui/text"
 import { FollowTopicButton } from "@/pages/follow-topics"
 
@@ -46,7 +48,7 @@ export type JournalCheck = {
   verdict: { level: "safe" | "caution" | "avoid"; text: string }
   college: {
     papers: number
-    colleagues: { id: string; name: string }[]
+    colleagues: { id: string; name: string; photo_url?: string | null; initials?: string }[]
     colleague_count: number
     mine: { id: string; title: string; year: number | null }[]
     claims: Record<string, number>
@@ -66,7 +68,12 @@ const ICON: Record<CheckStatus, { icon: typeof CheckCircle2; className: string; 
   unknown: { icon: CircleHelp, className: "text-fg-subtle", label: "Not known" },
 }
 
-const VERDICT_TONE = { safe: "positive", caution: "caution", avoid: "critical" } as const
+/** The verdict's status line: an icon and a word, never colour alone. */
+const VERDICT: Record<JournalCheck["verdict"]["level"], { word: string; icon: typeof CheckCircle2; className: string }> = {
+  safe: { word: "Looks safe", icon: CheckCircle2, className: "text-positive" },
+  caution: { word: "Think twice", icon: AlertTriangle, className: "text-caution" },
+  avoid: { word: "Avoid", icon: XCircle, className: "text-critical" },
+}
 
 const CLAIM_LABEL: Record<string, string> = {
   in_review: "in review",
@@ -110,7 +117,8 @@ export function JournalCheckPage() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="page space-y-8">
+      <ResearchToolsTabs />
       <PageHeader
         title="Check a journal"
         sub="Before you submit, see whether a journal is still in Scopus, whether the college has flagged it, and what a paper there would earn."
@@ -173,14 +181,24 @@ function Result({ data, onPick }: { data: JournalCheck; onPick: (id: string) => 
         </Section>
       )}
 
-      <Callout tone={VERDICT_TONE[data.verdict.level]} title={j ? j.name : data.query}>
-        <p className="text-base font-medium" data-testid="verdict">{data.verdict.text}</p>
-        {j && (
-          <p className="mt-1 text-sm text-fg-muted">
-            {[j.issns.join(", "), j.publisher, j.subject].filter(Boolean).join(" · ")}
-          </p>
-        )}
-      </Callout>
+      <div className="space-y-2">
+        {(() => {
+          const v = VERDICT[data.verdict.level]
+          const Icon = v.icon
+          return (
+            <p className={cn("flex items-center gap-2 text-sm font-medium", v.className)}>
+              <Icon className="size-5 shrink-0" aria-hidden />
+              {v.word}
+            </p>
+          )
+        })()}
+        <p className="font-display text-display text-balance" data-testid="verdict">{data.verdict.text}</p>
+        <p className="text-sm text-fg-muted">
+          {[j ? j.name : data.query, j && [j.issns.join(", "), j.publisher, j.subject].filter(Boolean).join(" · ")]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+      </div>
 
       <Section title="Checks">
         <ul className="divide-y divide-line" aria-label="Checks">
@@ -210,18 +228,18 @@ function Result({ data, onPick }: { data: JournalCheck; onPick: (id: string) => 
             <Meta className="block">{data.estimate.needs}</Meta>
           ) : (
             <>
-              <ul className="grid gap-3 sm:grid-cols-3">
+              <dl className="grid gap-6 sm:grid-cols-3 sm:gap-0 sm:divide-x sm:divide-line">
                 {data.estimate.positions?.map((p) => (
-                  <li key={p.position} className="panel rounded-panel p-4">
-                    <Meta className="block">{ordinal(p.position)}</Meta>
+                  <div key={p.position} className="flex flex-col-reverse sm:px-6 sm:first:pl-0">
+                    <dt className="text-sm text-fg-muted">{ordinal(p.position)}</dt>
                     {p.amount != null ? (
-                      <span className="block text-lg font-semibold tabular">{money(p.amount)}</span>
+                      <dd className="font-display text-figure tabular-nums">{money(p.amount)}</dd>
                     ) : (
-                      <span className="block text-sm text-fg-muted">{p.why_not || "Could not be worked out."}</span>
+                      <dd className="text-sm text-fg-muted">{p.why_not || "Could not be worked out."}</dd>
                     )}
-                  </li>
+                  </div>
                 ))}
-              </ul>
+              </dl>
               <Meta className="mt-2 block">Estimates. {data.estimate.assumes}</Meta>
             </>
           )}
@@ -230,7 +248,7 @@ function Result({ data, onPick }: { data: JournalCheck; onPick: (id: string) => 
 
       {j && (
         <div className="flex flex-wrap gap-3">
-          <FollowTopicButton journal={j.name} />
+          <FollowTopicButton journal={j.name} idleKind="default" />
           <Button asChild kind="quiet">
             <Link to={`/search?q=${encodeURIComponent(j.name)}`}>See colleagues' papers</Link>
           </Button>
@@ -255,7 +273,11 @@ function College({ data }: { data: JournalCheck }) {
       {c.colleagues.length > 0 && (
         <ul className="flex flex-wrap gap-x-3 gap-y-1" aria-label="Colleagues who published here">
           {c.colleagues.map((p) => (
-            <li key={p.id}>
+            <li key={p.id} className="flex items-center gap-2">
+              <Avatar
+                size="sm"
+                person={{ name: p.name, initials: p.initials || initialsOf(p.name), photo_url: p.photo_url ?? null }}
+              />
               <Link to={`/u/${p.id}`} className="text-accent hover:underline">
                 {p.name}
               </Link>

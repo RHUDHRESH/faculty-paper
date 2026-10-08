@@ -334,7 +334,7 @@ describe("Google Calendar strip", () => {
     expect(screen.getByRole("menuitem", { name: /Reset link/ })).toBeInTheDocument()
   })
 
-  it("is one primary button when it can connect and has not: Connect Google Calendar", async () => {
+  it("offers Connect Google Calendar when it can connect and has not, and the connect runs", async () => {
     const assign = vi.fn()
     vi.stubGlobal("location", { ...window.location, assign })
     mount(FACULTY, { google: READY })
@@ -346,10 +346,11 @@ describe("Google Calendar strip", () => {
     expect(vi.mocked(api).mock.calls.some(([p]) => p === "/api/calendar/google/connect")).toBe(true)
   })
 
-  it("gives up the page's primary button to Connect while that is the thing to do", async () => {
+  it("keeps the page's primary button on Add event; Connect Google Calendar is an ordinary button", async () => {
     mount(FACULTY, { google: READY })
-    await screen.findByRole("button", { name: "Connect Google Calendar" })
-    expect(screen.getAllByRole("button", { name: /Add event/ })[0].className).not.toContain("bg-action")
+    const connect = await screen.findByRole("button", { name: "Connect Google Calendar" })
+    expect(connect.className).not.toContain("bg-action")
+    expect(screen.getAllByRole("button", { name: /Add event/ })[0].className).toContain("bg-action")
   })
 
   it("shows who it is connected as, when it last synced, and Sync now and Disconnect", async () => {

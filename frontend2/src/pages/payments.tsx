@@ -17,7 +17,7 @@ import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { Details, Rows, Section } from "@/ui/section"
-import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Table, type Column, type SortDir } from "@/ui/table"
 import {
   AmountCell,
@@ -148,7 +148,7 @@ export function Payments() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState title="Not open to this account" message="Only Finance can see or process payments." />
+        <NotOpen message="Only Finance can see or process payments." />
       </div>
     )
   }
@@ -254,7 +254,6 @@ export function Payments() {
       ) : rows.length === 0 ? (
         <EmptyState
           guide="pay-claims"
-          art="nothing-paid"
           icon={Banknote}
           title="Nothing waiting on Finance"
           message="Every claim the Director has authorised has been paid. The next one appears here the moment it is authorised."

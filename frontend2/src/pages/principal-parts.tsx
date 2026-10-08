@@ -2,6 +2,7 @@ import { Link } from "react-router-dom"
 import { AlertTriangle, Check } from "lucide-react"
 
 import { cn } from "@/lib/cn"
+import { deptLabel } from "@/lib/names"
 import { Button } from "@/ui/button"
 import { money } from "@/ui/paper"
 import { Avatar, initialsOf } from "@/ui/person"
@@ -145,7 +146,7 @@ export const tone = (now: number | null, before: number | null): "positive" | "c
  *  older pages, a head of department's among them, still use it.) */
 export function Lead({ children }: { children: React.ReactNode }) {
   return (
-    <p data-testid="report-answer" className="max-w-3xl text-pretty font-serif text-xl leading-snug text-ink sm:text-2xl">
+    <p data-testid="report-answer" className="display max-w-3xl text-pretty text-display leading-snug text-ink">
       {children}
     </p>
   )
@@ -214,7 +215,7 @@ export function NoHeads({ depts }: { depts: { department: string; head?: Head }[
   if (names.length === 0) return null
   return (
     <p className="mt-2 px-1 text-sm text-fg-subtle sm:px-2">
-      No head of department is set for {names.join(", ")}.
+      No head of department is set for {names.map(deptLabel).join(", ")}.
     </p>
   )
 }

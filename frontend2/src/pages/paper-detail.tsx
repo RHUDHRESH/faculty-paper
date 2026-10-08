@@ -558,7 +558,7 @@ export function PaperDetail() {
                 className="size-20 shrink-0"
               />
               <div>
-                <p className="display text-xl text-positive">Paid. Well done.</p>
+                <p className="display text-display text-positive">Paid. Well done.</p>
                 <p className="text-sm text-fg-muted">
                   The college has settled this paper. Thank you for publishing it.
                 </p>

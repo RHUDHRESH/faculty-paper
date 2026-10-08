@@ -12,14 +12,7 @@ import { Button } from "@/ui/button"
 import { ConfirmDialog } from "@/ui/dialog"
 import { Checkbox, Field, Input, NumberInput, Select } from "@/ui/field"
 import { Table, type Column } from "@/ui/table"
-import {
-  Callout,
-  EmptyState,
-  ErrorState,
-  InlineError,
-  SkeletonRows,
-  SkeletonText,
-} from "@/ui/state"
+import { Callout, EmptyState, ErrorState, InlineError, NotOpen, SkeletonRows, SkeletonText } from "@/ui/state"
 import { ColumnLabel, Meta } from "@/ui/text"
 import { Answer } from "@/ui/answer"
 import { PageHeader } from "@/ui/page-header"
@@ -144,11 +137,7 @@ export function Imports() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          art="closed-gate"
-          title="Not open to this account"
-          message="Loading the roster and the payment history is the research office's job."
-        />
+        <NotOpen message="Loading the roster and the payment history is the research office's job." />
       </div>
     )
   }
@@ -416,7 +405,7 @@ function AlreadyLoaded({ query }: { query: UseQueryResult<ErpStats, ApiError> })
             <div key={s.key} title={s.about}>
               <dt className="text-sm text-fg-muted">{s.label}</dt>
               <dd>
-                <span className="figure tabular text-xl">{nf(data[s.key])}</span>
+                <span className="figure tabular text-figure">{nf(data[s.key])}</span>
                 {data[s.key] === 0 && <Meta className="block">None yet</Meta>}
               </dd>
             </div>

@@ -2,6 +2,7 @@ import { Link } from "react-router-dom"
 import { FileText } from "lucide-react"
 
 import { cn } from "@/lib/cn"
+import { deptLabel } from "@/lib/names"
 import { Button } from "@/ui/button"
 import { Avatar, initialsOf } from "@/ui/person"
 import { Rows } from "@/ui/section"
@@ -123,20 +124,18 @@ export function YearColumn({
           <Rows>
             {b.push.slice(0, 3).map((d) => (
               <li key={d.department} className="relative flex items-start gap-3 py-2.5">
-                {d.head ? (
+                {d.head && (
                   <Avatar
                     size="sm"
                     person={{ name: d.head.name, initials: d.head.initials ?? initialsOf(d.head.name), photo_url: d.head.photo_url ?? null }}
                   />
-                ) : (
-                  <span aria-hidden className="size-8 shrink-0" />
                 )}
                 <div className="min-w-0 flex-1">
                   <Link
                     to={deptUrl(d.department, b.year)}
                     className="block truncate text-base font-medium after:absolute after:inset-0 after:content-['']"
                   >
-                    {d.department}
+                    {deptLabel(d.department)}
                   </Link>
                   <p className="text-sm text-fg-muted">{d.reasons[0]}.</p>
                   {d.head && <p className="text-sm text-fg-subtle">{headLabel(d.head)}</p>}

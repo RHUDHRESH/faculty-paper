@@ -136,7 +136,7 @@ function Item({ c, showWho, showJournal = true }: { c: CaseItem; showWho?: boole
             <Avatar
               person={{ name: c.owner_name, initials: c.owner_initials || initialsOf(c.owner_name), photo_url: c.owner_photo_url ?? null }}
               size="xs"
-              className="size-4 text-[9px]"
+              className="size-4 text-xs"
             />
             <span className="shrink-0">{c.owner_name}</span>
             <span aria-hidden>·</span>

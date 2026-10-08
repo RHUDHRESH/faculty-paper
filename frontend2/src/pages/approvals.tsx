@@ -17,7 +17,7 @@ import { money } from "@/ui/paper"
 import { BulkHoldDialog, NoBulkSendBack, QuietSelect, SearchBox, SkippedDialog, reviewLink, useUrlFilters, waitingLabel } from "@/ui/queue"
 import { useSlashToSearch } from "@/ui/queue-keys"
 import { Details, Rows } from "@/ui/section"
-import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import type { QueueClaim, QueuePayload } from "@/pages/approvals-actions"
@@ -195,10 +195,7 @@ export function Approvals() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          title="Not open to this account"
-          message="Only the Principal, and a super admin standing in for one, can approve spend here."
-        />
+        <NotOpen message="Only the Principal, and a super admin standing in for one, can approve spend here." />
       </div>
     )
   }
@@ -406,15 +403,21 @@ export function Approvals() {
           onRetry={() => refetch()}
         />
       ) : rows.length === 0 ? (
-        <EmptyState
-          size="region"
-          guide="approve-claims"
-          art="empty-queue"
-          icon={Inbox}
-          title={filtered ? "Nothing matches these filters" : "Nothing waiting"}
-          message={filtered ? "Widen the search or clear the filters." : "Every checked claim has been approved or sent back."}
-          action={filtered ? undefined : <ComingUp desk="principal" />}
-        />
+        filtered ? (
+          <EmptyState
+            size="region"
+            guide="approve-claims"
+            art="empty-queue"
+            icon={Inbox}
+            title="Nothing matches these filters"
+            message="Widen the search or clear the filters."
+          />
+        ) : (
+          // The answer above already says nothing is waiting: here is only the next step.
+          <div className="py-6">
+            <ComingUp desk="principal" />
+          </div>
+        )
       ) : (
         <div className="space-y-10">
           {data && data.total > rows.length && (
@@ -491,7 +494,7 @@ export function Approvals() {
 }
 
 function Kbd({ children }: { children: React.ReactNode }) {
-  return <kbd className={cn("rounded border border-edge px-1 text-[0.6875rem]")}>{children}</kbd>
+  return <kbd className={cn("rounded border border-edge px-1 text-xs")}>{children}</kbd>
 }
 
 /** The approvals list as it is filtered on screen, for the Principal's own records. */

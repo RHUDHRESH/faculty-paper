@@ -9,13 +9,16 @@ import { paperTitle } from "@/lib/names"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Chip } from "@/ui/chip"
+import { AnswerLine, AnswerWord, tieNumbers } from "@/ui/answer"
+import { Thread, THREAD_STAGES } from "@/ui/thread"
+import { THREAD_DESK, threadCounts, threadLate, trackKey } from "@/pages/home-track"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { Input } from "@/ui/field"
 import { filterBar } from "@/ui/filter-bar"
 import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { Avatar, initialsOf } from "@/ui/person"
-import { EmptyState, ErrorState, Skeleton, SkeletonRows } from "@/ui/state"
+import { EmptyState, ErrorState, NotOpen, Skeleton, SkeletonRows } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
 import { PageHeader } from "@/ui/page-header"
 import { Table, type Column } from "@/ui/table"
@@ -133,11 +136,7 @@ export function Track() {
   if (isError && error?.status === 403) {
     return (
       <div className="page py-8">
-        <ErrorState
-          art="closed-gate"
-          title="Not open to this account"
-          message="Your own claims are under My papers."
-        />
+        <NotOpen message="Your own claims are under My papers." />
       </div>
     )
   }
@@ -176,6 +175,8 @@ export function Track() {
         )}
       </PageHeader>
 
+      {!head && data && <WaitingLine stages={stages} />}
+
       {head && data && <HeadLine stages={data.stages} department={data.department} />}
 
       <Board
@@ -187,6 +188,10 @@ export function Track() {
         money={data?.sees_money ?? false}
         flags={data?.sees_flags ?? false}
         total={data?.total_claims ?? 0}
+        head={head}
+        role={role}
+        params={params}
+        chosen={chosen}
       />
 
       {office && (fixes.data?.claims_needing_a_fix ?? 0) > 0 && (
@@ -310,6 +315,28 @@ export function Track() {
 /* The board                                                              */
 /* ------------------------------------------------------------------------ */
 
+const WAITING_KEYS = ["submitted", "checked", "approved", "authorised"]
+
+/** The answer to "is anything stuck": claims on their way, and how many have waited over two weeks. */
+function WaitingLine({ stages }: { stages: Stage[] }) {
+  const here = stages.filter((s) => WAITING_KEYS.includes(s.key))
+  const waiting = here.reduce((n, s) => n + s.count, 0)
+  const late = here.reduce((n, s) => n + (s.ageing ? s.ageing.month + s.ageing.older : 0), 0)
+  if (waiting === 0) return <AnswerLine>Nothing is waiting at any desk.</AnswerLine>
+  const onWay = waiting === 1 ? "One claim is on its way" : `${waiting.toLocaleString("en-IN")} claims are on their way`
+  return (
+    <AnswerLine>
+      {tieNumbers(onWay)},{" "}
+      {late === 0 ? (
+        <AnswerWord tone="sage">none late</AnswerWord>
+      ) : (
+        <AnswerWord tone="amber">{late === 1 ? "one waited over two weeks" : `${late.toLocaleString("en-IN")} waited over two weeks`}</AnswerWord>
+      )}
+      .
+    </AnswerLine>
+  )
+}
+
 function Board({
   loading,
   main,
@@ -319,6 +346,10 @@ function Board({
   money: showMoney,
   flags,
   total,
+  head,
+  role,
+  params,
+  chosen,
 }: {
   loading: boolean
   main: Stage[]
@@ -328,6 +359,10 @@ function Board({
   money: boolean
   flags: boolean
   total: number
+  head: boolean
+  role: Role | undefined
+  params: URLSearchParams
+  chosen: Stage | undefined
 }) {
   if (loading) {
     return (
@@ -338,15 +373,38 @@ function Board({
       </div>
     )
   }
+  // Each station's link keeps the reader's filters and drops the page number.
+  const to = Object.fromEntries(
+    THREAD_STAGES.map((s) => {
+      const next = new URLSearchParams(params)
+      next.set("stage", trackKey(s.key))
+      next.delete("page")
+      return [s.key, `/track?${next.toString()}`]
+    })
+  )
   return (
     <section className="space-y-3" aria-labelledby="track-board">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <SectionTitle>
           <span id="track-board">The journey</span>
         </SectionTitle>
-        <Meta className="tabular">{total.toLocaleString("en-IN")} claims in all. Choose a stage to list its claims.</Meta>
+        {head ? (
+          <Meta className="tabular">{total.toLocaleString("en-IN")} claims in all. Choose a stage to list its claims.</Meta>
+        ) : selected && chosen ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Meta className="tabular">
+              {`Showing ${chosen.count === 1 ? "the 1 claim" : `the ${chosen.count.toLocaleString("en-IN")} claims`} at ${chosen.label}.`}
+            </Meta>
+            <Button kind="quiet" size="sm" onClick={() => onSelect("")}>
+              Show every stage
+            </Button>
+          </div>
+        ) : (
+          <Meta className="tabular">{total.toLocaleString("en-IN")} claims in all. Choose a station to list its claims.</Meta>
+        )}
       </div>
 
+      {head ? (
       <ol
         className="grid grid-cols-[minmax(0,1fr)] overflow-hidden rounded-panel border border-line bg-surface sm:auto-cols-fr sm:grid-flow-col sm:divide-x sm:divide-line max-sm:divide-y max-sm:divide-line"
         aria-label="Claims by stage"
@@ -363,6 +421,15 @@ function Board({
           </li>
         ))}
       </ol>
+      ) : (
+        <Thread
+          counts={threadCounts(main)}
+          late={threadLate(main)}
+          you={role ? THREAD_DESK[role] : undefined}
+          to={to}
+          caption="Each dot is a claim. Amber has waited over two weeks."
+        />
+      )}
 
       {side.length > 0 && (
         <ul className="flex flex-wrap items-center gap-2" aria-label="Claims off the main path">
@@ -377,8 +444,8 @@ function Board({
                 onClick={() => onSelect(s.key)}
                 title={s.caption}
                 className={cn(
-                  "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm ring-1 ring-inset",
-                  selected === s.key ? "bg-accent text-accent-fg ring-accent" : "bg-surface text-fg-muted ring-line hover:text-fg",
+                  "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm ring-1 ring-inset max-sm:min-h-10",
+                  selected === s.key ? "bg-navy-wash text-fg ring-navy/40" : "bg-surface text-fg-muted ring-line hover:text-fg",
                   s.count === 0 && selected !== s.key && "text-fg-subtle"
                 )}
               >
@@ -424,7 +491,7 @@ function StageButton({
         selected ? "bg-active" : "hover:bg-hover"
       )}
     >
-      <span className="text-2xl font-semibold tabular leading-none max-sm:pt-0.5 sm:absolute sm:right-4 sm:top-4">
+      <span className="text-lg font-semibold tabular leading-none max-sm:pt-0.5 sm:absolute sm:right-4 sm:top-4">
         {s.count.toLocaleString("en-IN")}
       </span>
       <span className="flex min-w-0 flex-col gap-1 sm:w-full">

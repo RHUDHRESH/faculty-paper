@@ -193,7 +193,7 @@ describe("the Principal's home", () => {
     expect(screen.getAllByRole("button", { name: /Approve: Grain boundaries/ }).length).toBeGreaterThan(0)
     // The year is in the margin with no click: the finding, the departments to call.
     expect(await screen.findByText("+13.8%")).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "TRAINING" })).toHaveAttribute("href", "/reports/departments/TRAINING?year=2025")
+    expect(screen.getByRole("link", { name: "Training" })).toHaveAttribute("href", "/reports/departments/TRAINING?year=2025")
   })
 })
 

@@ -301,7 +301,7 @@ export function NotificationBell({ className }: { className?: string }) {
             <span
               className={cn(
                 "absolute -right-1.5 -top-1 grid min-w-[1.05rem] place-items-center",
-                "rounded-full bg-critical px-1 text-[10px] font-semibold leading-4 text-accent-fg"
+                "rounded-full bg-critical px-1 text-xs font-semibold leading-4 text-accent-fg"
               )}
             >
               {formatCount(unread)}

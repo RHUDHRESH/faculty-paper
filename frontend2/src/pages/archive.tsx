@@ -17,7 +17,7 @@ import { money } from "@/ui/paper"
 import { PageHeader } from "@/ui/page-header"
 import { ClaimNoJump } from "@/ui/claim-number"
 import { Pagination } from "@/ui/pagination"
-import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Meta } from "@/ui/text"
 import { filterBar } from "@/ui/filter-bar"
 import { Avatar, initialsOf } from "@/ui/person"
@@ -183,11 +183,7 @@ export function PastClaims() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          art="closed-gate"
-          title="Not open to this account"
-          message="Past claims are for the research office, the coordinator, the Principal and the super admin, who can reopen any claim and flag it."
-        />
+        <NotOpen message="Past claims are for the research office, the coordinator, the Principal and the super admin, who can reopen any claim and flag it." />
       </div>
     )
   }

@@ -1,11 +1,10 @@
 import { Link } from "react-router-dom"
-import { FileText } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { HOME_DATA, homeTrack } from "@/app/home-data"
 import { firstName } from "@/lib/names"
 import { useApi } from "@/lib/query"
-import { AnswerLine, AnswerWord } from "@/ui/answer"
+import { AnswerLine } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { ComingUp } from "@/ui/coming-up"
 import { PageHeader } from "@/ui/page-header"
@@ -22,7 +21,7 @@ import type { Brief } from "@/pages/principal-parts"
 import { ApprovalRow } from "@/pages/principal/approval-row"
 import { isReady } from "@/pages/principal/ready"
 import { useApprovals } from "@/pages/principal/use-approvals"
-import { packHref, YearColumn } from "@/pages/principal/year-column"
+import { YearColumn } from "@/pages/principal/year-column"
 import type { TrackPayload } from "@/pages/track-data"
 
 /**
@@ -81,23 +80,6 @@ export function PrincipalHome() {
       <>
         {plural(waiting, "claim", "claims")}, {money(amount)}, {waiting === 1 ? "is" : "are"} waiting for you.
       </>
-    ) : b ? (
-      <>
-        Nothing is waiting for you.{" "}
-        {b.partial || b.totals.change == null ? (
-          <>{b.year} is to date.</>
-        ) : b.totals.change > 0 ? (
-          <>
-            {b.year} beat {b.year - 1}: <AnswerWord tone="sage">up {b.totals.change}%</AnswerWord>.
-          </>
-        ) : b.totals.change < 0 ? (
-          <>
-            {b.year} fell short of {b.year - 1}: <AnswerWord tone="amber">down {Math.abs(b.totals.change)}%</AnswerWord>.
-          </>
-        ) : (
-          <>{b.year} matched {b.year - 1}.</>
-        )}
-      </>
     ) : (
       "Nothing is waiting for you."
     )
@@ -113,13 +95,6 @@ export function PrincipalHome() {
           <Link to="/approvals">Open Approvals</Link>
         </Button>
       )
-    ) : b ? (
-      <Button kind="primary" asChild>
-        <a href={packHref(b.year)} download>
-          <FileText />
-          Download the council pack
-        </a>
-      </Button>
     ) : undefined
 
   return (

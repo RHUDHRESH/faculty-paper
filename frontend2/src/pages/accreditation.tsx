@@ -18,7 +18,7 @@ import {
 } from "@/ui/dialog"
 import { Field, Input, Textarea } from "@/ui/field"
 import { Pagination } from "@/ui/pagination"
-import { EmptyState, ErrorState, InlineError, SkeletonRows } from "@/ui/state"
+import { EmptyState, ErrorState, InlineError, NotOpen, SkeletonRows } from "@/ui/state"
 import { stickyHeadCell, Table, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
@@ -160,11 +160,7 @@ export function Accreditation() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          art="closed-gate"
-          title="Not open to this account"
-          message="The accreditation submission is college-wide. A head of department has their own department's publications instead."
-        />
+        <NotOpen message="The accreditation submission is college-wide. A head of department has their own department's publications instead." />
       </div>
     )
   }
@@ -563,7 +559,7 @@ function GapStrip({
           <ColumnLabel className="block">
             {only ? "Rows matching this filter" : "Rows in the submission"}
           </ColumnLabel>
-          <p className="text-2xl font-semibold tabular">{total.toLocaleString("en-IN")}</p>
+          <p className="figure text-figure font-semibold tabular">{total.toLocaleString("en-IN")}</p>
         </div>
         {clean ? (
           <Meta className="text-positive">

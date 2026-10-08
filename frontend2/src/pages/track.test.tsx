@@ -109,16 +109,25 @@ function mount(me: Me, ui: React.ReactElement, payload: Record<string, unknown> 
 }
 
 describe("Track", () => {
-  it("draws the stage board with counts, money and ageing for a reviewer", async () => {
+  it("answers in a sentence and draws the journey as the Thread for a reviewer", async () => {
     mount(CELL, <Track />)
-    const board = await screen.findByRole("list", { name: "Claims by stage" })
-    const submitted = within(board).getByRole("button", { name: /Submitted/ })
-    expect(within(submitted).getByText("2")).toBeInTheDocument()
-    expect(within(submitted).getAllByText("₹90,000").length).toBeGreaterThan(0)
-    expect(within(submitted).getByText(/Longest 41 days/)).toBeInTheDocument()
-    expect(within(submitted).getByText(/1 with an open flag/)).toBeInTheDocument()
+    const line = await screen.findByText(/claims are on their way/)
+    expect(line.closest("p")).toHaveTextContent("3 claims are on their way, one waited over two weeks.")
+    const threads = screen.getAllByRole("list", { name: "Where every claim is" })
+    expect(threads.length).toBeGreaterThan(0)
+    expect(within(threads[0]).getByRole("link", { name: /Checked/ })).toBeInTheDocument()
     // The side stages sit off the main path.
     expect(screen.getByRole("button", { name: /Sent back/ })).toBeInTheDocument()
+  })
+
+  it("links each station to its stage, keeping the filters and dropping the page", async () => {
+    mount(CELL, <Track />, {}, "/track?q=copper&page=2")
+    const threads = await screen.findAllByRole("list", { name: "Where every claim is" })
+    const approved = within(threads[0]).getByRole("link", { name: /Approved/ })
+    const href = approved.getAttribute("href") ?? ""
+    expect(href).toContain("stage=approved")
+    expect(href).toContain("q=copper")
+    expect(href).not.toContain("page=")
   })
 
   it("lists claims with number, claimant, stage and days, opening the review page", async () => {
@@ -133,9 +142,9 @@ describe("Track", () => {
 
   it("asks the server for a stage when its column is chosen", async () => {
     mount(CELL, <Track />)
-    const board = await screen.findByRole("list", { name: "Claims by stage" })
-    within(board).getByRole("button", { name: /Being checked/ }).click()
-    await screen.findByText(/Being checked: /)
+    const threads = await screen.findAllByRole("list", { name: "Where every claim is" })
+    within(threads[0]).getByRole("link", { name: /Checked/ }).click()
+    await screen.findByText(/Showing the 1 claim at Being checked/)
     expect(requested.some((p) => p.includes("stage=checked"))).toBe(true)
   })
 

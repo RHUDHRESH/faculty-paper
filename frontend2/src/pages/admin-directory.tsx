@@ -11,7 +11,7 @@ import { useStart } from "@/pages/admin-start"
 import { Button } from "@/ui/button"
 import { Input } from "@/ui/field"
 import { PageHeader } from "@/ui/page-header"
-import { ErrorState } from "@/ui/state"
+import { NotOpen } from "@/ui/state"
 import { SectionTitle } from "@/ui/text"
 
 /**
@@ -61,17 +61,19 @@ function Row({ item, entry }: { item: NavItem; entry?: Count }) {
 export function AdminDirectory() {
   const { me } = useAuth()
   const [find, setFind] = useState("")
+  // A role that cannot open this page never calls the hub endpoint.
+  const allowed = !me || pagesFor(me.role).some((p) => p.to === "/admin")
   const counts = useApi<HubPayload>(["admin", "hub"], "/api/admin/hub", {
-    enabled: !!me,
+    enabled: !!me && allowed,
     refetchInterval: 60_000,
   })
   const start = useStart(me?.role === "SUPER_ADMIN")
   const byRoute = counts.data?.counts ?? {}
 
-  if (me && !pagesFor(me.role).some((p) => p.to === "/admin")) {
+  if (me && !allowed) {
     return (
       <div className="page py-8">
-        <ErrorState art="closed-gate" title="Not open to this account" message="Ask the research office if you think it should be yours." />
+        <NotOpen message="Ask the research office if you think it should be yours." />
       </div>
     )
   }

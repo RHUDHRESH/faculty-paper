@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from "@/ui/dialog"
 import { Field, Textarea } from "@/ui/field"
-import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { Callout, EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { PageHeader } from "@/ui/page-header"
@@ -113,11 +113,7 @@ export function Requests() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          art="closed-gate"
-          title="Not open to this account"
-          message="Only the research office and a super admin can decide profile requests."
-        />
+        <NotOpen message="Only the research office and a super admin can decide profile requests." />
       </div>
     )
   }

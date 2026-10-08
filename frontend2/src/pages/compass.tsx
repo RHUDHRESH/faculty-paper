@@ -8,9 +8,13 @@ import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
 import { enterTransition, useMotionVariants } from "@/ui/motion"
 import { Button } from "@/ui/button"
+import { Avatar, initialsOf } from "@/ui/person"
 import { Checkbox, Input } from "@/ui/field"
 import { PageHeader } from "@/ui/page-header"
-import { ErrorState, InlineError, SkeletonRows } from "@/ui/state"
+import { ResearchToolsTabs } from "@/pages/research-tools-tabs"
+import { ErrorState, InlineError, NotOpen, SkeletonRows } from "@/ui/state"
+import { useAuth } from "@/app/auth"
+import { CLAIMANTS } from "@/app/nav"
 import { Meta, SectionTitle } from "@/ui/text"
 import { ActionButtons, AskPanel, CountedNote, EvidenceChips } from "@/pages/compass-parts"
 import {
@@ -34,6 +38,20 @@ const REVEAL = { hidden: { opacity: 0, y: 12 }, shown: { opacity: 1, y: 0, trans
  * model off the server writes from the record, and the page says so quietly.
  */
 export function Compass() {
+  const { me, loading } = useAuth()
+  // Gate before any request: a role that cannot use the compass never calls /api/compass.
+  if (loading || !me) return null
+  if (!CLAIMANTS.includes(me.role)) {
+    return (
+      <div className="page py-8">
+        <NotOpen message="The research compass is for people who file their own papers." />
+      </div>
+    )
+  }
+  return <CompassOpen />
+}
+
+function CompassOpen() {
   const q = useApi<CompassState>(KEY, "/api/compass")
   const [step, setStep] = useState<number | null>(null)
   const [reached, setReached] = useState(0)
@@ -66,6 +84,7 @@ export function Compass() {
 
   return (
     <div className="page space-y-8" data-area="research">
+      <ResearchToolsTabs />
       <PageHeader title="Research compass" sub="Who you are as a researcher, where you could go, and what to do next." />
 
       {q.isError ? (
@@ -226,11 +245,11 @@ function WhoYouAre({ state, onNext }: { state: CompassState; onNext: () => void 
 
       <div className="space-y-3">
         <SectionTitle>Your strengths</SectionTitle>
-        <ol className="grid gap-4 md:grid-cols-3">
+        <ol className="divide-y divide-line border-y border-line">
           {p.strengths.slice(0, 3).map((s, i) => (
-            <li key={i} className="flex flex-col gap-3 rounded-panel bg-surface p-5 shadow-[inset_0_0_0_1px_var(--color-line)]">
-              <p className="text-base text-fg">{s.text}</p>
-              <EvidenceChips items={s.evidence} className="mt-auto" />
+            <li key={i} className="flex flex-col gap-2 py-4">
+              <p className="text-base font-medium text-fg">{s.text}</p>
+              <EvidenceChips items={s.evidence} />
             </li>
           ))}
         </ol>
@@ -425,8 +444,12 @@ function WhatYouCouldBe({ state, onBack, onNext }: { state: CompassState; onBack
                           <Link
                             to={`/u/${x.id}`}
                             title={x.dept}
-                            className="inline-flex items-center rounded-full bg-(--area-people-wash,var(--color-sunken)) px-2.5 py-0.5 text-xs font-medium text-fg hover:underline"
+                            className="inline-flex items-center gap-1.5 rounded-full bg-(--area-people-wash,var(--color-sunken)) py-0.5 pl-0.5 pr-2.5 text-xs font-medium text-fg hover:underline"
                           >
+                            <Avatar
+                              size="sm"
+                              person={{ name: x.name, initials: x.initials ?? initialsOf(x.name), photo_url: x.photo_url ?? null }}
+                            />
                             {x.name}
                           </Link>
                         </li>

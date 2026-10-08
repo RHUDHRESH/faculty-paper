@@ -19,7 +19,6 @@ import { PageHeader } from "@/ui/page-header"
 import { AnswerLine, AnswerWord } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { Avatar, initialsOf } from "@/ui/person"
-import { Picture } from "@/ui/picture"
 import { InlineError, Skeleton } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
 
@@ -251,8 +250,7 @@ export function CellHome() {
             ))}
           </ul>
         ) : d && d.rest.length === 0 ? (
-          <div className="flex items-center gap-5 border-y border-line py-6">
-            <Picture name="spot-approvals" className="w-24 shrink-0" />
+          <div className="border-y border-line py-6">
             <p className="text-base text-fg-muted">
               Nothing else is waiting. A claim appears here the moment a claimant files it. Your own papers are cleared by another officer, never by you.
             </p>

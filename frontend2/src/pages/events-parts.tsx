@@ -5,6 +5,7 @@ import { CalendarPlus, Clock, ExternalLink, Landmark, MapPin, Mic } from "lucide
 import { api } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { formatCount } from "@/lib/count"
+import { InvitedBy, InviteSection } from "@/pages/events-invite"
 import { Button } from "@/ui/button"
 import { Chip } from "@/ui/chip"
 import {
@@ -234,6 +235,7 @@ export function EventCard({
           {event.title}
         </button>
       </h3>
+      <InvitedBy event={event} />
     </>
   )
   const facts = (
@@ -353,6 +355,7 @@ export function EventSheet({
               <CountdownChip event={event} today={today} />
             </div>
             <SheetTitle className="text-pretty">{event.title}</SheetTitle>
+            <InvitedBy event={event} />
           </SheetHeader>
           <SheetBody className="space-y-5">
             <dl className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3 gap-y-3 text-sm">
@@ -381,6 +384,7 @@ export function EventSheet({
                 <GoingCount event={event} />
               </div>
             )}
+            {event.can_edit && <InviteSection event={event} />}
           </SheetBody>
           <SheetFooter className="flex-wrap justify-between">
             <div>{!over && <CalendarLink event={event} />}</div>

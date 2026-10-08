@@ -104,7 +104,7 @@ function Stat({ label, value, note, tone }: { label: string; value: number; note
   return (
     <div className="min-w-0">
       <ColumnLabel className="block">{label}</ColumnLabel>
-      <p className={cn("mt-0.5 text-2xl font-semibold tabular", tone === "critical" && "text-critical", tone === "caution" && "text-caution")}>
+      <p className={cn("mt-0.5 figure text-figure font-semibold tabular", tone === "critical" && "text-critical", tone === "caution" && "text-caution")}>
         {value.toLocaleString("en-IN")}
       </p>
       {note && <Meta className="block text-xs">{note}</Meta>}
@@ -233,7 +233,7 @@ export function Throughput({ o }: { o: Overview }) {
           </div>
           <div aria-hidden className="mt-1 flex gap-1 sm:gap-1.5">
             {pts.map((p, i) => (
-              <span key={p.week_start} className="min-w-0 flex-1 text-center text-[11px] leading-4 text-fg-muted">
+              <span key={p.week_start} className="min-w-0 flex-1 text-center text-xs leading-4 text-fg-muted">
                 <span className={cn("whitespace-nowrap", (pts.length - 1 - i) % 2 === 0 ? "" : "invisible")}>
                   {weekLabel(p.week_start)}
                 </span>

@@ -277,7 +277,12 @@ function FilterBar({
   return (
     <div className="well grid grid-cols-1 gap-3 p-3 sm:grid-cols-[15rem_minmax(0,1fr)] sm:gap-x-3 sm:p-4">
       <div role="group" aria-label="Kind" className={cn("flex flex-wrap gap-2 sm:col-span-2", "max-sm:order-3", folded && "max-sm:hidden")}>
-        <FilterChip on={!filters.kind} onClick={() => change({ kind: null })} count={total}>
+        <FilterChip
+          on={!filters.kind}
+          onClick={() => change({ kind: null })}
+          count={total}
+          className={cn(!filters.kind && "bg-navy-wash text-fg ring-navy/40 hover:bg-navy-wash")}
+        >
           All
         </FilterChip>
         {chips.map((k) => (
@@ -286,6 +291,7 @@ function FilterBar({
             on={filters.kind === k.key}
             onClick={() => change({ kind: filters.kind === k.key ? null : k.key })}
             count={data.counts[k.key] ?? 0}
+            className={cn(filters.kind === k.key && "bg-navy-wash text-fg ring-navy/40 hover:bg-navy-wash")}
           >
             {kindWord(k.key)}
           </FilterChip>
@@ -375,10 +381,17 @@ function ThisWeek({
           )}
         </p>
       ) : (
-        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {events.map((e, i) => (
-            <EventCard key={e.id} event={e} today={today} variant="hero" lead={i === 0} onOpen={() => onOpen(e)} />
-          ))}
+        <div className="space-y-4">
+          <EventCard key={events[0].id} event={events[0]} today={today} variant="hero" lead onOpen={() => onOpen(events[0])} />
+          {events.length > 1 && (
+            <Rows>
+              {events.slice(1).map((e) => (
+                <li key={e.id}>
+                  <EventCard event={e} today={today} variant="row" onOpen={() => onOpen(e)} />
+                </li>
+              ))}
+            </Rows>
+          )}
         </div>
       )}
     </Section>

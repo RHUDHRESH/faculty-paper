@@ -313,11 +313,13 @@ export function CompassCard({ variant }: { variant: "research" | "home" }) {
         <p className="mt-2 text-base text-fg">
           Next: <span className="font-medium">{s.next_action.title}</span>
         </p>
-      ) : (
-        <p className={cn("mt-2 text-fg", home ? "text-base" : "font-display text-xl leading-snug")}>
+      ) : home && started && !s.path_name ? (
+        <p className="mt-2 text-base text-fg">Choose one of your three paths to get a plan.</p>
+      ) : !(!home && started) ? (
+        <p className={cn("mt-2 text-fg", home ? "text-base" : "font-display text-lg leading-snug")}>
           {(!home && s.headline) || (started ? s.path_name : "See who you are as a researcher and where you could go")}
         </p>
-      )}
+      ) : null}
       {(s.path_name || s.progress) && (
         <p className="mt-1 text-sm text-fg-muted">
           {[s.path_name && `Your path: ${s.path_name}`, s.progress && s.progress.total > 0 && progressLine(s.progress)]

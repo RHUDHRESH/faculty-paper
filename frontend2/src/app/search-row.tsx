@@ -35,7 +35,7 @@ export function ConnectionLine({ meId, to }: { meId: string; to: string }) {
   return (
     <span className="inline-flex max-w-full items-center gap-1.5 text-xs text-fg-muted">
       <span className="shrink-0">{data.hops} steps away via</span>
-      {via && <Avatar person={{ name: via.name, initials: initialsOf(via.name), photo_url: via.photo_url ?? null }} size="xs" className="size-5 shrink-0 text-[10px]" />}
+      {via && <Avatar person={{ name: via.name, initials: initialsOf(via.name), photo_url: via.photo_url ?? null }} size="xs" className="size-5 shrink-0 text-xs" />}
       <span className="truncate text-fg">{via?.name}</span>
     </span>
   )

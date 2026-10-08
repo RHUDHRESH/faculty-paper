@@ -280,7 +280,7 @@ function PersonFace({ person, outside, institution }: { person: Face; outside: b
     <span
       aria-hidden
       title={institution ?? undefined}
-      className="inline-flex size-12 shrink-0 items-center justify-center rounded-full bg-sunken text-sm font-semibold tracking-wide text-fg-muted shadow-[inset_0_0_0_1px_var(--color-line)] sm:size-14"
+      className="inline-flex size-12 shrink-0 items-center justify-center rounded-full bg-sunken text-sm font-semibold text-fg-muted shadow-[inset_0_0_0_1px_var(--color-line)] sm:size-14"
     >
       {m ?? <Globe className="size-5" strokeWidth={1.5} />}
     </span>

@@ -107,7 +107,7 @@ export function RecordStrip({
     <div role="group" aria-label={label} className={cn("overflow-x-auto", className)}>
       <div className="inline-grid grid-flow-col gap-1" style={{ gridTemplateRows: "repeat(13, auto)" }}>
         {yrs.map((y) => [
-          <span key={`h${y}`} className="text-center text-[10px] leading-3 tabular opacity-70">
+          <span key={`h${y}`} className="text-center text-xs leading-3 tabular opacity-70">
             {String(y).slice(2)}
           </span>,
           ...MONTHS.map((_, m) => cell(y, m)),

@@ -181,7 +181,7 @@ export function GoogleStrip() {
     heading = "Connect your Google Calendar"
     line = `One click. We add a calendar called “${NAME_ONE_LINE}” to your Google account and keep it up to date. We cannot see your other calendars.`
     actions = (
-      <Button kind="primary" size="md" onClick={() => void connect()} loading={connecting}>
+      <Button kind="default" size="md" onClick={() => void connect()} loading={connecting}>
         <CalendarPlus />
         Connect Google Calendar
       </Button>
@@ -191,7 +191,7 @@ export function GoogleStrip() {
     line = s.error
     actions = (
       <>
-        <Button kind="primary" size="md" onClick={() => void connect()} loading={connecting}>
+        <Button kind="default" size="md" onClick={() => void connect()} loading={connecting}>
           <CalendarSync />
           Connect again
         </Button>

@@ -407,7 +407,7 @@ export function ClearDialog({
 
           {phase === "ready" && (
             <>
-              <p className="text-2xl font-semibold tabular">{money(amount)}</p>
+              <p className="figure text-figure font-semibold tabular">{money(amount)}</p>
               {/* What confirming does, in the dialog rather than only in the
                   toast afterwards — by then it has already happened. */}
               <p className="text-sm text-fg-muted">

@@ -76,6 +76,12 @@ def _and(names: list[str]) -> str:
     return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
+def _placeholder(name: str) -> bool:
+    """A journal name that names no journal: no letters or digits ("-", "–"), or "NA" / "N/A"."""
+    text = (name or "").strip()
+    return not any(ch.isalnum() for ch in text) or text.casefold() in {"na", "n/a"}
+
+
 def recent_since(facts: Facts, on: date | None = None) -> date:
     """1 January, three publication years before the newest one on record."""
     ceiling = (on or date.today()).year + 1
@@ -218,12 +224,20 @@ def _people(user, facts, recent, names, breadth, my_areas, my_journals, my_q1_ar
         cross = bool(person.department) and _fold(person.department) != my_department
 
         reasons = []
-        if shared_journals:
-            first = names[shared_journals[0]]
+        # A placeholder journal ("-", "NA") is never named; if only placeholders are shared, count them.
+        named_journals = [names[j] for j in shared_journals if not _placeholder(names[j])]
+        if named_journals:
+            first = named_journals[0]
             reasons.append(
                 f"Publishes in {first}, as you do."
+                if len(named_journals) == 1
+                else f"Publishes in {first} and {_plural(len(named_journals) - 1, 'other journal')} you use."
+            )
+        elif shared_journals:
+            reasons.append(
+                "Publishes in a journal you use."
                 if len(shared_journals) == 1
-                else f"Publishes in {first} and {_plural(len(shared_journals) - 1, 'other journal')} you use."
+                else f"Publishes in {len(shared_journals)} journals you use."
             )
         if shared_areas:
             # A "(miscellaneous)" bucket is named only when it is all there is.

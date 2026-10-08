@@ -30,7 +30,7 @@ import { Avatar, initialsOf } from "@/ui/person"
 import { useSlashToSearch } from "@/ui/queue-keys"
 import { QuietSelect, SearchBox, reviewLink, useUrlFilters, waitTone, waitingLabel } from "@/ui/queue"
 import { Details, Section } from "@/ui/section"
-import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { OwnPapersNote } from "@/ui/own-papers"
 import { thresholdFlag } from "@/ui/research-threshold"
 
@@ -197,11 +197,7 @@ export function Authorisations() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          art="closed-gate"
-          title="Not open to this account"
-          message="Authorising a payment is the Director's, and a super admin standing in for one."
-        />
+        <NotOpen message="Authorising a payment is the Director's, and a super admin standing in for one." />
       </div>
     )
   }

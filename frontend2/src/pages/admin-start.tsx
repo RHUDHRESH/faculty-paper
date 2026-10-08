@@ -13,7 +13,7 @@ import { MediaImport } from "@/pages/media-import"
 import { Button } from "@/ui/button"
 import { PageHeader } from "@/ui/page-header"
 import { Details } from "@/ui/section"
-import { ErrorState, InlineError, Skeleton } from "@/ui/state"
+import { InlineError, NotOpen, Skeleton } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
 
@@ -225,7 +225,7 @@ export function AdminStart() {
   if (me && me.role !== "SUPER_ADMIN") {
     return (
       <div className="page py-8">
-        <ErrorState art="closed-gate" title="Not open to this account" message="Ask the super admin." />
+        <NotOpen message="Ask the super admin." />
       </div>
     )
   }

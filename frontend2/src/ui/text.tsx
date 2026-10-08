@@ -90,7 +90,7 @@ export function ColumnLabel({ children, className }: React.ComponentProps<"span"
  * A number that is an answer, not a value in a list.
  *
  * The figures on a dashboard were being written by hand as
- * `text-2xl font-semibold tabular` on a bare `<p>`, roughly fifteen times
+ * `text-figure font-semibold tabular` on a bare `<p>`, roughly fifteen times
  * across the app — which is fine until two of them disagree, and they did:
  * some carried the tabular class and some did not, so two cards side by side
  * had their digits on different rhythms and the eye could not run down them.
@@ -125,7 +125,7 @@ export function Figure({
   } as const
 
   return (
-    <span className={cn("figure text-2xl", TONE[tone], className)} {...props}>
+    <span className={cn("figure text-figure", TONE[tone], className)} {...props}>
       {children}
     </span>
   )

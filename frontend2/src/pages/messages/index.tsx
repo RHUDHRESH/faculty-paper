@@ -226,7 +226,7 @@ function InboxLink({ to, children }: { to: string; children: React.ReactNode }) 
       className={({ isActive }) =>
         cn(
           "flex items-center gap-3 px-4 py-2 transition-colors duration-[var(--dur-1)] ease-out",
-          isActive ? "bg-[var(--area-people-wash)] shadow-[inset_3px_0_0_var(--area-people)]" : "hover:bg-hover"
+          isActive ? "bg-[var(--area-people-wash)] font-medium" : "hover:bg-hover"
         )
       }
     >
@@ -363,7 +363,7 @@ function StartPane({ onNew }: { onNew: () => void }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-10 text-center">
       <Picture name="empty-no-messages" className="h-32 w-48" eager />
-      <h2 className="display mt-3 text-xl">
+      <h2 className="display mt-3 text-display">
         {me?.name ? `Hello, ${firstName(me.name)}` : "Start a conversation"}
       </h2>
       <p className="mt-1 max-w-sm text-sm text-fg-muted">Private between the two of you.</p>

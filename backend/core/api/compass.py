@@ -60,12 +60,22 @@ def _researcher(request: HttpRequest):
     return user
 
 
+def _faces_on_paths(result: dict) -> dict:
+    """Faces on the peers of every path, from one query for all of them. The
+    service leaves them out, so the counted paths read no photos."""
+    paths = result.get("paths") or []
+    faced = iter(compass._with_faces([p for path in paths for p in path["peers"]]))
+    for path in paths:
+        path["peers"] = [next(faced) for _ in path["peers"]]
+    return result
+
+
 @api.get("/compass", auth=session_auth)
 def compass_page(request: HttpRequest):
     """The facts, and the portrait, paths and plan kept from earlier visits.
     Asks no model and writes nothing."""
     user = _researcher(request)
-    return hod.without_money(compass.overview(user))
+    return hod.without_money(_faces_on_paths(compass.overview(user)))
 
 
 @api.post("/compass/portrait", auth=session_auth)
@@ -87,7 +97,7 @@ def compass_topics(request: HttpRequest, payload: TopicsIn):
 @api.post("/compass/paths", auth=session_auth)
 def compass_paths(request: HttpRequest, payload: Optional[RefreshIn] = None):
     user = _researcher(request)
-    return hod.without_money(compass.paths(user, refresh=bool(payload and payload.refresh)))
+    return hod.without_money(_faces_on_paths(compass.paths(user, refresh=bool(payload and payload.refresh))))
 
 
 @api.post("/compass/choose", auth=session_auth)

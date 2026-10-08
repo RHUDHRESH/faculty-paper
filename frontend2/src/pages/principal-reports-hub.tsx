@@ -158,7 +158,7 @@ export function PrincipalReportsHub() {
       <PageHeader
         title="Reports"
         action={
-          <Button kind="primary" asChild>
+          <Button kind={toSettle === 0 ? "primary" : "default"} asChild>
             <a href={packHref(b?.year)} download>
               <FileText />
               Download the council pack

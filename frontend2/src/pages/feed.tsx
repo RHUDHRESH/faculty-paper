@@ -314,7 +314,7 @@ export function Feed() {
             />
           )}
 
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="flex max-w-full flex-nowrap items-center gap-x-3 overflow-x-auto">
             <Segmented
               label="Which posts"
               value={questions ? "" : tab}
@@ -326,7 +326,7 @@ export function Feed() {
                 })
               }
               items={tabs}
-              className="max-w-full overflow-x-auto"
+              className="shrink-0 [&>button]:min-h-10 [&>button]:shrink-0"
             />
             <FilterChip
               on={questions}
@@ -520,9 +520,6 @@ function FeedList({
               <p className="text-sm font-medium">No posts from colleagues yet</p>
               <Meta className="block text-sm">Be the first: say well done to a colleague, or share your own news.</Meta>
             </div>
-            <Button kind="default" size="sm" onClick={onWrite} className="shrink-0">
-              Write a post
-            </Button>
           </div>
           <Stream posts={[]} hasMore={false} />
         </div>
@@ -660,6 +657,8 @@ function PostComposer({
   const [picked, setPicked] = useState<Candidate[]>([])
   // One quiet line until somebody means to write.
   const [open, setOpen] = useState(!!shareId)
+  // On a phone the four intent buttons wait until the one-line field is tapped or focused.
+  const [opened, setOpened] = useState(false)
   const [kind, setKind] = useState<PostKind | null>(null)
   const [when, setWhen] = useState("")
   const [where, setWhere] = useState("")
@@ -874,7 +873,9 @@ function PostComposer({
         <button
           type="button"
           aria-label="Start a post"
+          onFocus={() => setOpened(true)}
           onClick={() => {
+            setOpened(true)
             setOpen(true)
             requestAnimationFrame(() => textareaRef.current?.focus())
           }}
@@ -884,7 +885,7 @@ function PostComposer({
           <span className="min-w-0 flex-1 truncate">Share a paper, a seminar or a question</span>
           <PenLine className="size-4 shrink-0" aria-hidden />
         </button>
-        {chips}
+        <div className={cn(!opened && "max-sm:hidden")}>{chips}</div>
       </section>
     )
   }

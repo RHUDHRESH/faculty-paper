@@ -116,7 +116,7 @@ export function ScopusProfileCard({
               <ColumnLabel>{label}</ColumnLabel>
             </dt>
             <dd className="mt-1">
-              <Figure className="text-xl">{count(value)}</Figure>
+              <Figure className="text-figure">{count(value)}</Figure>
             </dd>
           </div>
         ))}

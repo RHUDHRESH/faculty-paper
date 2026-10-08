@@ -15,6 +15,17 @@ export function firstName(full: string | null | undefined): string {
 }
 
 /**
+ * A department's name for display only, never for a link or a filter. Words of
+ * five letters or more typed in capitals are title-cased ("TRAINING" becomes
+ * "Training", "S&H-ENGLISH" becomes "S&H-English"); short codes such as "CSE" stay.
+ */
+export function deptLabel(name: string | null | undefined): string {
+  return (name || "").replace(/\p{L}+/gu, (w) =>
+    w.length >= 5 && w === w.toUpperCase() ? w.charAt(0) + w.slice(1).toLowerCase() : w,
+  )
+}
+
+/**
  * A paper's title for display. Imported rows carry placeholders such as "-",
  * "NA" or "nil" where the spreadsheet had nothing; those read as "Untitled".
  */

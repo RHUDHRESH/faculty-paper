@@ -1943,6 +1943,31 @@ class EventRsvp(models.Model):
         return f"{self.user_id} -> {self.event_id}"
 
 
+class EventInvite(models.Model):
+    """"Come along": somebody who may see an event was asked to it, once.
+
+    Telling them is a notification (core/api/events.py). This row is who was
+    asked, by whom, and when; it is shown only to whoever may edit the event.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    event = models.ForeignKey(CalendarEvent, on_delete=models.CASCADE, related_name="invites")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="event_invites")
+    invited_by = models.ForeignKey(
+        User, null=True, on_delete=models.SET_NULL, related_name="event_invites_sent"
+    )
+    note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["event", "user"], name="one_invite_per_person_per_event")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} invited to {self.event_id}"
+
+
 class CalendarFeed(models.Model):
     """The secret in somebody's calendar subscription URL.
 

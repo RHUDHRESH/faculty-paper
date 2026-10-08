@@ -515,7 +515,7 @@ function YouCard({ board, measure }: { board: HonoursBoard; measure: Measure }) 
       <section className={cn(shell, "space-y-4")}>
         {head}
         <div className="space-y-1">
-          <p className="font-display text-lg leading-snug sm:text-xl">No papers counted for you in {period} yet.</p>
+          <p className="font-display text-lg font-semibold leading-snug">No papers counted for you in {period} yet.</p>
           {me.alltime_rank != null ? (
             <p className="text-sm text-fg-muted">
               Your all-time place is <span className="font-semibold text-fg">#{me.alltime_rank}</span>.
@@ -674,7 +674,7 @@ function Controls({
   const chip = (on: boolean) =>
     cn(
       "inline-flex h-10 shrink-0 items-center gap-1 rounded-full px-4 text-sm font-medium transition-colors duration-[var(--dur-1)]",
-      on ? "bg-accent text-accent-fg" : "bg-surface text-fg ring-1 ring-inset ring-control-edge hover:bg-hover"
+      on ? "bg-navy-wash text-fg ring-1 ring-navy/40" : "bg-surface text-fg ring-1 ring-inset ring-control-edge hover:bg-hover"
     )
   const pill = "h-10 w-auto max-w-[15rem] rounded-full pl-9"
   return (
@@ -833,9 +833,9 @@ function MixLegend() {
 
 /** Gold, silver and bronze, quietly: a small chip, not a plinth. */
 const MEDAL = [
-  "bg-[#f3e3b0] text-[#5c430a] ring-[#d9b24a]",
-  "bg-[#e6e8ec] text-[#3f444c] ring-[#b4b8bf]",
-  "bg-[#efd6bd] text-[#5e3a18] ring-[#c08a5a]",
+  "bg-area-honours-wash text-area-honours ring-1 ring-gold/60",
+  "bg-sunken text-fg-muted ring-1 ring-edge",
+  "bg-sunken text-fg-muted ring-1 ring-edge",
 ]
 
 const TOP = 10
@@ -867,7 +867,7 @@ function PeopleView({ board }: { board: HonoursBoard }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-2 print:hidden">
-        <h2 className="font-display text-2xl">Top {Math.min(TOP, ranked.length)}</h2>
+        <h2 className="font-display text-lg font-semibold">Top {Math.min(TOP, ranked.length)}</h2>
         <MixLegend />
       </div>
       <ol aria-label="Top 10" className="divide-y divide-line overflow-hidden rounded-2xl bg-surface ring-1 ring-line print:hidden">
@@ -879,7 +879,7 @@ function PeopleView({ board }: { board: HonoursBoard }) {
               <DetailLink
                 kind="person"
                 id={r.person.id}
-                className={cn("flex w-full min-h-16 hover:no-underline items-center gap-3 px-4 py-2 hover:bg-hover sm:gap-4", you && "bg-accent-wash shadow-[inset_3px_0_0_var(--color-accent)]")}
+                className={cn("flex w-full min-h-16 hover:no-underline items-center gap-3 px-4 py-2 hover:bg-hover sm:gap-4", you && "bg-accent-wash")}
               >
                 <span
                   className={cn(
@@ -896,7 +896,7 @@ function PeopleView({ board }: { board: HonoursBoard }) {
                   <MixBar row={r} />
                 </span>
                 <span className="shrink-0 text-right">
-                  <span className="text-xl font-semibold tabular-nums">{count(r.value)}</span>
+                  <span className="text-lg font-semibold tabular-nums">{count(r.value)}</span>
                   <span className="ml-1 text-xs text-fg-muted">{board.unit}</span>
                 </span>
               </DetailLink>
@@ -943,7 +943,7 @@ function PeopleView({ board }: { board: HonoursBoard }) {
                     key={r.person.id}
                     ref={me ? myRef : undefined}
                     aria-current={me ? "true" : undefined}
-                    className={cn("border-b border-line/60 last:border-0 hover:bg-hover/50", me && "bg-accent-wash shadow-[inset_3px_0_0_var(--color-accent)] hover:bg-accent-wash")}
+                    className={cn("border-b border-line/60 last:border-0 hover:bg-hover/50", me && "bg-accent-wash hover:bg-accent-wash")}
                   >
                     <td className="px-3 py-2 tabular-nums text-fg-muted"><RankCell rank={r.rank} joint={r.joint} /></td>
                     <td className="px-3 py-2">
@@ -996,7 +996,7 @@ function DepartmentsTab({ board }: { board: HonoursBoard }) {
     <div className="space-y-10">
       <DepartmentsView board={board} />
       <section className="space-y-4">
-        <h2 className="font-display text-2xl">Over the years</h2>
+        <h2 className="font-display text-lg font-semibold">Over the years</h2>
         <div className="grid gap-5 lg:grid-cols-2">
           <Trend
             title={`Papers by year · ${board.scope ?? "whole college"}`}
@@ -1010,7 +1010,7 @@ function DepartmentsTab({ board }: { board: HonoursBoard }) {
         </div>
       </section>
       <section className="space-y-4">
-        <h2 className="font-display text-2xl">How it is spread</h2>
+        <h2 className="font-display text-lg font-semibold">How it is spread</h2>
         <Distribution
           title={`How ${board.label.toLowerCase()} is spread`}
           caption={me?.percentile != null ? `You're in the top ${me.percentile}% of ${board.scope ?? "the college"}.` : undefined}
@@ -1038,7 +1038,7 @@ function DepartmentsView({ board }: { board: HonoursBoard }) {
               <Picture name={deptPicture(d.department)} className="h-20 w-24 shrink-0 sm:h-28 sm:w-full" />
               <div className="min-w-0">
                 <p className="text-xs text-fg-muted">{i === 0 ? "Leading department" : ordinal(i + 1)}</p>
-                <p className="truncate font-display text-xl">{d.department}</p>
+                <p className="truncate font-display text-lg font-semibold">{d.department}</p>
                 <p className="text-sm text-fg-muted tabular-nums">
                   {perFaculty ? `${d.per_faculty} per head` : `${count(d.value)} ${board.unit}`} · {d.faculty} faculty
                 </p>

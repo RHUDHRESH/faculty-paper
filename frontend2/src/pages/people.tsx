@@ -932,7 +932,7 @@ function Figure({
   return (
     <div>
       <p className="text-sm text-fg-muted">{label}</p>
-      <p className={cn("mt-0.5 text-2xl font-semibold tabular", muted && "text-fg-subtle")}>
+      <p className={cn("mt-0.5 figure text-figure font-semibold tabular", muted && "text-fg-subtle")}>
         {value}
       </p>
       {hint && <p className="mt-0.5 text-sm text-fg-muted">{hint}</p>}
@@ -1190,7 +1190,7 @@ function PersonFigure({
   return (
     <div>
       <p className="text-sm text-fg-muted">{label}</p>
-      <p className="mt-0.5 text-2xl font-semibold tabular">{value.toLocaleString("en-IN")}</p>
+      <p className="mt-0.5 figure text-figure font-semibold tabular">{value.toLocaleString("en-IN")}</p>
       {hint && <p className="mt-0.5 text-sm text-fg-muted">{hint}</p>}
     </div>
   )

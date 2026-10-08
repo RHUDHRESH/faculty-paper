@@ -4,9 +4,6 @@ import type { IllustrationName } from "@/ui/illustration"
 import { InfoTip } from "@/ui/info"
 import { Plate } from "@/ui/plate"
 
-/** Longest `sub` shown whole; past this it is one clipped line plus an (i). */
-const SUB_MAX = 80
-
 /** The small mounted print at the right of a `.page-head` header. */
 export function HeaderSpot({ name }: { name: IllustrationName }) {
   return <Plate name={name} width={120} className="hidden sm:block" eager />
@@ -23,10 +20,8 @@ export function HeaderSpot({ name }: { name: IllustrationName }) {
  * so a reader always knows where they are standing before they read anything
  * else. The line under it is the lead, 18px, no wider than 40rem.
  *
- *   `sub`        the one line. A sentence, not a paragraph. Held to one line:
- *                a longer string is clipped with an ellipsis and its full text
- *                moves behind the (i) "About this page" beside the title, so
- *                the header never grows a paragraph.
+ *   `sub`        the lead. A sentence, not a paragraph. It wraps to as many
+ *                lines as it needs (`text-pretty`); it is never truncated.
  *   `about`      the explanation that does not need to be on the page: how the
  *                numbers are worked out, who can see what. Opens from the (i).
  *   `action`     the one primary action (a `Button kind="primary"`). Only one.
@@ -66,8 +61,7 @@ export function PageHeader({
   className?: string
 }) {
   const buttons = action ?? actions
-  const long = typeof sub === "string" && sub.length > SUB_MAX
-  const aboutBody = about ?? (long ? sub : null)
+  const aboutBody = about ?? null
   return (
     <header className={cn("flex items-start gap-8 pb-2", className)}>
       <div className="min-w-0 flex-1">
@@ -83,7 +77,7 @@ export function PageHeader({
           )}
         </div>
         {sub && (
-          <div className={cn("mt-2 max-w-[48rem] text-lead text-fg-muted", long ? "line-clamp-1" : "text-pretty")}>{sub}</div>
+          <div className="mt-2 max-w-[48rem] text-pretty text-lead text-fg-muted">{sub}</div>
         )}
         {children}
       </div>

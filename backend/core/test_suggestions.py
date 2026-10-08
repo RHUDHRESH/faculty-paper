@@ -132,6 +132,30 @@ class PeopleToWorkWith(_Suggest):
         self.assertIn(AI, text)
         self.assertIn("Q1", text)
 
+    def test_a_placeholder_journal_is_never_named_when_a_real_one_is_shared(self):
+        self._paper(self.me, areas=(AI,), journal="Neural Letters")
+        self._paper(self.me, areas=(AI,), journal="-")
+        partner = self._person("partner", "CSE")
+        self._paper(partner, areas=(AI,), journal="-")
+        self._paper(partner, areas=(AI,), journal="-")
+        self._paper(partner, areas=(AI,), journal="Neural Letters")
+        person = next(p for p in self._next()["people"] if p["id"] == partner.id)
+        self.assertIn("Publishes in Neural Letters, as you do.", person["reasons"])
+        self.assertFalse(any(r.startswith("Publishes in -") for r in person["reasons"]))
+
+    def test_when_only_placeholder_journals_are_shared_the_reason_counts_them(self):
+        self._paper(self.me, areas=(AI,), journal="NA")
+        self._paper(self.me, areas=(AI,), journal="–")
+        self._paper(self.me, areas=(AI,), journal="N/A")
+        two = self._person("two", "CSE")
+        self._paper(two, areas=(AI,), journal="na")
+        self._paper(two, areas=(AI,), journal="–")
+        one = self._person("one", "IT")
+        self._paper(one, areas=(AI,), journal="n/a")
+        reasons = {p["id"]: p["reasons"] for p in self._next()["people"]}
+        self.assertIn("Publishes in 2 journals you use.", reasons[two.id])
+        self.assertIn("Publishes in a journal you use.", reasons[one.id])
+
     def test_people_with_nothing_in_common_are_not_suggested(self):
         self._paper(self.me, areas=(AI,), journal="Neural Letters")
         far = self._person("far", "MED")

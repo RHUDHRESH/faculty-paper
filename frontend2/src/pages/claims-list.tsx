@@ -446,7 +446,7 @@ function WayRow({ claim, outlook }: { claim: Claim; outlook?: PayoutOutlook | nu
         <div className="shrink-0 text-right">
           {amount.amount != null ? (
             <>
-              <p className="figure text-xl tabular">{money(amount.amount)}</p>
+              <p className="figure text-figure tabular">{money(amount.amount)}</p>
               <p className="text-xs text-fg-muted">{claim.remuneration_is_estimate ? "Expected, an estimate" : "Expected"}</p>
             </>
           ) : (

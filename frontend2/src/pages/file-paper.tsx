@@ -1977,7 +1977,7 @@ function PhaseTrack({ current }: { current: number }) {
               <span
                 aria-hidden
                 className={cn(
-                  "grid size-5 shrink-0 place-items-center rounded-full border text-[11px] font-medium tabular",
+                  "grid size-5 shrink-0 place-items-center rounded-full border text-xs font-medium tabular",
                   here
                     ? "border-accent text-accent"
                     : done

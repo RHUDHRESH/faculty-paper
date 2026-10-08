@@ -17,7 +17,7 @@ import { PageHeader } from "@/ui/page-header"
 import { Pagination } from "@/ui/pagination"
 import { Details, Section } from "@/ui/section"
 import { Avatar, initialsOf } from "@/ui/person"
-import { EmptyState, ErrorState, Skeleton, SkeletonRows } from "@/ui/state"
+import { EmptyState, ErrorState, NotOpen, Skeleton, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { ColumnLabel, Meta, SectionTitle } from "@/ui/text"
 import { api } from "@/lib/api"
@@ -181,11 +181,7 @@ export function Ledger() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          art="closed-gate"
-          title="Not open to this account"
-          message="The ledger shows what each person was paid. Finance, the Principal and the research office can read it."
-        />
+        <NotOpen message="The ledger shows what each person was paid. Finance, the Principal and the research office can read it." />
       </div>
     )
   }

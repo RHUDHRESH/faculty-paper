@@ -45,7 +45,7 @@ describe("Answer", () => {
       />
     )
     const long = screen.getByText("₹12,34,56,789", { selector: "span[aria-hidden]" })
-    expect(long).toHaveClass("max-sm:text-xl")
+    expect(long).toHaveClass("max-sm:text-figure")
     expect(long.className).toContain("overflow-wrap:anywhere")
     expect(screen.getByText("₹4,500", { selector: "span[aria-hidden]" })).not.toHaveClass("max-sm:text-xl")
   })

@@ -325,7 +325,7 @@ export function PersonContext({
             <>
               <Avatar person={{ name: brief.name, initials: initialsOf(brief.name), photo_url: brief.photo_url ?? null }} size="lg" />
               <div className="min-w-0 flex-1">
-                <p className="text-xl font-semibold text-fg">{brief.name}</p>
+                <p className="text-lg font-semibold text-fg">{brief.name}</p>
                 {brief.sub && <p className="text-sm text-fg-muted">{brief.sub}</p>}
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <Chip tone={external ? "neutral" : "area"} area="people">

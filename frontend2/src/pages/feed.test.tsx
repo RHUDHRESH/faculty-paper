@@ -158,7 +158,7 @@ describe("Feed", () => {
   it("invites the first post when nobody has posted yet", async () => {
     mount([])
     expect(await screen.findByText("No posts from colleagues yet")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Write a post" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Write a post" })).not.toBeInTheDocument()
   })
 
   it("shows a post the moment it is sent, before the server answers", async () => {

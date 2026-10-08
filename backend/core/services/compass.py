@@ -66,6 +66,7 @@ from core.services import research_helper as helper
 from core.services import research_picture as picture
 from core.services import scout
 from core.services.person_record import department_of, rank_in
+from core.social import initials, photo_url
 
 logger = logging.getLogger(__name__)
 
@@ -975,7 +976,7 @@ def _why(key: str, facts: dict[str, Any]) -> str:
 
 
 def _peer(p: dict[str, Any]) -> dict[str, Any]:
-    return {"id": p["id"], "name": p["name"], "dept": p["dept"]}
+    return {"id": p["id"], "name": p["name"], "dept": p["dept"]}  # faces are added on the way out, by the API
 
 
 def _peers_for(key: str, facts: dict[str, Any], k: int = 2) -> list[dict[str, Any]]:
@@ -994,6 +995,21 @@ def _peers_for(key: str, facts: dict[str, Any], k: int = 2) -> list[dict[str, An
     else:
         pool = [p for p in people if p["relation"] == "coauthor"] or people
     return [_peer(p) for p in pool[:k]]
+
+
+def _with_faces(peers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add a face and initials to peers, from one query for all of them. The API
+    calls this on the way out, after the model; the service never does, so the
+    counted paths touch no database."""
+    if not peers:
+        return peers
+    users = {str(u.id): u for u in User.objects.filter(id__in=[p["id"] for p in peers]).only("id", "name", "photo")}
+    out = []
+    for p in peers:
+        u = users.get(str(p["id"]))
+        out.append({**p, "photo_url": photo_url(u) if u else None,
+                    "initials": initials(u.name if u else p["name"])})
+    return out
 
 
 def _path(key: str, name: str, why: str, evidence: list[dict[str, str]], peers: list[dict[str, Any]],

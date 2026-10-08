@@ -24,7 +24,7 @@ import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { Details } from "@/ui/section"
-import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { Callout, EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { ColumnLabel, Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
@@ -189,7 +189,7 @@ export function PaymentsDone() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState title="Not open to this account" message="Only Finance can see or process payments." />
+        <NotOpen message="Only Finance can see or process payments." />
       </div>
     )
   }

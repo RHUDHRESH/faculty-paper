@@ -24,6 +24,7 @@ import { Answer } from "@/ui/answer"
 import { DetailLink } from "@/ui/detail-sheet"
 import { formatCount } from "@/lib/count"
 import { PageHeader } from "@/ui/page-header"
+import { ResearchToolsTabs } from "@/pages/research-tools-tabs"
 import { Rows, Section } from "@/ui/section"
 import { money } from "@/ui/paper"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/ui/sheet"
@@ -89,6 +90,7 @@ export function Discover() {
 
   return (
     <div className="page space-y-8" data-area="research">
+      <ResearchToolsTabs />
       <div className="space-y-6">
         <PageHeader
           title="Discover"
@@ -299,11 +301,13 @@ function ForYouSections({
       )}
       {people.length > 0 && (
         <Section title="Who to meet" sub="Colleagues who work near you, and why." action={all("people", people.length, 3)}>
-          <div className="grid gap-4 md:grid-cols-3">
+          <Rows>
             {people.slice(0, 3).map((item) => (
-              <FeedCard key={item.id} item={item} onHide={() => hide(item)} />
+              <li key={item.id} className="py-5">
+                <FeedRow item={item} onHide={() => hide(item)} />
+              </li>
             ))}
-          </div>
+          </Rows>
         </Section>
       )}
       {papers.length > 0 && (
@@ -346,11 +350,13 @@ function KindList({
       </ul>
     )
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+    <Rows>
       {list.map((item) => (
-        <FeedCard key={item.id} item={item} onHide={() => hide(item)} />
+        <li key={item.id} className="py-5">
+          <FeedRow item={item} onHide={() => hide(item)} />
+        </li>
       ))}
-    </div>
+    </Rows>
   )
 }
 

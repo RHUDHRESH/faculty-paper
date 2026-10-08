@@ -96,7 +96,7 @@ function Figure({ item }: { item: AnswerItem }) {
           // push the page sideways, so on a phone a long value is set smaller
           // and, as a last resort, allowed to wrap rather than overflow.
           "figure block text-figure [overflow-wrap:anywhere]",
-          text.length > 9 && "max-sm:text-xl",
+          text.length > 9 && "max-sm:text-figure",
           text.length > 13 && "max-sm:text-lg",
           loading && "text-fg-subtle",
           isZero ? "text-fg-subtle" : !loading && TONE[tone]

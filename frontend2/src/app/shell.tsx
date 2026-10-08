@@ -1,11 +1,11 @@
-import { Fragment, Suspense, useEffect, useState } from "react"
+import { Fragment, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 import * as RadixDialog from "@radix-ui/react-dialog"
 import { Check, ChevronRight, ChevronsUpDown, Command, Monitor, Moon, PanelLeft, PanelLeftClose, Search, Sun } from "lucide-react"
 
 import { useAuth, type Role } from "@/app/auth"
 import { HOME_DATA } from "@/app/home-data"
-import { activeDoor, inResearch, NAV, navBadges, navFor, type NavItem } from "@/app/nav"
+import { activeDoor, inResearch, isCurrentEntry, NAV, navBadges, navFor, type NavItem } from "@/app/nav"
 import { useApi } from "@/lib/query"
 import { Mark } from "@/ui/art"
 import { Avatar, initialsOf } from "@/ui/person"
@@ -24,7 +24,7 @@ import { CrumbLabelProvider, crumbsFor, useCrumbLabelValue } from "@/app/crumbs"
 import { Breadcrumbs } from "@/ui/breadcrumbs"
 import { formatCount } from "@/lib/count"
 import { ROLE_LABEL } from "@/app/account"
-import { Welcome } from "@/app/welcome"
+import { Welcome, welcomeOnHome } from "@/app/welcome"
 import { motion, useReducedMotion } from "motion/react"
 import { PageTransition, sidebarSpring } from "@/ui/motion/page"
 import { DetailHost } from "@/ui/detail-sheet"
@@ -223,7 +223,7 @@ export function Shell({
             {!collapsed && (
               <span className="min-w-0 leading-tight">
                 <span className="block truncate font-display text-[15px] font-medium">Publications</span>
-                <span className="block truncate text-[11px] text-fg-subtle">{collegeName}</span>
+                <span className="block truncate text-xs text-fg-subtle">{collegeName}</span>
               </span>
             )}
             <Button
@@ -238,7 +238,7 @@ export function Shell({
             </Button>
           </div>
 
-          <nav className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2" aria-label="Main">
+          <FadingNav navClassName="h-full overflow-y-auto px-2.5 pb-2">
             <NavList
               items={listed}
               role={me?.role}
@@ -247,7 +247,7 @@ export function Shell({
               preload={preload}
               research={research}
             />
-          </nav>
+          </FadingNav>
 
           {pinned.length > 0 && (
             <div className="px-2 pb-2">
@@ -324,9 +324,14 @@ export function Shell({
           </header>
 
           {me?.impersonated_by && <ViewingAs name={me.name} role={me.role} />}
-          {me && <Welcome key={me.id} />}
-
           <main className="min-w-0 flex-1 pb-16 pt-6 sm:pt-8">
+            {me && welcomeOnHome(me, pathname) ? (
+              // Home only, in the page flow: the note sits in the same width as
+              // the Home title. `empty:hidden` drops the wrapper once dismissed.
+              <div className="page mb-6 empty:hidden">
+                <Welcome key={me.id} />
+              </div>
+            ) : null}
             <CrumbStrip />
             <Suspense fallback={<PageLoading />}>
               <PageTransition>
@@ -357,7 +362,7 @@ export function Shell({
               <Mark className="size-5 text-accent" />
               <span className="text-sm font-semibold">Publications</span>
             </div>
-            <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="Main">
+            <FadingNav navClassName="h-full overflow-y-auto">
               <NavList
                 items={[...listed, ...pinned]}
                 role={me?.role}
@@ -367,7 +372,7 @@ export function Shell({
                 preload={preload}
                 research={research}
               />
-            </nav>
+            </FadingNav>
             <div className="mt-2 shrink-0 border-t border-line pt-2">
               <AccountMenu />
             </div>
@@ -376,6 +381,47 @@ export function Shell({
       </RadixDialog.Portal>
     </RadixDialog.Root>
     </CrumbLabelProvider>
+  )
+}
+
+/**
+ * The sidebar's scrolling list, with a soft fade at its foot while there is
+ * more below. The fade is the only cue that the list goes on.
+ */
+function FadingNav({ navClassName, children }: { navClassName: string; children: ReactNode }) {
+  const ref = useRef<HTMLElement>(null)
+  const [more, setMore] = useState(false)
+  const measure = useCallback(() => {
+    const el = ref.current
+    if (el) setMore(el.scrollHeight - el.scrollTop - el.clientHeight > 2)
+  }, [])
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.addEventListener("scroll", measure, { passive: true })
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null
+    ro?.observe(el)
+    return () => {
+      el.removeEventListener("scroll", measure)
+      ro?.disconnect()
+    }
+  }, [measure])
+  // A folder opening grows the content, not the box, so measure after each render too.
+  useEffect(() => {
+    measure()
+  })
+  return (
+    <div className="relative min-h-0 flex-1">
+      <nav ref={ref} className={navClassName} aria-label="Main">
+        {children}
+      </nav>
+      {more && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-sunken to-transparent"
+        />
+      )}
+    </div>
   )
 }
 
@@ -470,6 +516,24 @@ function NavList({
           onPointerEnter={preload(item.to)}
           onFocus={preload(item.to)}
           className={cn(navClass(active), mobile && "h-9")}
+        >
+          {inner}
+        </Link>
+      )
+    }
+    if (item.activeFor) {
+      // A door for several pages: lit by any of them, not only its own route.
+      const current = isCurrentEntry(item, pathname)
+      return (
+        <Link
+          key={item.to}
+          to={item.to}
+          aria-current={current ? "page" : undefined}
+          data-area={item.area}
+          title={collapsed ? item.label : undefined}
+          onPointerEnter={preload(item.to)}
+          onFocus={preload(item.to)}
+          className={cn(navClass(current, item.area), mobile && "h-9")}
         >
           {inner}
         </Link>
@@ -588,7 +652,7 @@ function NavBadge({ n, compact = false, label: said }: { n: number | undefined; 
   }
   return (
     <span
-      className="ml-auto min-w-5 shrink-0 rounded-full bg-accent-wash px-1.5 text-center text-[11px] font-semibold leading-5 text-accent tabular"
+      className="ml-auto min-w-5 shrink-0 rounded-full bg-accent-wash px-1.5 text-center text-xs font-semibold leading-5 text-accent tabular"
       aria-label={label}
     >
       {formatCount(n)}

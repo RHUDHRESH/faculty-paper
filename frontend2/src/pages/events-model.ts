@@ -31,6 +31,56 @@ export type HubEvent = {
   going_count: number
   going: boolean
   can_edit: boolean
+  /** Editors only: how many people have been invited. */
+  invited_count?: number
+  /** For the viewer, when somebody invited them. */
+  invited_by?: { id: string; name: string } | null
+}
+
+/* Invitations (core/api/events.py): who matches the topic, who was asked. */
+
+export type InviteStatus = "none" | "invited" | "going"
+
+export type InvitePerson = {
+  id: string
+  name: string
+  department: string | null
+  designation: string | null
+  photo_url: string | null
+  initials: string
+  why: string
+  score: number
+  papers_on_topic: number
+  status: InviteStatus
+}
+
+export type PeoplePayload = {
+  event_id: string
+  /** The topics the event is about, best first, with the papers the college holds on each. */
+  topics: { name: string; papers: number }[]
+  /** True when the topic was worked out by AI rather than read from the words. */
+  ai: boolean
+  counted: boolean
+  people: InvitePerson[]
+  total: number
+}
+
+export type InviteResult = { invited: number; already: number; skipped: number }
+
+export type InvitedPerson = {
+  id: string
+  name: string
+  department: string | null
+  photo_url: string | null
+  initials: string
+  invited_at: string
+  invited_by_name: string | null
+  going: boolean
+}
+
+export type InvitesPayload = {
+  people: InvitedPerson[]
+  counts: { invited: number; going: number }
 }
 
 export type Audience = { key: "DEPARTMENT" | "PUBLIC" | string; label: string }

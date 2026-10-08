@@ -153,7 +153,7 @@ describe("My research — your compass", () => {
       "/api/compass/summary": () => ({ headline: "You make small grids steadier.", path_name: "Q1 specialist", progress: { done: 2, total: 5 }, next_action: null }),
     })
     const card = await screen.findByRole("region", { name: "Your compass" })
-    expect(within(card).getByText("You make small grids steadier.")).toBeInTheDocument()
+    expect(within(card).queryByText("You make small grids steadier.")).toBeNull()
     expect(within(card).getByText("Your path: Q1 specialist · 2 of 5 done")).toBeInTheDocument()
     expect(within(card).getByRole("link", { name: "Open your compass" })).toHaveAttribute("href", "/compass")
   })

@@ -26,7 +26,7 @@ import {
   waitingLabel,
 } from "@/ui/queue"
 import { Rows } from "@/ui/section"
-import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { AGE_BUCKETS, ageSplit, inBucket, isAgeBucket } from "@/pages/clearing-desk"
@@ -221,7 +221,7 @@ export function Clearing() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState title="Not open to this account" message="Only the research office and a super admin can clear claims." />
+        <NotOpen message="Only the research office and a super admin can clear claims." />
       </div>
     )
   }
@@ -540,7 +540,7 @@ export function Clearing() {
 }
 
 function Kbd({ children }: { children: React.ReactNode }) {
-  return <kbd className="rounded border border-edge px-1 text-[0.6875rem]">{children}</kbd>
+  return <kbd className="rounded border border-edge px-1 text-xs">{children}</kbd>
 }
 
 /** The queue as it stands on screen, for the office's own spreadsheet. */

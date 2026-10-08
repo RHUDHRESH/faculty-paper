@@ -50,8 +50,8 @@ export function coverColours(title: string, quartile?: string | null) {
 }
 
 const SIZES = {
-  xs: "h-10 w-8 text-[9px]",
-  sm: "h-14 w-11 text-[10px]",
+  xs: "h-10 w-8 text-xs",
+  sm: "h-14 w-11 text-xs",
   md: "h-20 w-15 text-xs",
   lg: "h-32 w-24 text-sm",
 } as const
@@ -86,7 +86,7 @@ export function JournalCover({
       style={{ background: `linear-gradient(160deg, ${c.bodyLight}, ${c.body})` }}
     >
       <span aria-hidden className="h-[14%] w-full" style={{ background: c.band }} />
-      <span aria-hidden className="flex flex-1 items-center justify-center px-0.5 font-serif tracking-wide">
+      <span aria-hidden className="flex flex-1 items-center justify-center px-0.5 font-serif">
         {mark}
       </span>
       {showPublisher && publisher && (

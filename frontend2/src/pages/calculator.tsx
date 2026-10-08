@@ -7,7 +7,7 @@ import { ManyTab } from "@/pages/calculator-many"
 import { PriceTab } from "@/pages/calculator-price"
 import { Button } from "@/ui/button"
 import { PageHeader } from "@/ui/page-header"
-import { ErrorState } from "@/ui/state"
+import { NotOpen } from "@/ui/state"
 
 /**
  * The incentive calculator (docs/ux/23): how much a paper should pay, and
@@ -47,11 +47,7 @@ export function Calculator() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState
-          art="closed-gate"
-          title="Not open to this account"
-          message="The incentive calculator is for the research office, the Principal, the Director and Finance. When you file a paper, the form shows the estimate."
-        />
+        <NotOpen message="The incentive calculator is for the research office, the Principal, the Director and Finance. When you file a paper, the form shows the estimate." />
         <p className="mt-4">
           <Button asChild>
             <Link to="/">Back to your home</Link>

@@ -26,7 +26,7 @@ export type Path = {
   why: string
   evidence: Evidence[]
   metrics: Metric[]
-  peers: { id: string; name: string; dept: string }[]
+  peers: { id: string; name: string; dept: string; photo_url?: string | null; initials?: string }[]
 }
 
 export type ActionKind = "journal" | "person" | "topic" | "goal" | "deadline"

@@ -187,11 +187,50 @@ export function describeChange(before: RecordPaper[], after: RecordPaper[]): str
   return parts.length ? parts.join(", ") : "nothing new"
 }
 
-const STEP = 50
+const STEP = 25
+
+// Which version of a paper leads its group: the claim already moving first, then paid, ready to file, not eligible.
+const LEAD: Record<ReturnType<typeof tabOf>, number> = { progress: 0, paid: 1, unclaimed: 2, ineligible: 3 }
+
+function leads(a: RecordPaper, b: RecordPaper): boolean {
+  if (LEAD[tabOf(a)] !== LEAD[tabOf(b)]) return LEAD[tabOf(a)] < LEAD[tabOf(b)]
+  if (!!a.venue !== !!b.venue) return !!a.venue
+  return (a.year ?? 0) > (b.year ?? 0)
+}
 
 /** A title with the case, spacing and punctuation taken out, to spot the same paper listed twice. */
 function sameTitleKey(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9]+/g, "")
+}
+
+/** Levenshtein distance is at most 2. Gives up early once every row is over 2. */
+function near(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 2) return false
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]
+    let low = i
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+      low = Math.min(low, cur[j])
+    }
+    if (low > 2) return false
+    prev = cur
+  }
+  return prev[b.length] <= 2
+}
+
+/** Long keys that differ by a typo (at most 2 letters) fold into the first key that matches them. */
+function nearTitleKeys(keys: string[]): Map<string, string> {
+  const canon = new Map<string, string>()
+  const kept: string[] = []
+  for (const k of new Set(keys)) {
+    if (!k) continue
+    const hit = k.length >= 40 ? kept.find((c) => c.length >= 40 && c.slice(0, 20) === k.slice(0, 20) && near(c, k)) : undefined
+    if (hit) canon.set(k, hit)
+    else kept.push(k)
+  }
+  return canon
 }
 
 type Report = { paper: RecordPaper; kind: "not_mine" | "duplicate"; of?: RecordPaper }
@@ -215,6 +254,16 @@ export function Papers() {
   const [pulled, setPulled] = useState<string | null>(null)
   const [showFilters, setShowFilters] = useState(false)
   const [shown, setShown] = useState(STEP)
+  const [open, setOpen] = useState<Set<string>>(new Set())
+
+  function toggleVersions(key: string) {
+    setOpen((s) => {
+      const n = new Set(s)
+      if (n.has(key)) n.delete(key)
+      else n.add(key)
+      return n
+    })
+  }
 
   const query = useApi<Payload>(["me-publications", sort], `/api/me/publications?sort=${sort}`)
   const threshold = useMyThreshold()
@@ -257,10 +306,15 @@ export function Papers() {
     [all]
   )
   const types = useMemo(() => [...new Set(all.map((p) => p.type).filter(Boolean))] as string[], [all])
+  const titleKeys = useMemo(() => nearTitleKeys(all.map((p) => sameTitleKey(p.title))), [all])
+  const keyOf = (title: string) => {
+    const k = sameTitleKey(title)
+    return titleKeys.get(k) ?? k
+  }
   const twins = useMemo(() => {
     const groups = new Map<string, RecordPaper[]>()
     for (const p of all) {
-      const k = sameTitleKey(p.title)
+      const k = keyOf(p.title)
       if (k) groups.set(k, [...(groups.get(k) ?? []), p])
     }
     const out = new Map<string, RecordPaper>()
@@ -288,7 +342,30 @@ export function Papers() {
   const rank = { unclaimed: 0, progress: 1, paid: 2, ineligible: 2 } as const
   const matching =
     tab === "all" && sort === "year" ? [...matchingAll].sort((a, b) => rank[tabOf(a)] - rank[tabOf(b)]) : matchingAll
-  const rows = matching.slice(0, shown)
+  // Versions of one paper fold under a representative. The others are listed
+  // only when their group is open. Groups are made from the rows that pass the
+  // filters, so a filtered-out version never hides the one that is shown.
+  const groups = new Map<string, RecordPaper[]>()
+  for (const p of matching) {
+    const k = keyOf(p.title)
+    if (k) groups.set(k, [...(groups.get(k) ?? []), p])
+  }
+  const repOf = new Map<string, RecordPaper>()
+  const folded = new Set<string>()
+  for (const [k, g] of groups) {
+    if (g.length < 2) continue
+    const lead = g.reduce((best, p) => (leads(p, best) ? p : best))
+    repOf.set(k, lead)
+    for (const p of g) if (p.id !== lead.id) folded.add(p.id)
+  }
+  const listed: RecordPaper[] = []
+  for (const p of matching) {
+    if (folded.has(p.id)) continue
+    listed.push(p)
+    const k = keyOf(p.title)
+    if (repOf.get(k)?.id === p.id && open.has(k)) listed.push(...groups.get(k)!.filter((v) => v.id !== p.id))
+  }
+  const rows = listed.slice(0, shown)
   const reported = all.filter((p) => hidden.has(p.id))
 
   if (status) return <Navigate to={`/papers/claims?status=${encodeURIComponent(status)}`} replace />
@@ -358,7 +435,17 @@ export function Papers() {
             </span>
             {p.quartile && <Chip tone={p.quartile === "Q1" ? "gold" : "neutral"}>{p.quartile}</Chip>}
             {p.citations != null && p.citations > 0 && <span className="tabular">Cited {formatCount(p.citations)}</span>}
-            {twins.has(p.id) && <Chip tone="caution">Listed twice</Chip>}
+            {repOf.get(keyOf(p.title))?.id === p.id && (
+              <Button
+                kind="quiet"
+                size="sm"
+                aria-expanded={open.has(keyOf(p.title))}
+                onClick={() => toggleVersions(keyOf(p.title))}
+              >
+                {groups.get(keyOf(p.title))!.length} versions
+              </Button>
+            )}
+            {folded.has(p.id) && <Chip>Another version</Chip>}
           </p>
         </div>
       ),
@@ -648,10 +735,10 @@ export function Papers() {
               </p>
             ))}
 
-            {(matching.length !== all.length || rows.length < matching.length) && (
+            {(listed.length !== all.length || rows.length < listed.length) && (
               <p className="text-sm text-fg-muted" aria-live="polite">
-                Showing {formatCount(rows.length)} of {formatCount(matching.length)}
-                {matching.length === all.length ? " papers" : ` matching papers, ${formatCount(all.length)} on your record`}.
+                Showing {formatCount(rows.length)} of {formatCount(listed.length)}
+                {listed.length === all.length ? " papers" : ` matching papers, ${formatCount(all.length)} on your record`}.
               </p>
             )}
 
@@ -703,9 +790,9 @@ export function Papers() {
                     }
               }
             />
-            {rows.length < matching.length && (
+            {rows.length < listed.length && (
               <Button onClick={() => setShown((s) => s + STEP)}>
-                Show {formatCount(Math.min(STEP, matching.length - rows.length))} more
+                Show {formatCount(Math.min(STEP, listed.length - rows.length))} more
               </Button>
             )}
           </section>

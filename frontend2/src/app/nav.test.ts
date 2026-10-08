@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { can } from "@/app/auth"
-import { activeDoor, HUBS, hubSections, NAV, navBadges, navFor, pagesFor, REDIRECTS, reviewsFlags, type HubKey } from "@/app/nav"
+import { activeDoor, HUBS, hubSections, inResearch, isCurrentEntry, NAV, navBadges, navFor, pagesFor, REDIRECTS, reviewsFlags, type HubKey } from "@/app/nav"
 
 /**
  * A head of department is a faculty member who also heads the department
@@ -306,23 +306,58 @@ describe("nav badges", () => {
  * redirect rather than 404.
  */
 describe("the Convocation sidebar", () => {
-  it("gives faculty Search, Home, four groups and a pinned Calendar", () => {
+  it("gives faculty Search, Home, three groups and a pinned Calendar", () => {
     const items = navFor("FACULTY")
     expect(items.map((i) => i.label)).toEqual([
       "Search", "Home",
       "My papers", "File a paper",
-      "My research", "Events and research", "Discover", "Check a journal", "Research compass",
-      "Who to work with", "Messages", "Discussions",
-      "Leaderboard",
+      "My research", "Events and research", "Research tools",
+      "Who to work with", "Messages", "Discussions", "Leaderboard",
       "Calendar",
     ])
-    expect([...new Set(items.map((i) => i.group).filter(Boolean))]).toEqual(["Record", "Research", "People", "Honours"])
+    expect([...new Set(items.map((i) => i.group).filter(Boolean))]).toEqual(["Record", "Research", "People"])
     expect(items.find((i) => i.to === "/calendar")?.pinned).toBe(true)
   })
 
-  it("colours every grouped item with its group's area", () => {
-    const area = { Record: "record", Research: "research", People: "people", Honours: "honours" } as const
-    for (const i of navFor("FACULTY")) if (i.group) expect(i.area, i.label).toBe(area[i.group as keyof typeof area])
+  it("colours every grouped item with its group's area, Leaderboard keeping the honours colour", () => {
+    const area = { Record: "record", Research: "research", People: "people" } as const
+    for (const i of navFor("FACULTY")) if (i.group && i.to !== "/leaderboard") expect(i.area, i.label).toBe(area[i.group as keyof typeof area])
+    expect(NAV.find((i) => i.to === "/leaderboard")?.area).toBe("honours")
+  })
+
+  it("keeps the three research tools routed and findable, but out of the sidebar", () => {
+    for (const to of ["/discover", "/journal-check", "/compass"]) {
+      expect(NAV.find((i) => i.to === to)?.findOnly, to).toBe(true)
+      expect(navFor("FACULTY").map((i) => i.to)).not.toContain(to)
+    }
+    expect(pagesFor("FACULTY").map((i) => i.to)).toEqual(expect.arrayContaining(["/discover", "/journal-check", "/compass"]))
+  })
+
+  it("lights Research tools on each of its three pages", () => {
+    const tools = NAV.find((i) => i.to === "/tools")!
+    for (const path of ["/compass", "/discover", "/journal-check", "/scout", "/tools"]) {
+      expect(isCurrentEntry(tools, path), path).toBe(true)
+    }
+    expect(isCurrentEntry(tools, "/events")).toBe(false)
+    expect(isCurrentEntry(tools, "/discoverx")).toBe(false)
+  })
+
+  it("opens the staff Research fold on the research tools, including /discover", () => {
+    for (const path of ["/discover", "/compass", "/journal-check", "/scout"]) {
+      expect(inResearch(path), path).toBe(true)
+    }
+    expect(inResearch("/discoverx")).toBe(false)
+  })
+
+  it("folds Research tools into the staff Research group in place of the three tools", () => {
+    const labels = navFor("PRINCIPAL").map((i) => i.label)
+    expect(labels).toContain("Research tools")
+    expect(labels).not.toContain("Discover")
+    expect(labels).not.toContain("Research compass")
+    expect(navFor("HOD").filter((i) => i.fold).map((i) => i.label)).toEqual([
+      "My papers", "File a paper", "My research", "Events and research", "Research tools",
+      "Who to work with", "Messages", "Discussions", "Leaderboard",
+    ])
   })
 
   it("drops the folded destinations from the sidebar and redirects them", () => {

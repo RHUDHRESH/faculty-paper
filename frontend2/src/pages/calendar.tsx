@@ -7,12 +7,12 @@ import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { FilterChip, Segmented } from "@/ui/toggle"
 import { PageHeader } from "@/ui/page-header"
-import { SectionTitle } from "@/ui/text"
+import { Meta, SectionTitle } from "@/ui/text"
 import { Avatar, initialsOf } from "@/ui/person"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 
 import { DayDialog, EventDialog, EventSheet, type Prefill } from "./calendar/dialogs"
-import { GoogleStrip, useGoogleStatus } from "./calendar/google"
+import { GoogleStrip } from "./calendar/google"
 import {
   type CalItem,
   type CalendarPayload,
@@ -33,7 +33,6 @@ import {
   shortDay,
   rangeLabel,
   toItems,
-  wantsConnect,
   weekDays,
 } from "./calendar/model"
 import { usePhone } from "./calendar/use-phone"
@@ -75,7 +74,6 @@ export function Calendar() {
   const [open, setOpen] = useState<CalItem | null>(null)
   const [moreDay, setMoreDay] = useState<string | null>(null)
   const [selected, setSelected] = useState(params.get("date") ?? today)
-  const google = useGoogleStatus()
 
   function go(next: Partial<{ view: View; date: string }>) {
     setParams(
@@ -150,9 +148,6 @@ export function Calendar() {
 
   const title = view === "week" ? weekTitle(anchor) : monthLabel(anchor)
   const add = (date: string, time?: string) => setAdding({ date, time })
-  // While connecting Google is the thing to do, it is the page's one primary
-  // button, and "Add event" steps back to an ordinary one (ui/CONVENTIONS.md).
-  const connectFirst = wantsConnect(google.data)
 
   return (
     <div className="page space-y-4">
@@ -161,17 +156,19 @@ export function Calendar() {
         spot="spot-calendar"
         sub={
           isLoading ? undefined : next ? (
-            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-              <span className="font-medium text-fg">Next:</span>
-              <NextIcon kind={next.kind} />
-              <button type="button" className="min-w-0 truncate font-medium text-fg hover:underline" onClick={() => setOpen(next)}>
+            <span className="block">
+              <button type="button" className="display text-display block max-w-full text-balance text-left text-fg hover:underline" onClick={() => setOpen(next)}>
                 {next.title}
               </button>
-              <span>
-                {next.start <= today && next.end > today
-                  ? `closes ${shortDay(next.end)} (${relative(next.end, today)})`
-                  : `${shortDay(next.start)} (${relative(next.start, today)})`}
-              </span>
+              <Meta className="mt-1 flex flex-wrap items-center gap-x-1.5">
+                <span>Next</span>
+                <NextIcon kind={next.kind} />
+                <span>
+                  {next.start <= today && next.end > today
+                    ? `closes ${shortDay(next.end)} (${relative(next.end, today)})`
+                    : `${shortDay(next.start)} (${relative(next.start, today)})`}
+                </span>
+              </Meta>
             </span>
           ) : (
             "Nothing on the calendar in the next 30 days."
@@ -179,7 +176,7 @@ export function Calendar() {
         }
         action={
           <Button
-            kind={connectFirst ? "default" : "primary"}
+            kind="primary"
             size="md"
             className="max-md:hidden"
             onClick={() => add(view === "month" ? selectedIn(anchor, today) : today)}

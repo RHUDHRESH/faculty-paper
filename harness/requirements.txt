@@ -1,7 +1,7 @@
 # The harness is its own container with its own dependencies -- deliberately
 # separate from the Django API's, which never needs the model runtime.
 fastapi>=0.115
-uvicorn[standard]>=0.30
+uvicorn[standard]>=0.52.4
 llama-cpp-python>=0.3.0
 
 # Weight fetch from the college's own bucket at cold start. Importable

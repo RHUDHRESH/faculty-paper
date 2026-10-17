@@ -9,5 +9,5 @@ llama-cpp-python>=0.3.0
 google-cloud-storage>=2.17
 
 # Test-only: fastapi.testclient rides on httpx.
-httpx>=0.27
+httpx>=0.28.1
 pytest>=8.0

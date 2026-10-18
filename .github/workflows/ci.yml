@@ -21,7 +21,14 @@ jobs:
       - name: Install
         run: pip install -r requirements.txt pip-audit
       - name: System check
+        # This check has no production secrets/database. Match local dev;
+        # production startup must still reject missing credentials.
+        env:
+          DJANGO_DEBUG: "true"
+          DJANGO_USE_SQLITE: "true"
         run: python manage.py check
+      - name: Health monitor regression tests (offline)
+        run: python -m unittest discover -s ../scripts -p 'test_*.py'
       # The suite is the acceptance spec for the money chain, so every push
       # runs all of it, in parallel. SQLite is the test database; no services
       # are needed -- the suite deliberately runs without a live Scopus,

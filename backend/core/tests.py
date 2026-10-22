@@ -741,7 +741,7 @@ class AdminProxyAndUploadTests(TestCase):
         self.assertEqual(r.status_code, 400, r.content)
 
     def test_health_reports_db(self):
-        r = self.client.get("/api/health")
+        r = self.client.get("/api/health?deep=1")
         self.assertEqual(r.status_code, 200)
         body = r.json()
         self.assertTrue(body.get("ok"))
@@ -6119,14 +6119,14 @@ class UploadTypeTests(TestCase):
         # MEDIA_ROOT in production means silent data loss: the ticket keeps
         # listing files that are gone.
         with override_settings(DEBUG=False, GS_BUCKET_NAME=""):
-            body = self.client.get("/api/health").json()
+            body = self.client.get("/api/health?deep=1").json()
         self.assertFalse(body["media_persistent"])
         self.assertIn("warnings", body)
         self.assertIn("GS_BUCKET_NAME", body["warnings"][0])
 
         # A bucket is durable, so the warning goes away.
         with override_settings(DEBUG=False, GS_BUCKET_NAME="faculty-paper-evidence"):
-            body = self.client.get("/api/health").json()
+            body = self.client.get("/api/health?deep=1").json()
         self.assertTrue(body["media_persistent"])
         self.assertNotIn("warnings", body)
         self.assertEqual(body["media_backend"], "gs://faculty-paper-evidence")

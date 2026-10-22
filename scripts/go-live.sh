@@ -38,7 +38,7 @@ say "4. Checking the live API"
 python - <<'PY'
 import json, urllib.request
 FE = "https://faculty-paper-rhudhreshs-projects.vercel.app"
-h = json.load(urllib.request.urlopen(FE + "/api/health"))
+h = json.load(urllib.request.urlopen(FE + "/api/health?deep=1"))
 print(f"   revision {h.get('git')}  db={h.get('db')}  worker={h['worker']['alive']}")
 assert h.get("ok"), "health check failed"
 PY

@@ -9,7 +9,7 @@ lying.
 **Where.** Locally, the app is `http://localhost:5174` and the API is
 `http://localhost:8000` — the app proxies `/api` and `/media`, so you only ever
 type the first one. In production, see `docs/OPS.md`: the Vercel origin, with
-`GET /api/health` answering `ok`, `db` and `media_persistent`.
+`GET /api/health?deep=1` answering `ok`, `db` and `media_persistent`.
 
 **What the automated suite already covers.** `cd frontend2 && npm run e2e`
 walks every route for all six roles, the five-desk payment chain, the same

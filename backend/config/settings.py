@@ -61,7 +61,10 @@ INSTALLED_APPS = [
 #   guard_cycle        the sentinel checks on its processes every 5 s rather
 #                      than twice a second (the default): on a tenth of a CPU,
 #                      idle wake-ups are time taken from requests.
-#   poll               the ORM broker looks for queued jobs every 15 s.
+#   poll               the ORM broker looks for queued jobs every Q_POLL seconds
+#                      (60 by default). Each look is a query on the database,
+#                      and an idle database that is queried every 15 s never
+#                      sleeps; a queued job waits up to a minute to start.
 Q_CLUSTER = {
     "name": "faculty_paper",
     "workers": 1,  # shares one small container with gunicorn
@@ -72,7 +75,7 @@ Q_CLUSTER = {
     "retry": 3600,
     "max_attempts": 2,
     "orm": "default",
-    "poll": 15,
+    "poll": int(os.getenv("Q_POLL", "60")),
     "catch_up": False,
     "sync": os.getenv("Q_SYNC", "false").lower() == "true",
 }

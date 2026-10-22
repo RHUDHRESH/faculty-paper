@@ -279,7 +279,23 @@ def _migrations_pending() -> bool:
 
 
 @api.get("/health", auth=None)
-def health(request: HttpRequest):
+def health(request: HttpRequest, deep: bool = False):
+    """Is the API up? With `?deep=1`, is everything behind it too?
+
+    The default answers from memory: no query and no connection, so a probe
+    every few minutes costs the database nothing. On the free plan a database
+    that keeps getting pinged never sleeps, and the compute hours run out. The
+    deep report checks the database, the job worker, the migrations and the
+    media storage, and is the only answer that says 503 when the database is
+    unreachable.
+    """
+    release = {
+        "service": "faculty-paper-api",
+        "version": getattr(settings, "APP_VERSION", "dev"),
+        "git": (os.getenv("GIT_COMMIT") or os.getenv("K_REVISION") or "")[:24] or None,
+    }
+    if not deep:
+        return {"ok": True, **release, "time": timezone.now().isoformat()}
     db_ok = False
     try:
         from django.db import connection
@@ -320,9 +336,7 @@ def health(request: HttpRequest):
     payload = {
         "ok": db_ok,
         "db": db_ok,
-        "service": "faculty-paper-api",
-        "version": getattr(settings, "APP_VERSION", "dev"),
-        "git": (os.getenv("GIT_COMMIT") or os.getenv("K_REVISION") or "")[:24] or None,
+        **release,
         "media_backend": media_backend,
         "media_persistent": not media_is_ephemeral,
         "worker": worker,

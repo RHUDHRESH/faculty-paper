@@ -34,7 +34,7 @@ def get(path):
 print("=" * 68)
 print("API")
 print("=" * 68)
-h = get("/api/health")
+h = get("/api/health?deep=1")
 print(f"  revision      {h.get('git')}")
 print(f"  database      {'reachable' if h.get('db') else 'UNREACHABLE'}")
 print(f"  worker        {'alive' if h['worker']['alive'] else 'DOWN'}"

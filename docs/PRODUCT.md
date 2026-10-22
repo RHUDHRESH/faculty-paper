@@ -55,7 +55,7 @@ Sign in as the administrator, then, from the office screens:
   in week one.
 
 **5. Read the smoke checklist** at the end of DEPLOY.md and walk it. If any
-step fails, `/api/health` says which layer (database, media storage,
+step fails, `/api/health?deep=1` says which layer (database, media storage,
 migrations, job worker) and docs/UPGRADE.md says what to collect.
 
 ## What is deliberately not here

@@ -22,7 +22,7 @@ and there is no CORS to maintain.
 ## URLs
 - App: the Vercel production URL
 - API: the Cloud Run service URL (`…run.app`) — reached through the proxy
-- Health: `GET /api/health` → `ok`, `db`, `media_persistent`
+- Health: `GET /api/health` → `ok` (no database query); `GET /api/health?deep=1` → `ok`, `db`, `media_persistent`, `worker`, `migrations_pending`
 
 ## Required env (Cloud Run)
 | Variable | Notes |
@@ -151,5 +151,5 @@ python manage.py seed --force   # prod only with --force; change passwords after
 2. Admin clearing queue: Clear (confirm recalculated amount) → Finance mark paid
 3. Faculty sees “Payment processed”
 4. Admin Formula preview calculator returns an amount
-5. `/api/health` reports `media_persistent: true`
+5. `/api/health?deep=1` reports `media_persistent: true`
 6. Upload a PDF, redeploy, reopen it — still there (bucket, not container disk)

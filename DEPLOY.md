@@ -96,7 +96,7 @@ which is what the rewrites handle.
 
 ## D. Smoke after deploy
 
-1. `GET /api/health` → `{"ok":true,"media_persistent":true}`
+1. `GET /api/health?deep=1` → `{"ok":true,"media_persistent":true}`
 2. Open the Vercel URL → sign in (then change the password)
 3. Faculty: New ticket → ticket number + amount
 4. Admin clearing queue: Clear (confirm the recalculated amount) → Finance **Yes**

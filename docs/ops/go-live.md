@@ -11,7 +11,7 @@ the service named, never into chat or email.
 | **Groq** (console.groq.com) | AI features. | A **new** API key (rotate the one that was pasted in chat). |
 | **Brevo** (brevo.com), optional | Alert emails (300 a day free). | SMTP: host `smtp-relay.brevo.com`, port `2525`, login and SMTP key. |
 | **Sentry** (sentry.io), optional | Tells you about server errors. No personal data is sent. | New project → Django → copy the **DSN**. |
-| **UptimeRobot** (uptimerobot.com), optional | Emails you if the site goes down. | Add an HTTP monitor for `https://saveetha-publications.onrender.com/api/health`, every 5 minutes. |
+| **UptimeRobot** (uptimerobot.com), optional | Emails you if the site goes down. | Add an HTTP monitor for the website itself, `https://saveetha-publications.onrender.com/`, every 5 minutes. Do not monitor `/api/...`: pinging the API keeps it and the database awake and uses up Neon's free compute hours. |
 
 ## 1. Render
 1. The old `faculty-paper-api` service: Settings → **Suspend** (done) or Delete.
@@ -110,8 +110,7 @@ page says "Google no longer lets us in" with a **Connect again** button; nothing
 `DJANGO_SECRET_KEY` makes every stored Google token unreadable, so everyone connects again once.
 
 ## 3. Keeping it healthy
-- **Always on:** the `keep-alive` GitHub workflow pings `/api/health` every 4 minutes. If the
-  address changes, set the repository variable `SITE_URL`.
+- **Sleep:** on the free plan the API sleeps when idle, so the first request after a quiet spell takes about a minute, and the database is left to sleep too (no keep-alive pings: they used up Neon's free compute hours in October 2026).
 - **Backups**, in three layers:
   1. Neon point-in-time restore (Neon console → Branches → Restore).
   2. A daily full copy to R2 at 04:15, the newest 14 kept (`backups/` in the bucket).

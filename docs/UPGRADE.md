@@ -40,7 +40,7 @@ that does not complete is not half-applied to the people using the system.
 
 ## 3. Verify
 
-1. `/api/health` → `ok: true`, `migrations_pending: false`, and the **new**
+1. `/api/health?deep=1` → `ok: true`, `migrations_pending: false`, and the **new**
    version string.
 2. Sign in as each of one faculty, one head of department and one office
    account.

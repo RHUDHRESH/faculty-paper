@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { Route, Routes } from "react-router-dom"
 import { describe, expect, it, vi } from "vitest"
@@ -12,7 +12,7 @@ import type { Me } from "@/app/auth"
 import { api } from "@/lib/api"
 import { FacultyDirectory } from "@/pages/faculty"
 import { FacultyRecord } from "@/pages/faculty-record"
-import type { DirectoryPayload, FacultyRecordPayload, FacultyRow, GapsPayload } from "@/pages/faculty-types"
+import type { DirectoryPayload, FacultyRecordPayload, FacultyRow, GapsPayload, ScopusSummary } from "@/pages/faculty-types"
 import { fakeApi, renderWithProviders, HOD, FACULTY, type ApiTable } from "@/test/harness"
 
 const OFFICE: Me = { id: "u-office", email: "o@example.edu", name: "Office", role: "RESEARCH_CELL", department: null }
@@ -178,7 +178,70 @@ describe("the faculty directory", () => {
     mountDirectory(OFFICE, [])
     expect(await screen.findByText("No faculty yet")).toBeInTheDocument()
   })
+
+  it("answers how many faculty are linked to Scopus, from the summary", async () => {
+    mountDirectory(OFFICE, [row()], true, "/faculty", withSummary([row()], SUMMARY))
+    expect(await screen.findByText("134 of 159 faculty are linked to Scopus.")).toBeInTheDocument()
+    expect(screen.getByText("25 are not")).toBeInTheDocument()
+    expect(screen.getByText(/610 of 900 papers on record are Scopus-linked\. Last synced 12 Oct 2026\./)).toBeInTheDocument()
+  })
+
+  it("marks a linked person and one with no Scopus ID with chips", async () => {
+    mountDirectory(OFFICE, [
+      row({ id: "a", name: "Dr Linked" }),
+      row({ id: "b", name: "Dr Unlinked", scopus_author_id: null, scopus_url: null }),
+    ])
+    const list = await screen.findByRole("list", { name: "Faculty" })
+    const [linked, unlinked] = within(list).getAllByRole("listitem")
+    expect(within(linked).getByText("Linked")).toBeInTheDocument()
+    expect(within(unlinked).getByText("No Scopus ID")).toBeInTheDocument()
+    expect(within(unlinked).queryByText("Linked")).toBeNull()
+  })
+
+  it("shows papers in Scopus as a count and the last sync, or Never when there was none", async () => {
+    mountDirectory(OFFICE, [
+      row({ id: "a", name: "Dr Synced", scopus_papers: 134, papers: 159, scopus_synced_at: "2026-10-12T08:00:00Z" }),
+      row({ id: "b", name: "Dr Never", scopus_papers: 0, papers: 0, scopus_synced_at: null }),
+    ])
+    const list = await screen.findByRole("list", { name: "Faculty" })
+    const [synced, never] = within(list).getAllByRole("listitem")
+    expect(within(synced).getByText("134 of 159")).toBeInTheDocument()
+    expect(within(synced).getByText("12 Oct 2026")).toBeInTheDocument()
+    expect(within(never).getAllByText("Never").length).toBeGreaterThan(0)
+  })
+
+  it("sends the Scopus choice to the server", async () => {
+    mountDirectory(OFFICE, [row()])
+    const user = userEvent.setup()
+    await screen.findByRole("list", { name: "Faculty" })
+    await user.click(screen.getByRole("button", { name: "Filter by Scopus" }))
+    await user.click(within(screen.getByRole("listbox")).getByRole("option", { name: "No Scopus ID" }))
+    await waitFor(() =>
+      expect(vi.mocked(api).mock.calls.some(([p]) => String(p).includes("scopus=no_id"))).toBe(true)
+    )
+  })
+
+  it("still renders when the summary and the new row fields are missing", async () => {
+    mountDirectory(OFFICE, [row({ scopus_papers: undefined, scopus_synced_at: undefined })])
+    const list = await screen.findByRole("list", { name: "Faculty" })
+    expect(within(list).getByRole("link", { name: "Dr K R Devabalaji" })).toBeInTheDocument()
+    expect(screen.queryByText(/linked to Scopus/)).toBeNull()
+  })
 })
+
+const SUMMARY: ScopusSummary = {
+  faculty: 159,
+  with_id: 134,
+  without_id: 25,
+  never_synced: 40,
+  papers: 900,
+  scopus_papers: 610,
+  last_synced_at: "2026-10-12T08:00:00Z",
+}
+
+function withSummary(rows: FacultyRow[], summary: ScopusSummary): ApiTable {
+  return { "/api/directory/faculty?": () => ({ ...directory(rows), scopus_summary: summary }) }
+}
 
 function record(over: Partial<FacultyRecordPayload> = {}): FacultyRecordPayload {
   const base = row()

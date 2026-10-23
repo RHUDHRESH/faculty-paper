@@ -32,10 +32,10 @@ from __future__ import annotations
 import io
 import re
 from collections import Counter, defaultdict
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Optional
 
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -52,6 +52,7 @@ from core.api.publications import (
     _record,
 )
 from core.models import (
+    Authorship,
     Claim,
     ClaimStatus,
     PaidLedger,
@@ -273,7 +274,59 @@ def _missing(u: User) -> list[str]:
     return out
 
 
-def _row(u: User, base: dict[str, Any], viewer: User) -> dict[str, Any]:
+#: A publication the Scopus sync flagged, or one that carries an EID.
+_SCOPUS_LINKED = Q(publication__scopus_indexed=True) | (Q(publication__eid__isnull=False) & ~Q(publication__eid=""))
+
+#: The values of the `scopus` filter; anything else is ignored.
+SCOPUS_FILTERS = ("linked", "no_id", "never_synced", "gap")
+
+
+def _scopus_papers(users: list[User]) -> dict[str, int]:
+    """Per person, the distinct publications on their record that are Scopus-linked.
+
+    The same authorships `papers_of` counts, so it never exceeds `papers`. One
+    grouped query for the page, and not cached: the flags move when the Scopus
+    sync runs in the job worker, and a shared figure would lag them.
+    """
+    return dict(
+        Authorship.objects.filter(user_id__in=[u.id for u in users])
+        .order_by()
+        .values("user_id")
+        .annotate(n=Count("publication", filter=_SCOPUS_LINKED, distinct=True))
+        .values_list("user_id", "n")
+    )
+
+
+def _has_scopus_id(r: dict[str, Any]) -> bool:
+    return bool((r["scopus_author_id"] or "").strip())
+
+
+def _scopus_match(r: dict[str, Any], which: str) -> bool:
+    if which == "linked":
+        return _has_scopus_id(r)
+    if which == "no_id":
+        return not _has_scopus_id(r)
+    if which == "never_synced":
+        return _has_scopus_id(r) and r["scopus_synced_at"] is None
+    # "gap": has an id, and some of their papers are not Scopus-linked.
+    return _has_scopus_id(r) and r["papers"] > r["scopus_papers"]
+
+
+def _scopus_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    with_id = [r for r in rows if _has_scopus_id(r)]
+    synced = [datetime.fromisoformat(r["scopus_synced_at"]) for r in rows if r["scopus_synced_at"]]
+    return {
+        "faculty": len(rows),
+        "with_id": len(with_id),
+        "without_id": len(rows) - len(with_id),
+        "never_synced": sum(1 for r in with_id if r["scopus_synced_at"] is None),
+        "papers": sum(r["papers"] for r in rows),
+        "scopus_papers": sum(r["scopus_papers"] for r in rows),
+        "last_synced_at": max(synced).isoformat() if synced else None,
+    }
+
+
+def _row(u: User, base: dict[str, Any], viewer: User, scopus_papers: int) -> dict[str, Any]:
     money = _money_ok(viewer, u.id)
     quota_visible = money or viewer.id == u.id
     row: dict[str, Any] = {
@@ -289,6 +342,8 @@ def _row(u: User, base: dict[str, Any], viewer: User) -> dict[str, Any]:
         "threshold_set": u.faculty_type == "RESEARCH" and u.research_quota is not None,
         "scopus_author_id": u.scopus_author_id or None,
         "scopus_url": _scopus_link(u),
+        "scopus_papers": scopus_papers,
+        "scopus_synced_at": u.scopus_synced_at.isoformat() if u.scopus_synced_at else None,
         "orcid_id": u.orcid_id or None,
         "orcid_url": f"https://orcid.org/{u.orcid_id}" if u.orcid_id else None,
         "papers": base["papers"],
@@ -324,11 +379,13 @@ def _select(
     sort: str = "name",
     direction: str = "asc",
     include_left: bool = False,
-) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    scopus: str = "",
+) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, Any]]:
     qs = _population(viewer)
     users = list(qs.order_by("name"))
     base = _cached_base(users)
-    rows = [_row(u, base[u.id], viewer) for u in users]
+    scopus_papers = _scopus_papers(users)
+    rows = [_row(u, base[u.id], viewer, scopus_papers.get(u.id, 0)) for u in users]
     # Current staff by default, so the figures here are the ones on the "what
     # is missing" list and on Admin: a leaver without a photo is not a gap to
     # close. The base above is built for everybody so both views share it.
@@ -344,6 +401,8 @@ def _select(
         "no_scopus": sum(1 for r in rows if "scopus" in r["missing"]),
         "no_papers_year": sum(1 for r in rows if r["papers_year"] == 0),
     }
+    # The whole role scope, before search and filters: the card does not move as the list does.
+    summary = _scopus_summary(rows)
 
     text = q.strip().lower()
     if text:
@@ -362,6 +421,8 @@ def _select(
         rows = [r for r in rows if missing in r["missing"]]
     if no_papers_year:
         rows = [r for r in rows if r["papers_year"] == 0]
+    if scopus in SCOPUS_FILTERS:
+        rows = [r for r in rows if _scopus_match(r, scopus)]
 
     if sort not in SORTS:
         raise HttpError(400, "Sort by name, department, papers, citations, h-index, last paper, completeness, claims or paid.")
@@ -378,7 +439,7 @@ def _select(
         "paid": lambda r: (r.get("incentive") or {}).get("amount", 0),
     }
     rows.sort(key=keys[sort], reverse=(direction == "desc"))
-    return rows, counts
+    return rows, counts, summary
 
 
 @api.get("/directory/faculty", auth=session_auth)
@@ -394,11 +455,15 @@ def faculty_directory(
     limit: int = 30,
     offset: int = 0,
     include_left: bool = False,
+    scopus: str = "",
 ):
     """Every faculty member as a row: identifiers, papers, citations, claims, money where
-    allowed. People who have left are left out unless `include_left`."""
+    allowed. People who have left are left out unless `include_left`. `scopus` narrows
+    the rows to linked, no_id, never_synced or gap; `scopus_summary` is the whole scope."""
     viewer = _require_directory(request)
-    rows, counts = _select(viewer, q, department, faculty_type, missing, no_papers_year, sort, dir, include_left)
+    rows, counts, summary = _select(
+        viewer, q, department, faculty_type, missing, no_papers_year, sort, dir, include_left, scopus,
+    )
     limit = max(1, min(int(limit), 100))
     offset = max(0, int(offset))
     return {
@@ -411,6 +476,7 @@ def faculty_directory(
         "money": rbac.can_view_reports(viewer.role),
         "scope": "department" if not _sees_everyone(viewer.role) else "college",
         "counts": counts,
+        "scopus_summary": summary,
         "results": rows[offset : offset + limit],
     }
 
@@ -433,7 +499,7 @@ def faculty_directory_csv(
 ):
     """The filtered directory as a spreadsheet, every cell formula-safe."""
     viewer = _require_directory(request)
-    rows, _ = _select(viewer, q, department, faculty_type, missing, no_papers_year, sort, dir, include_left)
+    rows, _, _ = _select(viewer, q, department, faculty_type, missing, no_papers_year, sort, dir, include_left)
     year = timezone.localdate().year
     money = rbac.can_view_reports(viewer.role)
     head = [

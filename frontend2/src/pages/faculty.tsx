@@ -15,7 +15,7 @@ import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { Avatar } from "@/ui/person"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
-import { Answer } from "@/ui/answer"
+import { Answer, AnswerLine, AnswerWord } from "@/ui/answer"
 import { ColumnLabel, Meta } from "@/ui/text"
 import {
   MISSING_WORDS,
@@ -50,6 +50,21 @@ const MISSING_OPTIONS: ComboboxOption[] = [
   ...(Object.keys(MISSING_WORDS) as MissingKey[]).map((k) => ({ value: k, label: MISSING_WORDS[k] })),
 ]
 
+const SCOPUS_OPTIONS: ComboboxOption[] = [
+  { value: "", label: "All faculty" },
+  { value: "linked", label: "Linked to Scopus" },
+  { value: "no_id", label: "No Scopus ID" },
+  { value: "never_synced", label: "Never synced" },
+  { value: "gap", label: "Papers missing from Scopus" },
+]
+
+/** "12 Oct 2026" from an ISO time, or null when there is none. */
+function syncedLabel(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+}
+
 const SORT_OPTIONS: ComboboxOption[] = [
   { value: "name", label: "Name" },
   { value: "department", label: "Department" },
@@ -63,12 +78,12 @@ const SORT_OPTIONS: ComboboxOption[] = [
 
 /** Columns of the wide layout. The money column is added for those who may see it. */
 const GRID =
-  "lg:grid-cols-[minmax(13rem,2.3fr)_minmax(10rem,1.6fr)_4.5rem_5.5rem_5.5rem_minmax(6.5rem,1fr)]"
+  "lg:grid-cols-[minmax(13rem,2.3fr)_minmax(10rem,1.6fr)_5.5rem_6.5rem_4.5rem_5.5rem_5.5rem_minmax(6.5rem,1fr)]"
 /** A head's list: their own department, so no department line; and incentive
  *  claims are not their concern, so no claims column. */
-const GRID_HEAD = "lg:grid-cols-[minmax(13rem,2.3fr)_minmax(10rem,1.6fr)_4.5rem_5.5rem_minmax(6.5rem,1fr)]"
+const GRID_HEAD = "lg:grid-cols-[minmax(13rem,2.3fr)_minmax(10rem,1.6fr)_5.5rem_6.5rem_4.5rem_5.5rem_minmax(6.5rem,1fr)]"
 const GRID_MONEY =
-  "lg:grid-cols-[minmax(13rem,2.3fr)_minmax(10rem,1.6fr)_4.5rem_5.5rem_5.5rem_minmax(6.5rem,1fr)_minmax(6.5rem,1fr)]"
+  "lg:grid-cols-[minmax(13rem,2.3fr)_minmax(10rem,1.6fr)_5.5rem_6.5rem_4.5rem_5.5rem_5.5rem_minmax(6.5rem,1fr)_minmax(6.5rem,1fr)]"
 
 export function FacultyDirectory() {
   const { me } = useAuth()
@@ -101,6 +116,7 @@ function Directory() {
   const department = params.get("department") ?? ""
   const type = params.get("type") ?? ""
   const missing = params.get("missing") ?? ""
+  const scopus = params.get("scopus") ?? ""
   const noPapers = params.get("nopapers") === "1"
   const left = params.get("left") === "1"
   const sort = params.get("sort") ?? "name"
@@ -121,6 +137,7 @@ function Directory() {
   if (department) filters.set("department", department)
   if (type) filters.set("faculty_type", type)
   if (missing) filters.set("missing", missing)
+  if (scopus) filters.set("scopus", scopus)
   if (noPapers) filters.set("no_papers_year", "true")
   if (left) filters.set("include_left", "true")
   filters.set("sort", sort)
@@ -144,7 +161,8 @@ function Directory() {
   const data = list.data
   const year = data?.year ?? new Date().getFullYear()
   const rows = data?.results ?? []
-  const filtered = Boolean(q || department || type || missing || noPapers || left)
+  const summary = data?.scopus_summary
+  const filtered = Boolean(q || department || type || missing || scopus || noPapers || left)
   const office = can(me?.role).manageUsers
   // A head sees their own department only, so the list drops what is the same
   // on every row (the department) and what is not theirs to chase (claims).
@@ -176,6 +194,23 @@ function Directory() {
           </Button>
         }
       />
+
+      {summary && (
+        <div className="space-y-2">
+          <AnswerLine>
+            {count(summary.with_id)} of {count(summary.faculty)} faculty are linked to Scopus.{" "}
+            {summary.without_id > 0 ? (
+              <AnswerWord tone="amber">{count(summary.without_id)} are not</AnswerWord>
+            ) : (
+              <AnswerWord tone="sage">all linked</AnswerWord>
+            )}
+          </AnswerLine>
+          <p className="text-base text-fg-muted">
+            {count(summary.scopus_papers)} of {count(summary.papers)} papers on record are Scopus-linked. Last synced{" "}
+            {syncedLabel(summary.last_synced_at) ?? "never"}.
+          </p>
+        </div>
+      )}
 
       <Answer
         items={[
@@ -222,6 +257,14 @@ function Directory() {
           placeholder="Any record"
           aria-label="Filter by what is missing"
           className="w-48"
+        />
+        <Combobox
+          value={scopus}
+          onChange={(v) => set({ scopus: v || null })}
+          options={SCOPUS_OPTIONS}
+          placeholder="All faculty"
+          aria-label="Filter by Scopus"
+          className="w-52"
         />
         <div className="flex h-9 items-center max-sm:h-10">
           <Checkbox
@@ -336,7 +379,9 @@ function HeaderRow({
 }) {
   const cols: { key: string | null; label: string }[] = [
     { key: "name", label: "Faculty" },
-    { key: null, label: "Scopus ID" },
+    { key: null, label: "Scopus" },
+    { key: null, label: "In Scopus" },
+    { key: null, label: "Last synced" },
     { key: "papers", label: "Papers" },
     { key: "citations", label: "Citations" },
     ...(head ? [] : [{ key: "claims", label: `Claims in ${year}` }]),
@@ -429,18 +474,21 @@ function FacultyRowView({
           )}
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-sm">
             {r.scopus_author_id ? (
-              <a
-                href={r.scopus_url ?? undefined}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-fg underline-offset-2 hover:underline"
-                aria-label={`Scopus author page for ${r.name}`}
-              >
-                <span className="tabular">{r.scopus_author_id}</span>
-                <ExternalLink aria-hidden className="size-3.5 text-fg-subtle" />
-              </a>
+              <>
+                <Chip tone="positive">Linked</Chip>
+                <a
+                  href={r.scopus_url ?? undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-fg underline-offset-2 hover:underline"
+                  aria-label={`Scopus author page for ${r.name}`}
+                >
+                  <span className="tabular">{r.scopus_author_id}</span>
+                  <ExternalLink aria-hidden className="size-3.5 text-fg-subtle" />
+                </a>
+              </>
             ) : (
-              <span className="text-caution">No Scopus ID</span>
+              <Chip tone="caution">No Scopus ID</Chip>
             )}
             {r.orcid_id && (
               <a
@@ -474,12 +522,21 @@ function FacultyRowView({
           </p>
         )}
         <p>
+          {count(r.scopus_papers)} of {count(r.papers)} papers in Scopus · Last synced {syncedLabel(r.scopus_synced_at) ?? "never"}
+        </p>
+        <p>
           Last paper {r.last_paper_year ? paperDate(r.last_paper_on, r.last_paper_year) : "none yet"}
           {r.missing.length > 0 && <span className="text-caution">. {r.missing.map((m) => MISSING_WORDS[m]).join(", ")}</span>}
         </p>
       </div>
 
       <div className="hidden lg:contents">
+        <Cell label="In Scopus" main={`${count(r.scopus_papers)} of ${count(r.papers)}`} mainTone={r.papers === 0 ? "text-fg-muted" : undefined} />
+        <Cell
+          label="Last synced"
+          main={syncedLabel(r.scopus_synced_at) ?? "Never"}
+          mainTone={syncedLabel(r.scopus_synced_at) ? undefined : r.scopus_author_id ? "text-caution" : "text-fg-muted"}
+        />
         <Cell label="Papers" main={count(r.papers)} sub={`${count(r.papers_year)} in ${year}`} attention={r.papers_year === 0} />
         <Cell label="Citations" main={count(r.citations)} sub={`h-index ${r.h_index}`} />
         {!head && (
@@ -527,17 +584,19 @@ function Cell({
   sub,
   subTitle,
   attention,
+  mainTone,
 }: {
   label: string
   main: string
   sub?: string
   subTitle?: string
   attention?: boolean
+  mainTone?: string
 }) {
   return (
     <div className="min-w-0">
       <span className="block text-xs text-fg-muted lg:hidden">{label}</span>
-      <span className="tabular block truncate text-base text-fg">{main}</span>
+      <span className={cn("tabular block truncate text-base", mainTone ?? "text-fg")}>{main}</span>
       {sub ? (
         <span title={subTitle} className={cn("block truncate text-sm", attention ? "text-caution" : "text-fg-muted")}>
           {sub}

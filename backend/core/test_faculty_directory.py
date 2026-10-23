@@ -10,14 +10,20 @@ The rules under test:
 * Nobody outside the desks receives a discrepancy flag through this route.
 * "What is missing" is the office's.
 * The CSV goes through the cell-safe writer and carries no money for a head.
+* Scopus-linked counts are the record's own, the summary is the whole role
+  scope, and the `scopus` filter narrows the list but never the summary.
 """
 from __future__ import annotations
 
 import csv
 import io
-from datetime import date
+from datetime import date, datetime
+from datetime import timezone as dt_timezone
 
+from django.core.cache import cache
+from django.db import connection
 from django.test import Client, TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from core.models import (
@@ -269,3 +275,210 @@ class ExportTests(DirectoryFixture):
         header = next(csv.reader(io.StringIO(text.lstrip("﻿"))))
         self.assertIn(f"Claims completed in {self.year}", header)
         self.assertNotIn("Dr Elsewhere Ece", text)
+
+
+SYNC_EARLY = datetime(2026, 10, 1, 9, 0, tzinfo=dt_timezone.utc)
+SYNC_MID = datetime(2026, 10, 10, 9, 0, tzinfo=dt_timezone.utc)
+SYNC_LATE = datetime(2026, 10, 20, 9, 0, tzinfo=dt_timezone.utc)
+
+
+def _paper(owner, title, *, indexed=False, eid=None):
+    """A publication on `owner`'s record, with the Scopus flags the sync sets."""
+    year = timezone.localdate().year
+    pub = Publication.objects.create(
+        title=title, year=year, date=date(year, 2, 1), venue="J", scopus_indexed=indexed, eid=eid,
+    )
+    Authorship.objects.create(
+        publication=pub, position=1, display_name=owner.name, author_key=f"n:{owner.staff_id}",
+        user=owner, is_college=True,
+    )
+    return pub
+
+
+def _claim_only_paper(owner, title, ticket):
+    """A paid claim whose paper is not on the record: a paper in the count, never a Publication."""
+    year = timezone.localdate().year
+    claim = Claim.objects.create(
+        owner=owner, status=ClaimStatus.PAID, remuneration=1000, paper_title=title, journal_title="J",
+        publication_year=year, ticket_number=ticket, paid_at=timezone.now(),
+    )
+    PaidLedger.objects.create(
+        claim=claim, payout_month=date(year, 1, 1), faculty_name=owner.name, staff_id=owner.staff_id,
+        paper_title=title, amount=1000,
+    )
+
+
+ACTIVE_NAMES = {
+    "Dr Alpha Cse", "Dr Bravo Cse", "Dr Charlie Cse", "Dr Delta Ece", "Dr Echo Ece", "Dr Foxtrot Cse", "Dr Head Cse",
+}
+
+
+class ScopusTests(TestCase):
+    """The Scopus-linked counts, the `scopus` filter and the summary, over one small college.
+
+    Current staff (the leaver is left out of every count unless asked for):
+
+    * Alpha, CSE, id 111, synced late: papers indexed, EID-only, neither; the indexed one listed twice.
+    * Bravo, CSE, id 222, never synced: one paper, neither.
+    * Charlie, CSE, no id: one paper with only an EID.
+    * Foxtrot, CSE, id 555, synced mid: one indexed paper.
+    * Delta, ECE, id 333, synced early: one indexed paper and one paid claim not on the record.
+    * Echo, ECE, blank id: nothing.
+    * Head, CSE, no id: nothing (a head is in the population too).
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.office = _person("sc-office@test.edu", "Office Admin", Role.SUPER_ADMIN)
+        cls.head = _person(
+            "sc-head@test.edu", "Dr Head Cse", Role.HOD, department="CSE", staff_id="SH1", designation="Professor",
+        )
+        cls.alpha = _person(
+            "sc-alpha@test.edu", "Dr Alpha Cse", department="CSE", staff_id="SA1", designation="Professor",
+            scopus_author_id="111", scopus_synced_at=SYNC_LATE,
+        )
+        cls.bravo = _person(
+            "sc-bravo@test.edu", "Dr Bravo Cse", department="CSE", staff_id="SB1", designation="Professor",
+            scopus_author_id="222",
+        )
+        cls.charlie = _person(
+            "sc-charlie@test.edu", "Dr Charlie Cse", department="CSE", staff_id="SC1", designation="Professor",
+        )
+        cls.foxtrot = _person(
+            "sc-foxtrot@test.edu", "Dr Foxtrot Cse", department="CSE", staff_id="SF1", designation="Professor",
+            scopus_author_id="555", scopus_synced_at=SYNC_MID,
+        )
+        cls.gone = _person(
+            "sc-gone@test.edu", "Dr Gone Cse", department="CSE", staff_id="SG1", designation="Professor", active=False,
+        )
+        cls.delta = _person(
+            "sc-delta@test.edu", "Dr Delta Ece", department="ECE", staff_id="SD1", designation="Professor",
+            scopus_author_id="333", scopus_synced_at=SYNC_EARLY,
+        )
+        cls.echo = _person(
+            "sc-echo@test.edu", "Dr Echo Ece", department="ECE", staff_id="SE1", designation="Professor",
+            scopus_author_id="",
+        )
+
+        indexed = _paper(cls.alpha, "Alpha indexed", indexed=True)
+        Authorship.objects.create(
+            publication=indexed, position=2, display_name=cls.alpha.name, author_key="n:SA1",
+            user=cls.alpha, is_college=True,
+        )
+        _paper(cls.alpha, "Alpha EID only", eid="2-s2.0-ALPHA")
+        _paper(cls.alpha, "Alpha neither")
+        _paper(cls.bravo, "Bravo neither")
+        _paper(cls.charlie, "Charlie EID only", eid="2-s2.0-CHARLIE")
+        _paper(cls.foxtrot, "Foxtrot indexed", indexed=True)
+        _paper(cls.delta, "Delta indexed", indexed=True)
+        _claim_only_paper(cls.delta, "Delta paid, not on the record", "FP-SCOPUS-DELTA")
+        _paper(cls.gone, "Gone indexed", indexed=True)
+
+    def get(self, user, path):
+        c = Client()
+        c.force_login(user)
+        r = c.get(path)
+        self.assertEqual(r.status_code, 200, r.content)
+        return r.json()
+
+    def names(self, user, query=""):
+        return {r["name"] for r in self.get(user, f"/api/directory/faculty?limit=100&{query}")["results"]}
+
+    def summary(self, body):
+        """The summary without its date, and the date (None when nobody has synced)."""
+        s = dict(body["scopus_summary"])
+        last = s.pop("last_synced_at")
+        return s, (datetime.fromisoformat(last) if last else None)
+
+    def test_each_row_counts_its_scopus_linked_papers(self):
+        rows = {r["name"]: r for r in self.get(self.office, "/api/directory/faculty?limit=100")["results"]}
+        alpha = rows["Dr Alpha Cse"]
+        # Three papers on the record, one listed twice: the indexed and the EID-only count, the bare one does not.
+        self.assertEqual((alpha["papers"], alpha["scopus_papers"]), (3, 2))
+        self.assertEqual(datetime.fromisoformat(alpha["scopus_synced_at"]), SYNC_LATE)
+        self.assertEqual(rows["Dr Bravo Cse"]["scopus_papers"], 0)
+        # An EID alone counts, and no Scopus author id is needed for it to.
+        self.assertEqual(rows["Dr Charlie Cse"]["scopus_papers"], 1)
+        self.assertIsNone(rows["Dr Charlie Cse"]["scopus_synced_at"])
+        # The paid claim is a paper in the count but not a Publication, so it is never Scopus-linked.
+        self.assertEqual((rows["Dr Delta Ece"]["papers"], rows["Dr Delta Ece"]["scopus_papers"]), (2, 1))
+        for name, r in rows.items():
+            self.assertLessEqual(r["scopus_papers"], r["papers"], name)
+
+    def test_the_scopus_filter_returns_the_right_people(self):
+        self.assertEqual(self.names(self.office, "scopus=linked"),
+                         {"Dr Alpha Cse", "Dr Bravo Cse", "Dr Delta Ece", "Dr Foxtrot Cse"})
+        self.assertEqual(self.names(self.office, "scopus=no_id"), {"Dr Charlie Cse", "Dr Echo Ece", "Dr Head Cse"})
+        self.assertEqual(self.names(self.office, "scopus=never_synced"), {"Dr Bravo Cse"})
+        self.assertEqual(self.names(self.office, "scopus=gap"), {"Dr Alpha Cse", "Dr Bravo Cse", "Dr Delta Ece"})
+
+    def test_an_unknown_or_empty_scopus_value_is_ignored(self):
+        self.assertEqual(self.names(self.office, "scopus=bogus"), ACTIVE_NAMES)
+        self.assertEqual(self.names(self.office, "scopus="), ACTIVE_NAMES)
+
+    def test_the_scopus_filter_combines_with_search_and_department(self):
+        self.assertEqual(self.names(self.office, "scopus=linked&department=ECE"), {"Dr Delta Ece"})
+        self.assertEqual(self.names(self.office, "scopus=linked&q=Foxtrot"), {"Dr Foxtrot Cse"})
+        self.assertEqual(self.names(self.office, "scopus=no_id&q=Echo"), {"Dr Echo Ece"})
+        # A head's filter stays inside the department, whatever department they name.
+        self.assertEqual(self.names(self.head, "scopus=gap"), {"Dr Alpha Cse", "Dr Bravo Cse"})
+        self.assertEqual(self.names(self.head, "scopus=gap&department=ECE"), set())
+
+    def test_the_summary_covers_the_whole_role_scope_whatever_the_list_shows(self):
+        body = self.get(self.office, "/api/directory/faculty?limit=100&scopus=gap&q=Alpha")
+        self.assertEqual([r["name"] for r in body["results"]], ["Dr Alpha Cse"])
+        s, last = self.summary(body)
+        self.assertEqual(s, {
+            "faculty": 7, "with_id": 4, "without_id": 3, "never_synced": 1, "papers": 8, "scopus_papers": 5,
+        })
+        self.assertEqual(last, SYNC_LATE)
+
+    def test_the_summary_follows_the_list_on_leavers(self):
+        s, _ = self.summary(self.get(self.office, "/api/directory/faculty?limit=100"))
+        self.assertEqual(s["faculty"], 7)
+        s, _ = self.summary(self.get(self.office, "/api/directory/faculty?limit=100&include_left=true"))
+        self.assertEqual((s["faculty"], s["without_id"], s["papers"], s["scopus_papers"]), (8, 4, 9, 6))
+
+    def test_a_heads_summary_covers_their_department_only(self):
+        body = self.get(self.head, "/api/directory/faculty?limit=100")
+        self.assertEqual(body["scope"], "department")
+        s, last = self.summary(body)
+        self.assertEqual(s, {
+            "faculty": 5, "with_id": 3, "without_id": 2, "never_synced": 1, "papers": 6, "scopus_papers": 4,
+        })
+        self.assertEqual(last, SYNC_LATE)
+
+
+class ScopusQueryCountTests(TestCase):
+    def test_the_queries_do_not_grow_with_the_faculty(self):
+        office = _person("sq-office@test.edu", "Office Admin", Role.SUPER_ADMIN)
+        client = Client()
+        client.force_login(office)
+
+        def add(start, stop):
+            for i in range(start, stop):
+                person = _person(
+                    f"sq-{i}@test.edu", f"Dr Person {i:02d}", department="CSE", staff_id=f"Q{i}",
+                    designation="Professor", scopus_author_id=f"{i + 1000}" if i % 2 else None,
+                )
+                _paper(person, f"Person {i:02d} indexed", indexed=True)
+                _paper(person, f"Person {i:02d} neither")
+
+        def measure():
+            # Warm the process once, then time a cold-cache request: both measurements take the same path.
+            cache.clear()
+            client.get("/api/directory/faculty?limit=100")
+            cache.clear()
+            with CaptureQueriesContext(connection) as ctx:
+                r = client.get("/api/directory/faculty?limit=100")
+            self.assertEqual(r.status_code, 200, r.content)
+            return len(ctx.captured_queries), r.json()
+
+        add(0, 3)
+        few, body = measure()
+        self.assertEqual(body["total"], 3)
+        self.assertIsNone(body["scopus_summary"]["last_synced_at"])
+        add(3, 30)
+        many, body = measure()
+        self.assertEqual(body["total"], 30)
+        self.assertEqual(many, few, f"{few} queries for 3 people, {many} for 30")

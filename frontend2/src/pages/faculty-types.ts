@@ -27,6 +27,10 @@ export type FacultyRow = {
   threshold?: number | null
   scopus_author_id: string | null
   scopus_url: string | null
+  /** Papers Scopus-linked (never more than `papers`). Absent from older responses. */
+  scopus_papers?: number
+  /** ISO time of the last Scopus sync for this person, or null if never synced. */
+  scopus_synced_at?: string | null
   orcid_id: string | null
   orcid_url: string | null
   papers: number
@@ -51,7 +55,19 @@ export type DirectoryPayload = {
   money: boolean
   scope: "college" | "department"
   counts: { people: number; left: number; research: number; no_photo: number; no_scopus: number; no_papers_year: number }
+  /** Absent from older responses; the page hides its sentence then. */
+  scopus_summary?: ScopusSummary
   results: FacultyRow[]
+}
+
+export type ScopusSummary = {
+  faculty: number
+  with_id: number
+  without_id: number
+  never_synced: number
+  papers: number
+  scopus_papers: number
+  last_synced_at: string | null
 }
 
 export type GapsPayload = {

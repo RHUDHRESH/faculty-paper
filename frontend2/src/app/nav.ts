@@ -391,7 +391,7 @@ const PAGES: NavItem[] = [
     to: "/faculty",
     label: "Faculty",
     icon: Users,
-    roles: [...OFFICE, "PRINCIPAL"],
+    roles: [...OFFICE, "PRINCIPAL", "DIRECTOR"],
     findOnly: true,
     purpose: "Every faculty member with their photo, Scopus ID, papers and claims.",
     keywords: [

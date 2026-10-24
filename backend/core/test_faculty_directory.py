@@ -405,6 +405,21 @@ class ScopusTests(TestCase):
         for name, r in rows.items():
             self.assertLessEqual(r["scopus_papers"], r["papers"], name)
 
+    def test_the_csv_carries_the_scopus_papers_and_the_sync_day(self):
+        c = Client()
+        c.force_login(self.office)
+        r = c.get("/api/directory/faculty/export.csv")
+        self.assertEqual(r.status_code, 200)
+        rows = list(csv.reader(io.StringIO(r.content.decode("utf-8").lstrip("ï»¿"))))
+        header = rows[0]
+        i_id = header.index("Scopus ID")
+        self.assertEqual(header[i_id + 1 : i_id + 3], ["Scopus papers", "Scopus last synced"])
+        alpha = next(row for row in rows if row[0] == "Dr Alpha Cse")
+        self.assertEqual(alpha[i_id + 1], "2")
+        self.assertEqual(alpha[i_id + 2], SYNC_LATE.date().isoformat())
+        charlie = next(row for row in rows if row[0] == "Dr Charlie Cse")
+        self.assertEqual(charlie[i_id + 2], "")
+
     def test_the_scopus_filter_returns_the_right_people(self):
         self.assertEqual(self.names(self.office, "scopus=linked"),
                          {"Dr Alpha Cse", "Dr Bravo Cse", "Dr Delta Ece", "Dr Foxtrot Cse"})

@@ -30,6 +30,8 @@ from core.services.cell_safe import csv_writer, safe_append
 import csv
 import io
 import json
+import re
+from datetime import date
 from typing import Any, Iterable
 
 #: What a caller may ask for.
@@ -52,26 +54,63 @@ def _text(value: Any) -> str:
     return str(value)
 
 
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def render(
     pack: dict[str, dict[str, Any]],
     fmt: str,
     *,
     title: str = "Report",
     subtitle: str = "",
+    cover: bool = True,
 ) -> bytes:
     """One pack, in the asked-for shape.
 
-    `pack` maps a sheet name to `{"columns": [...], "rows": [[...], ...]}`.
+    `pack` maps a sheet name to `{"columns": [...], "rows": [[...], ...]}`,
+    and may carry `"kinds"`: one entry per column, `text`, `number`, `money`
+    or `date`, or None to work it out. `cover=False` leaves the contents page
+    out of a workbook, for a single table that is the whole file.
     """
     if fmt not in FORMATS:
         raise ValueError(f"Unknown format {fmt!r}")
+    if fmt == "xlsx":
+        return _xlsx(pack, title, subtitle, with_cover=cover)
     return {
-        "xlsx": _xlsx,
         "csv": _csv,
         "json": _json,
         "pdf": _pdf,
         "docx": _docx,
     }[fmt](pack, title, subtitle)
+
+
+#: What the single-table export may ask for.
+TABLE_FORMATS = ("xlsx", "pdf", "csv")
+
+
+def render_table(
+    title: str,
+    subtitle: str,
+    columns: list[str],
+    rows: list[list[Any]],
+    fmt: str,
+    *,
+    kinds: list[str | None] | None = None,
+    generated_line: str = "",
+) -> bytes:
+    """One table as one file, for the table-export endpoint.
+
+    `rows` must be aligned with `columns`. `kinds` is one entry per column
+    (see `render`). `generated_line` is printed under the subtitle of a PDF:
+    who asked for the file and when.
+    """
+    if fmt not in TABLE_FORMATS:
+        raise ValueError(f"Unknown format {fmt!r}")
+    if fmt == "pdf":
+        return _table_pdf(title, subtitle, generated_line, columns, rows, kinds)
+    pack = {title: {"columns": list(columns), "rows": rows, "kinds": kinds}}
+    return render(pack, fmt, title=title, subtitle=subtitle, cover=False)
 
 
 # ---------------------------------------------------------------- xlsx ----
@@ -119,7 +158,43 @@ def _column_kind(heading: str, rows: list, index: int) -> str:
     return "text"
 
 
-def _xlsx(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
+def _kinds_for(columns: list, rows: list, asked: list | None) -> list[str]:
+    """One kind per column: the one asked for, else worked out from the column."""
+    asked = asked or [None] * len(columns)
+    return [k or _column_kind(c, rows, i) for i, (c, k) in enumerate(zip(columns, asked))]
+
+
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _as_date(value: Any) -> Any:
+    """'2026-03-14' becomes a date. Anything else comes back as it was.
+
+    That includes an ISO-shaped string that is not a real day, such as
+    2026-02-30: it stays text rather than becoming a wrong date.
+    """
+    if isinstance(value, str) and _ISO_DATE.fullmatch(value.strip()):
+        try:
+            return date.fromisoformat(value.strip())
+        except ValueError:
+            pass
+    return value
+
+
+def _date_cells(row, kinds: list[str]) -> list:
+    cells = list(row)
+    for i, kind in enumerate(kinds[: len(cells)]):
+        if kind == "date":
+            cells[i] = _as_date(cells[i])
+    return cells
+
+
+def _xlsx(
+    pack: dict[str, dict[str, Any]],
+    title: str,
+    subtitle: str,
+    with_cover: bool = True,
+) -> bytes:
     """A workbook somebody can open in front of a board without apologising.
 
     The difference between this and a dump of the same rows is entirely in the
@@ -149,27 +224,28 @@ def _xlsx(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
     top = Alignment(vertical="top", wrap_text=False)
 
     # ---- cover -----------------------------------------------------------
-    cover = wb.create_sheet("Cover")
-    cover.sheet_view.showGridLines = False
-    cover["B2"] = title
-    cover["B2"].font = Font(bold=True, size=20)
-    cover["B3"] = subtitle
-    cover["B3"].font = Font(size=11, color="FF5A6472")
-    cover["B5"] = "Contents"
-    cover["B5"].font = Font(bold=True, size=12)
-    line = 6
-    for name, sheet in pack.items():
-        cover.cell(row=line, column=2, value=name)
-        count = len(sheet["rows"])
-        cover.cell(row=line, column=3, value=count).number_format = "#,##0"
-        cover.cell(row=line, column=4, value="row" if count == 1 else "rows").font = Font(
-            color="FF5A6472"
-        )
-        line += 1
-    cover.column_dimensions["A"].width = 3
-    cover.column_dimensions["B"].width = 46
-    cover.column_dimensions["C"].width = 12
-    cover.column_dimensions["D"].width = 10
+    if with_cover:
+        cover = wb.create_sheet("Cover")
+        cover.sheet_view.showGridLines = False
+        cover["B2"] = title
+        cover["B2"].font = Font(bold=True, size=20)
+        cover["B3"] = subtitle
+        cover["B3"].font = Font(size=11, color="FF5A6472")
+        cover["B5"] = "Contents"
+        cover["B5"].font = Font(bold=True, size=12)
+        line = 6
+        for name, sheet in pack.items():
+            cover.cell(row=line, column=2, value=name)
+            count = len(sheet["rows"])
+            cover.cell(row=line, column=3, value=count).number_format = "#,##0"
+            cover.cell(row=line, column=4, value="row" if count == 1 else "rows").font = Font(
+                color="FF5A6472"
+            )
+            line += 1
+        cover.column_dimensions["A"].width = 3
+        cover.column_dimensions["B"].width = 46
+        cover.column_dimensions["C"].width = 12
+        cover.column_dimensions["D"].width = 10
 
     # ---- one tab per sheet ----------------------------------------------
     for name, sheet in pack.items():
@@ -182,7 +258,7 @@ def _xlsx(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
 
         columns = list(sheet["columns"])
         rows = list(sheet["rows"])
-        kinds = [_column_kind(c, rows, i) for i, c in enumerate(columns)]
+        kinds = _kinds_for(columns, rows, sheet.get("kinds"))
 
         safe_append(ws, columns)
         for cell in ws[1]:
@@ -193,7 +269,7 @@ def _xlsx(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
         ws.row_dimensions[1].height = 26
 
         for r_index, row in enumerate(rows, start=2):
-            safe_append(ws, list(row))
+            safe_append(ws, _date_cells(row, kinds))
             for c_index, kind in enumerate(kinds, start=1):
                 cell = ws.cell(row=r_index, column=c_index)
                 # Banding rather than a rule between every row: the eye needs
@@ -214,6 +290,13 @@ def _xlsx(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
                 elif kind == "year":
                     cell.number_format = "0"
                     cell.alignment = Alignment(horizontal="right")
+                elif kind == "date":
+                    # A date that did not parse stays as the text that was sent.
+                    if isinstance(cell.value, date):
+                        cell.number_format = "dd-mmm-yyyy"
+                        cell.alignment = Alignment(horizontal="right")
+                    else:
+                        cell.alignment = top
                 else:
                     cell.alignment = top
 
@@ -267,7 +350,9 @@ def _csv(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
         writer.writerow([])
     writer.writerow(list(first["columns"]))
     for row in first["rows"]:
-        writer.writerow([_text(v) for v in row])
+        # Numbers stay numbers. Turned into text first, a negative figure
+        # starts with "-" and the formula guard quotes it.
+        writer.writerow([v if _is_number(v) else _text(v) for v in row])
     # Excel on Windows needs the BOM to read UTF-8 in a .csv.
     return buf.getvalue().encode("utf-8-sig")
 
@@ -327,7 +412,6 @@ def _pdf(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
     from reportlab.lib.enums import TA_RIGHT
 
     from core.services import pdf_fonts
-    from core.services.payout_statement import inr
 
     sans, sans_bold = pdf_fonts.register()  # carries the ₹ glyph
     styles = getSampleStyleSheet()
@@ -390,15 +474,9 @@ def _pdf(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
         kinds = [_column_kind(c, rows, i) for i, c in enumerate(columns)]
 
         def shown_cell(v: Any, kind: str) -> Paragraph:
-            # Money as ₹12,34,567.50 and counts as 1,586 -- what the reader
-            # sees on screen -- rather than Python's 1234567.5.
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
-                if kind == "money":
-                    return Paragraph(inr(v), num_style)
-                if kind == "number":
-                    txt = f"{v:,.2f}" if isinstance(v, float) and not v.is_integer() else pdf_fonts.group_in(v)
-                    return Paragraph(txt, num_style)
-            return Paragraph(escape(_text(v)[:300]), cell_style)
+            if _is_number(v) and kind in ("money", "number"):
+                return Paragraph(_pdf_value(v, kind), num_style)
+            return Paragraph(escape(_pdf_value(v, kind)[:300]), cell_style)
 
         data = [[Paragraph(escape(_text(c)), head_style) for c in columns]]
         for row in shown:
@@ -421,6 +499,203 @@ def _pdf(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
         story.append(table)
 
     doc.build(story)
+    return out.getvalue()
+
+
+#: A table PDF sizes each column to the text in it, measured in ems so the
+#: same proportions hold at 8pt and 7pt. No column is narrower than the
+#: minimum, or wider than the cap however long its text is.
+_TABLE_PDF_MIN_EM = 3.0
+_TABLE_PDF_CAP_EM = 24.0
+#: Font sizes tried in order. A table too wide for the last is printed in
+#: stripes of columns rather than shrunk to where nobody can read it.
+_TABLE_PDF_SIZES = (8, 7)
+_TABLE_PDF_PAD = 6  # points of cell padding, both sides together
+
+
+def _pdf_value(v: Any, kind: str | None) -> str:
+    """A cell as the reader sees it on screen: 12,34,567.50, 1,586, 14 Mar 2026."""
+    from core.services import pdf_fonts
+    from core.services.payout_statement import inr
+
+    if _is_number(v):
+        if kind == "money":
+            return inr(v)
+        if kind == "number":
+            return f"{v:,.2f}" if isinstance(v, float) and not v.is_integer() else pdf_fonts.group_in(v)
+    value = _as_date(v) if kind == "date" else v
+    if isinstance(value, date):
+        return f"{value:%d %b %Y}"
+    return _text(v)
+
+
+def _column_groups(widths: list[float], avail: float) -> list[list[int]]:
+    """Runs of columns that each fit the page width.
+
+    Every run after the first begins with column 0 again, so each stripe
+    still says whose row it is.
+    """
+    groups: list[list[int]] = []
+    current, used = [0], widths[0]
+    for i in range(1, len(widths)):
+        if used + widths[i] > avail and len(current) > 1:
+            groups.append(current)
+            current, used = [0], widths[0]
+        current.append(i)
+        used += widths[i]
+    groups.append(current)
+    return groups
+
+
+def _table_pdf(
+    title: str,
+    subtitle: str,
+    generated_line: str,
+    columns: list[str],
+    rows: list[list[Any]],
+    kinds: list[str | None] | None,
+) -> bytes:
+    """A table to read and sign: landscape A4, any number of columns.
+
+    Each column is as wide as the text in it, capped. If the table is too wide
+    at 8pt it is set at 7pt; if still too wide, it is printed in stripes of
+    columns, each running down every page, so no column is dropped.
+    """
+    from xml.sax.saxutils import escape
+
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_LEFT, TA_RIGHT
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    from core.services import pdf_fonts
+
+    sans, sans_bold = pdf_fonts.register()  # carries the ₹ glyph
+    page_w, _page_h = landscape(A4)
+    margin = 12 * mm
+    avail = page_w - 2 * margin
+    kinds = _kinds_for(columns, rows, kinds)
+
+    # Widths are measured per point of font size: stringWidth is linear in
+    # size, so each text is measured once. A heading may break at its spaces;
+    # a cell's text is measured whole.
+    heading_em = [
+        max((stringWidth(w, sans_bold, 1) for w in _text(c).split()), default=0.0) for c in columns
+    ]
+    cell_em = [
+        max((stringWidth(_pdf_value(r[i], kinds[i]), sans, 1) for r in rows[:300] if len(r) > i), default=0.0)
+        for i in range(len(columns))
+    ]
+
+    def widths_at(size: float) -> list[float]:
+        return [
+            min(max(h, c, _TABLE_PDF_MIN_EM) * size, _TABLE_PDF_CAP_EM * size) + _TABLE_PDF_PAD
+            for h, c in zip(heading_em, cell_em)
+        ]
+
+    size = next((s for s in _TABLE_PDF_SIZES if sum(widths_at(s)) <= avail), None)
+    if size is None:
+        size = _TABLE_PDF_SIZES[-1]
+        groups = _column_groups(widths_at(size), avail)
+    else:
+        groups = [list(range(len(columns)))]
+    natural = widths_at(size)
+
+    styles = getSampleStyleSheet()
+    note = ParagraphStyle(
+        "note", parent=styles["BodyText"], fontName=sans, fontSize=8, textColor=colors.HexColor("#666666")
+    )
+    cell = ParagraphStyle(
+        "cell", parent=styles["BodyText"], fontName=sans, fontSize=size, leading=size + 1.5, alignment=TA_LEFT
+    )
+    num = ParagraphStyle("num", parent=cell, alignment=TA_RIGHT)
+    head = ParagraphStyle("head", parent=cell, fontName=sans_bold, textColor=colors.white)
+
+    story: list[Any] = [
+        Paragraph(escape(title), ParagraphStyle("t", parent=styles["Title"], fontName=sans_bold))
+    ]
+    if subtitle:
+        story.append(Paragraph(escape(subtitle), note))
+    if generated_line:
+        story.append(Paragraph(escape(generated_line), note))
+    story.append(Spacer(1, 4 * mm))
+    if not rows:
+        story.append(Paragraph("No rows.", note))
+
+    for k, group in enumerate(groups):
+        if k:
+            story.append(PageBreak())
+        if len(groups) > 1:
+            shown = group if k == 0 else group[1:]
+            caption = f"Columns {shown[0] + 1} to {shown[-1] + 1} of {len(columns)}"
+            if k:
+                caption += " (first column repeated)"
+            story.append(Paragraph(caption, note))
+            story.append(Spacer(1, 2 * mm))
+        data = [[Paragraph(escape(_text(columns[c])), head) for c in group]]
+        for row in rows:
+            data.append([
+                Paragraph(
+                    escape(_pdf_value(row[c], kinds[c])),
+                    num if _is_number(row[c]) and kinds[c] in ("money", "number") else cell,
+                )
+                for c in group
+            ])
+        # Stretched to the full width: a stripe or a table that fits is laid
+        # out across the page, with each column keeping its share.
+        scale = avail / sum(natural[c] for c in group)
+        table = Table(
+            data, colWidths=[natural[c] * scale for c in group], repeatRows=1, hAlign="LEFT"
+        )
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#334155")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#cbd5e1")),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ]
+            )
+        )
+        story.append(table)
+
+    class Numbered(rl_canvas.Canvas):
+        """Second pass: 'Page x of y' needs the total, which is known only at the end."""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._saved_pages: list[dict] = []
+
+        def showPage(self):
+            self._saved_pages.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            total = len(self._saved_pages)
+            for state in self._saved_pages:
+                self.__dict__.update(state)
+                self.setFont(sans, 7)
+                self.drawRightString(page_w - margin, 6 * mm, f"Page {self._pageNumber} of {total}")
+                super().showPage()
+            super().save()
+
+    out = io.BytesIO()
+    SimpleDocTemplate(
+        out,
+        pagesize=landscape(A4),
+        leftMargin=margin,
+        rightMargin=margin,
+        topMargin=margin,
+        bottomMargin=margin,
+        title=title,
+    ).build(story, canvasmaker=Numbered)
     return out.getvalue()
 
 

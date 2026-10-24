@@ -189,6 +189,16 @@ describe("Check with AI, the section on the Check tab", () => {
     }
   })
 
+  it("lists the problems first, and folds the passed checks behind one line", async () => {
+    mount(section(), { current: RESULT })
+    await screen.findByText("1 failed, 1 to check")
+    expect(screen.getByText("4 checks passed").closest("details")).not.toBeNull()
+    const heads = screen.getAllByRole("heading", { level: 4 }).map((h) => h.textContent ?? "")
+    expect(heads).toHaveLength(6)
+    expect(heads.slice(0, 2).every((h) => /Fail|Check this/.test(h))).toBe(true)
+    expect(heads.slice(2).every((h) => /Pass/.test(h))).toBe(true)
+  })
+
   it("shows the record's checks and says so when the model's answer could not be read", async () => {
     mount(section(), {
       current: { ...RESULT, id: null, ai_ok: false, ai_error: "The AI's answer could not be read, so only the record checks are shown." },

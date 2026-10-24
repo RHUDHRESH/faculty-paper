@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Inbox, ListFilter } from "lucide-react"
+import { Inbox } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
 import { openShortcuts } from "@/app/shortcuts"
-import { cn } from "@/lib/cn"
 import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { countAssignedToMe, isAssignedToMe } from "@/ui/assignee"
 import { AnswerLine, AnswerWord, tieNumbers } from "@/ui/answer"
@@ -78,7 +77,6 @@ export function Clearing() {
   const age = isAgeBucket(values.age) ? values.age : ""
   const searchRef = useRef<HTMLInputElement>(null)
   useSlashToSearch(searchRef)
-  const [showFilters, setShowFilters] = useState(false)
 
   const needle = q.trim().toLowerCase()
   // Narrowing only: the server's oldest-first order is never re-sorted.
@@ -306,7 +304,8 @@ export function Clearing() {
     </Rows>
   )
 
-  const laneHead = (title: string, list: QueueClaim[], hint: string) => (
+  // One "Choose all": on the ready lane, the one the `a` key uses.
+  const laneHead = (title: string, list: QueueClaim[], hint: string, chooseAll: boolean) => (
     <div className="mb-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1">
       <div className="flex items-baseline gap-3">
         <h2 className="text-lg font-semibold">{title}</h2>
@@ -317,14 +316,16 @@ export function Clearing() {
       </div>
       <div className="flex items-center gap-3">
         <Meta className="hidden sm:inline">{hint}</Meta>
-        <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
-          <Checkbox
-            checked={list.length > 0 && list.every((c) => selected.has(c.id))}
-            onCheckedChange={() => toggleLane(list)}
-            aria-label={`Choose all ${list.length} in ${title.toLowerCase()}`}
-          />
-          Choose all
-        </label>
+        {chooseAll && (
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
+            <Checkbox
+              checked={list.length > 0 && list.every((c) => selected.has(c.id))}
+              onCheckedChange={() => toggleLane(list)}
+              aria-label={`Choose all ${list.length} in ${title.toLowerCase()}`}
+            />
+            Choose all
+          </label>
+        )}
       </div>
     </div>
   )
@@ -366,21 +367,15 @@ export function Clearing() {
 
       {all.length > 0 && (
         <section aria-label="Find and narrow" className="space-y-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex w-full items-center gap-2 sm:w-auto">
+          <div className="flex flex-wrap items-center gap-2 border-b border-line pb-3">
               <SearchBox
                 inputRef={searchRef}
                 value={q}
                 onCommit={(next) => set({ q: next })}
                 placeholder="Claim no., title, claimant or journal"
                 label="Search the queue"
-                className="min-w-0 flex-1 sm:w-80"
+                className="w-full min-w-0 sm:w-80"
               />
-              <Button kind="default" size="icon" className="sm:hidden" aria-label="Filters" aria-expanded={showFilters} onClick={() => setShowFilters((v) => !v)}>
-                <ListFilter />
-              </Button>
-            </div>
-            <div className={cn("gap-3", showFilters ? "grid w-full grid-cols-2 sm:contents" : "hidden sm:contents")}>
             <QuietSelect value={department} onChange={(v) => set({ department: v })} label="Filter by department">
               <option value="">All departments</option>
               {byDept.map(([d, n]) => (
@@ -407,7 +402,6 @@ export function Clearing() {
                 Show all {all.length}
               </Button>
             )}
-            </div>
           </div>
           <ClaimNoJump term={q} skip={new Set(all.map((c) => c.id))} />
           <Meta className="hidden md:block">
@@ -472,13 +466,13 @@ export function Clearing() {
         <div className="space-y-10">
           {ready.length > 0 && (
             <section aria-label="Ready to clear">
-              {laneHead("Ready to clear", ready, "Every check passed and no journal is watched.")}
+              {laneHead("Ready to clear", ready, "Every check passed and no journal is watched.", true)}
               {lane(ready, true)}
             </section>
           )}
           {rest.length > 0 && (
             <section aria-label="Needs a look">
-              {laneHead("Needs a look", rest, "Open each one to decide.")}
+              {laneHead("Needs a look", rest, "Open each one to decide.", false)}
               {lane(rest, false)}
             </section>
           )}

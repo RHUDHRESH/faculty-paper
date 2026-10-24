@@ -19,9 +19,9 @@ from unittest.mock import patch
 
 from django.test import Client, TestCase
 
-from core.models import Authorship, Claim, ClaimStatus, PaidLedger, Publication, Role, User
+from core.models import Authorship, AuthorAlias, Claim, ClaimStatus, PaidLedger, Publication, Role, User
 from core.services import publications as P
-from core.services.author_names import departments_in, name_score
+from core.services.author_names import departments_in, name_key, name_score
 from core.test_search import money_keys_in
 
 SEC = "Department of Electrical and Electronics Engineering, Saveetha Engineering College, Chennai, India"
@@ -143,6 +143,18 @@ class NameTests(TestCase):
         self.assertEqual(departments_in(SEC), {"EEE"})
         self.assertIn("ECE", departments_in(SEC_ECE))
 
+    def test_surname_and_initial_must_both_agree(self):
+        from core.services.author_names import surname_and_initial_agree as same
+
+        self.assertTrue(same("Subhashini R", "Dr. R. Subhashini"))
+        self.assertTrue(same("Mr. S. Joyal Isac", "Joyal Isac S"))
+        self.assertTrue(same("K. Kamala Devi", "Dr. Kamaladevi K"))
+        # The surname alone is not enough: the initial has to agree too.
+        self.assertFalse(same("K. Subhashini", "Dr. R. Subhashini"))
+        self.assertFalse(same("Kumar P", "Mahesh Kumar"))
+        # No initial on one side: the first initial cannot be confirmed.
+        self.assertFalse(same("Joyal Isac", "Mr. S. Joyal Isac"))
+
 
 class _Base(TestCase):
     def setUp(self):
@@ -216,8 +228,10 @@ class HarvestTests(_Base):
         mine = Authorship.objects.filter(user=self.joyal)
         methods = {a.publication.openalex_id or a.publication.source: a.match_method for a in mine}
         self.assertEqual(methods["W1"], "record")
-        self.assertEqual(methods["W2"], "author_id")
-        self.assertEqual(methods["W5"], "author_id")  # pre-college, via his OpenAlex id
+        # Joyal has a Scopus id, so neither his name nor his OpenAlex id puts him
+        # on W2 or W5 (rule 1). Scopus does: see test_scopus_puts_him_on_his_papers.
+        self.assertNotIn("W2", methods)
+        self.assertNotIn("W5", methods)
         self.assertEqual(methods["record"], "record")  # ledger-only paper
         subha = Authorship.objects.get(publication__openalex_id="W2", position=1)
         self.assertEqual(subha.user, self.subha)
@@ -225,6 +239,16 @@ class HarvestTests(_Base):
         ambiguous = Authorship.objects.get(publication__openalex_id="W4")
         self.assertIsNone(ambiguous.user)  # P. Kumar / Kumar P: two people, not guessed
         self.assertEqual(out["ambiguous"], 1)
+
+    def test_scopus_puts_him_on_his_papers(self):
+        self.harvest()
+        for oa in ("W2", "W5"):
+            P.ensure_user_authorship(Publication.objects.get(openalex_id=oa), self.joyal,
+                                     method="scopus", confidence=0.97)
+        P.match_authors()
+        methods = {a.publication.openalex_id or a.publication.source: a.match_method
+                   for a in Authorship.objects.filter(user=self.joyal)}
+        self.assertEqual((methods["W2"], methods["W5"]), ("scopus", "scopus"))
         self.assertEqual(P.metrics_for(self.joyal.id)["total_publications"], 4)
         self.assertEqual(P.metrics_for(self.joyal.id)["h_index"], 3)  # 12, 11, 3, 0
 
@@ -270,6 +294,11 @@ class ApiTests(_Base):
     def setUp(self):
         super().setUp()
         self.harvest()
+        # Joyal has a Scopus id: Scopus lists him on W2 and W5, so the Scopus
+        # sync (not his name or OpenAlex id) is what puts him there.
+        for oa in ("W2", "W5"):
+            P.ensure_user_authorship(Publication.objects.get(openalex_id=oa), self.joyal,
+                                     method="scopus", confidence=0.97)
         self.client = Client()
         self.client.force_login(self.subha)
 
@@ -525,3 +554,166 @@ class ApiTests(_Base):
         self.assertEqual(queued.call_args[0][:2], ("core.tasks.harvest_publications", 2024))
         status = self.client.get("/api/admin/publications/status").json()
         self.assertIn("P. Kumar", status["unmatched_college_names"])
+
+
+SEC_CSE = "Department of Computer Science and Engineering, Saveetha Engineering College, Chennai"
+
+
+def _paper(title, *rows):
+    """A paper with one Authorship per dict in `rows`, positions 1.. unless a row sets its own."""
+    pub = Publication.objects.create(title=title, normalized_title=title.lower(), year=2024)
+    for i, row in enumerate(rows, start=1):
+        Authorship.objects.create(publication=pub, **{"position": i, **row})
+    return pub
+
+
+class StrongEvidenceTests(TestCase):
+    """Automatic links need strong evidence.
+
+    A member with a Scopus id is matched by the Scopus sync (and by their own
+    claims) only. Any other member needs exactly one active candidate for the
+    author, the same surname and first initial, and the college named in the
+    author's affiliation. A paper a person reported as not theirs is not linked
+    to them again by the matcher.
+    """
+
+    def setUp(self):
+        self.priya = User.objects.create_user(email="priya@x.edu", password=None, name="Dr. N. Priya",
+                                              department="CSE")
+        self.subha = User.objects.create_user(email="subha@x.edu", password=None, name="Dr. R. Subhashini",
+                                              department="ECE", scopus_author_id="59009649300")
+        self.c = Client()
+        self.c.force_login(self.priya)
+
+    def test_a_scopus_id_member_is_not_linked_by_name_or_openalex_id(self):
+        _paper("A paper the member claimed, which gives OpenAlex author A9",
+               {"display_name": "Dr. R. Subhashini", "user": self.subha, "match_method": "record",
+                "match_confidence": 0.95, "openalex_author_id": "A9", "is_college": True, "raw_affiliation": SEC_CSE})
+        by_openalex = _paper("OpenAlex spells the same author the other way round",
+                             {"display_name": "R. Subhashini", "openalex_author_id": "A9", "is_college": True,
+                              "raw_affiliation": SEC_CSE})
+        by_name = _paper("The same name, with no OpenAlex id on the row",
+                         {"display_name": "Subhashini R", "is_college": True, "raw_affiliation": SEC_CSE})
+        synced = _paper("A paper the Scopus sync put him on",
+                        {"display_name": "R. Subhashini", "user": self.subha, "match_method": "scopus",
+                         "match_confidence": 0.97, "is_college": True, "raw_affiliation": SEC_CSE})
+        P.match_authors()
+        self.assertIsNone(Authorship.objects.get(publication=by_openalex).user)
+        self.assertIsNone(Authorship.objects.get(publication=by_name).user)
+        self.assertEqual(Authorship.objects.get(publication=synced).user_id, self.subha.id)
+
+    def test_two_members_with_the_same_surname_and_initial_leave_the_paper_unlinked(self):
+        User.objects.create_user(email="ravi1@x.edu", password=None, name="Dr. A. Ravi", department="ECE")
+        User.objects.create_user(email="ravi2@x.edu", password=None, name="Ravi A", department="MECH")
+        pub = _paper("A paper by one of two namesakes, one in the department it names",
+                     {"display_name": "A. Ravi", "is_college": True, "raw_affiliation": SEC_ECE})
+        out = P.match_authors()
+        self.assertIsNone(Authorship.objects.get(publication=pub).user)
+        self.assertEqual([a["name"] for a in out["ambiguous"]], ["A. Ravi"])
+
+    def test_a_scopus_id_namesake_still_counts_as_a_second_candidate(self):
+        User.objects.create_user(email="ravi3@x.edu", password=None, name="Ravi A", scopus_author_id="12345678901")
+        User.objects.create_user(email="ravi4@x.edu", password=None, name="Dr. A. Ravi", department="ECE")
+        pub = _paper("A paper that one of two namesakes wrote, one of them on Scopus",
+                     {"display_name": "A. Ravi", "is_college": True, "raw_affiliation": SEC_ECE})
+        P.match_authors()
+        self.assertIsNone(Authorship.objects.get(publication=pub).user)
+
+    def test_a_unique_name_match_without_a_scopus_id_is_linked(self):
+        pub = _paper("A paper where the name and the college are both unique",
+                     {"display_name": "N. Priya", "is_college": True, "raw_affiliation": SEC_CSE})
+        P.match_authors()
+        row = Authorship.objects.get(publication=pub)
+        self.assertEqual((row.user_id, row.match_method), (self.priya.id, "name"))
+
+    def test_an_affiliation_that_does_not_name_the_college_blocks_the_link(self):
+        _paper("A paper of the member's that gives OpenAlex author A7",
+               {"display_name": "Dr. N. Priya", "user": self.priya, "match_method": "record",
+                "match_confidence": 0.95, "openalex_author_id": "A7", "is_college": True, "raw_affiliation": SEC_CSE})
+        velammal = _paper("A pre-college paper under the same OpenAlex id",
+                          {"display_name": "N. Priya", "openalex_author_id": "A7",
+                           "raw_affiliation": "Velammal Engineering College, Chennai"})
+        simats = _paper("A namesake at the other Saveetha institution",
+                        {"display_name": "N. Priya", "is_college": True,
+                         "raw_affiliation": "Saveetha School of Engineering, Saveetha University, Chennai"})
+        P.match_authors()
+        self.assertIsNone(Authorship.objects.get(publication=velammal).user)
+        self.assertIsNone(Authorship.objects.get(publication=simats).user)
+
+    def test_no_affiliation_text_blocks_a_name_link(self):
+        pub = _paper("A college row with no affiliation text to check", {"display_name": "N. Priya", "is_college": True})
+        P.match_authors()
+        self.assertIsNone(Authorship.objects.get(publication=pub).user)
+
+    def test_a_link_removed_by_not_mine_is_not_recreated(self):
+        pub = _paper("A paper the matcher puts on the member by name",
+                     {"display_name": "N. Priya", "is_college": True, "raw_affiliation": SEC_CSE})
+        P.match_authors()
+        self.assertEqual(Authorship.objects.get(publication=pub).user_id, self.priya.id)
+        r = self.c.post(f"/api/me/publications/{pub.id}/dispute", data=json.dumps({"reason": "not_mine"}),
+                        content_type="application/json")
+        self.assertEqual(r.status_code, 200, r.content)
+        P.match_authors()
+        self.assertIsNone(Authorship.objects.get(publication=pub).user)
+
+    def test_a_duplicate_report_does_not_stop_the_link(self):
+        pub = _paper("A paper the member reported only as a duplicate of another record",
+                     {"display_name": "N. Priya", "is_college": True, "raw_affiliation": SEC_CSE})
+        P.match_authors()
+        r = self.c.post(f"/api/me/publications/{pub.id}/dispute", data=json.dumps({"reason": "duplicate"}),
+                        content_type="application/json")
+        self.assertEqual(r.status_code, 200, r.content)
+        P.match_authors()
+        self.assertEqual(Authorship.objects.get(publication=pub).user_id, self.priya.id)
+
+    def test_an_openalex_id_link_removed_by_not_mine_is_not_recreated(self):
+        _paper("A paper of the member's that gives OpenAlex author A7",
+               {"display_name": "Dr. N. Priya", "user": self.priya, "match_method": "record",
+                "match_confidence": 0.95, "openalex_author_id": "A7", "is_college": True, "raw_affiliation": SEC_CSE})
+        pub = _paper("Another paper under the same OpenAlex id",
+                     {"display_name": "N. Priya", "openalex_author_id": "A7", "is_college": True,
+                      "raw_affiliation": SEC_CSE})
+        P.match_authors()
+        self.assertEqual(Authorship.objects.get(publication=pub).match_method, "author_id")
+        self.c.post(f"/api/me/publications/{pub.id}/dispute", data=json.dumps({"reason": "not_mine"}),
+                    content_type="application/json")
+        P.match_authors()
+        self.assertIsNone(Authorship.objects.get(publication=pub).user)
+
+    def test_an_office_name_decision_does_not_link_a_scopus_id_member(self):
+        AuthorAlias.objects.create(name_key=name_key("Subhashini R"), status=AuthorAlias.MATCHED,
+                                   user=self.subha, sample_name="Subhashini R")
+        pub = _paper("A paper under a name the office once matched to a Scopus member",
+                     {"display_name": "Subhashini R", "is_college": True, "raw_affiliation": SEC_CSE})
+        P.match_authors()
+        self.assertIsNone(Authorship.objects.get(publication=pub).user)
+
+    def test_a_scopus_id_member_is_not_moved_onto_a_namesake_row(self):
+        pub = _paper("A paper the member is already on through a claim",
+                     {"position": None, "display_name": "Dr. R. Subhashini", "user": self.subha,
+                      "match_method": "record", "match_confidence": 0.95, "is_college": True,
+                      "raw_affiliation": SEC_CSE},
+                     {"display_name": "R. Subhashini", "openalex_author_id": "A9", "raw_affiliation": SEC_CSE})
+        P.match_authors()
+        free = pub.authorships.get(display_name="R. Subhashini")
+        self.assertIsNone(free.user)
+
+    def test_a_scopus_id_link_removed_by_not_mine_is_not_recreated(self):
+        pub = _paper("A paper whose OpenAlex profile carries the member's Scopus id",
+                     {"display_name": "R. Subhashini", "openalex_author_id": "A5", "is_college": True,
+                      "raw_affiliation": SEC_CSE})
+
+        def fetch(path, params):
+            return {"results": [{"id": "https://openalex.org/A5", "ids": {
+                "scopus": "http://www.scopus.com/inward/authorDetails.url?authorID=59009649300&partnerID=MN8TOARS"}}]}
+
+        P.link_by_scopus_ids(fetch=fetch)
+        row = Authorship.objects.get(publication=pub)
+        self.assertEqual(row.user_id, self.subha.id)
+        subha = Client()
+        subha.force_login(self.subha)
+        subha.post(f"/api/me/publications/{pub.id}/dispute", data=json.dumps({"reason": "not_mine"}),
+                   content_type="application/json")
+        Authorship.objects.filter(id=row.id).update(user=None, match_method="")  # the office takes the link off
+        P.link_by_scopus_ids(fetch=fetch)
+        self.assertIsNone(Authorship.objects.get(id=row.id).user)

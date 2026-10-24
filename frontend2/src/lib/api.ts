@@ -72,6 +72,37 @@ export async function api<T = unknown>(path: string, options: Options = {}): Pro
 }
 
 /**
+ * A POST that answers with a file rather than JSON (a spreadsheet, a PDF).
+ * Same session and CSRF token as `api`. The server names the file in
+ * Content-Disposition; that name is returned so the download keeps it.
+ */
+export async function apiFile(path: string, json: unknown): Promise<{ blob: Blob; filename: string | null }> {
+  const headers = new Headers({ "Content-Type": "application/json", "X-CSRFToken": await token() })
+  const res = await fetch(path, { method: "POST", headers, credentials: "same-origin", body: JSON.stringify(json) })
+  if (res.status === 401) window.dispatchEvent(new CustomEvent("auth:expired"))
+  if (!res.ok) {
+    const text = await res.text()
+    const body = text ? safeJson(text) : null
+    const detail =
+      body && typeof body === "object" && "detail" in body
+        ? String((body as { detail: unknown }).detail)
+        : `Request failed (${res.status})`
+    throw new ApiError(res.status, detail, body)
+  }
+  const disposition = res.headers.get("Content-Disposition") ?? ""
+  const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(disposition)
+  let filename: string | null = null
+  if (match) {
+    try {
+      filename = decodeURIComponent(match[1] ?? match[2])
+    } catch {
+      filename = match[1] ?? match[2]
+    }
+  }
+  return { blob: await res.blob(), filename }
+}
+
+/**
  * A GET that `index.html` already started, if it did.
  *
  * The first two questions every visit asks -- who is signed in, and which

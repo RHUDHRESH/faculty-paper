@@ -97,6 +97,28 @@ def name_score(a: str | None, b: str | None) -> float:
     return round(score - fuzz, 4) if score > 0 else 0.0
 
 
+def surname_and_initial_agree(a: str | None, b: str | None) -> bool:
+    """Do two names share a name part AND agree on the initial?
+
+    The letters each name adds beyond the shared part must have one in common:
+    "Kumar P" and "Mahesh Kumar" share a surname, but P and M disagree. A name
+    with no letter to add (or no initial) cannot confirm the initial, so it does
+    not agree either.
+    """
+    fa, ia = name_parts(a)
+    fb, ib = name_parts(b)
+    if not fa or not fb:
+        return False
+    shared = set(fa) & set(fb)
+    if "".join(fa) == "".join(fb):
+        shared = set(fa) | set(fb)  # run together: "Kamala Devi" / "Kamaladevi"
+    if not shared:
+        return False
+    letters_a = set(ia) | {t[0] for t in fa if t not in shared}
+    letters_b = set(ib) | {t[0] for t in fb if t not in shared}
+    return bool(letters_a & letters_b)
+
+
 def _score(fa: tuple[str, ...], ia: tuple[str, ...], fb: tuple[str, ...], ib: tuple[str, ...]) -> float:
     if "".join(fa) == "".join(fb) and (fa != fb):
         # "Joyalisac" / "Joyal Isac" -- unless their initials disagree

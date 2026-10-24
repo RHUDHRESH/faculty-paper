@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { describe, expect, it, vi } from "vitest"
@@ -138,4 +138,37 @@ describe("Table (docs/ux/22)", () => {
     expect(screen.getByText("No imports yet")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Import a file" })).toBeInTheDocument()
   })
+
+  it("renders exactly as before when no tools are passed: no toolbar, no table attributes", () => {
+    const { container } = wrap(<Table rows={rows} columns={columns} getKey={(r) => r.id} />)
+    expect(container.querySelector(".table-tools")).toBeNull()
+    const table = container.querySelector("table")!
+    expect(table).not.toHaveAttribute("data-grid")
+    expect(table).not.toHaveAttribute("data-density")
+  })
 })
+
+describe("Table export values (tools)", () => {
+  it("uses exportValue when given, the plain field when not, and drops an actions column", async () => {
+    const { exportTable } = await import("@/lib/table-export")
+    vi.mocked(exportTable).mockClear()
+    const user = userEvent.setup()
+    const cols: Column<Row>[] = [
+      { key: "name", header: "Claim no.", cell: (r) => r.name },
+      { key: "amount", header: "Amount", exportKind: "money", exportValue: (r) => (r.amount ?? 0) / 100, cell: (r) => r.amount },
+      { key: "act", header: "", label: "Open", cell: () => <button type="button">Open</button> },
+    ]
+    wrap(<Table rows={rows} columns={cols} getKey={(r) => r.id} tools={{ id: "claims", title: "Claims" }} />)
+    await user.click(screen.getByRole("button", { name: "Export" }))
+    await user.click(await screen.findByRole("menuitem", { name: "CSV" }))
+    await waitFor(() => expect(exportTable).toHaveBeenCalled())
+    const payload = vi.mocked(exportTable).mock.calls[0][0]
+    expect(payload.columns.map((c) => c.key)).toEqual(["name", "amount"])
+    expect(payload.rows[0]).toEqual(["ERP-RAW-3", 0])
+  })
+})
+
+vi.mock("@/lib/table-export", () => ({
+  exportTable: vi.fn(async () => "claims.csv"),
+  printTable: vi.fn(),
+}))

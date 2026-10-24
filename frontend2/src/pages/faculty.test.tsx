@@ -1,21 +1,26 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { Route, Routes } from "react-router-dom"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>()
-  return { ...actual, api: vi.fn() }
+  return { ...actual, api: vi.fn(), apiFile: vi.fn() }
 })
 
 import type { Me } from "@/app/auth"
-import { api } from "@/lib/api"
+import { api, apiFile } from "@/lib/api"
 import { FacultyDirectory } from "@/pages/faculty"
 import { FacultyRecord } from "@/pages/faculty-record"
 import type { DirectoryPayload, FacultyRecordPayload, FacultyRow, GapsPayload, ScopusSummary } from "@/pages/faculty-types"
 import { fakeApi, renderWithProviders, HOD, FACULTY, type ApiTable } from "@/test/harness"
 
 const OFFICE: Me = { id: "u-office", email: "o@example.edu", name: "Office", role: "RESEARCH_CELL", department: null }
+
+beforeEach(() => {
+  // Column choices are remembered per table; one test's choices must not reach the next.
+  window.localStorage.clear()
+})
 
 function row(over: Partial<FacultyRow> = {}): FacultyRow {
   return {
@@ -61,6 +66,11 @@ function directory(rows: FacultyRow[], money = true): DirectoryPayload {
     counts: { people: rows.length, left: 0, research: 1, no_photo: 1, no_scopus: 1, no_papers_year: 2 },
     results: rows,
   }
+}
+
+/** The body rows of the faculty table (the first row is the header). */
+function bodyRows(table: HTMLElement): HTMLElement[] {
+  return within(table).getAllByRole("row").slice(1)
 }
 
 const GAPS: GapsPayload = {
@@ -111,14 +121,21 @@ function mountDirectory(me: Me, rows: FacultyRow[], money = true, route = "/facu
 describe("the faculty directory", () => {
   it("shows a face, identifiers, papers and incentives for the office, with the Scopus ID linked", async () => {
     mountDirectory(OFFICE, [row()])
-    const list = await screen.findByRole("list", { name: "Faculty" })
-    const item = within(list).getByRole("listitem")
+    const table = await screen.findByRole("table", { name: "Faculty" })
+    const item = bodyRows(table)[0]
     expect(within(item).getByRole("link", { name: "Dr K R Devabalaji" })).toHaveAttribute("href", "/faculty/f1")
     const scopus = within(item).getByRole("link", { name: /Scopus author page/ })
     expect(scopus).toHaveAttribute("href", expect.stringContaining("authorId=57200597022"))
     expect(within(item).getAllByText("63").length).toBeGreaterThan(0)
     expect(within(item).getAllByText("₹70,382").length).toBeGreaterThan(0)
     expect(screen.getByRole("link", { name: /Export as CSV/ }).getAttribute("href")).toContain("/api/directory/faculty/export.csv")
+  })
+
+  it("draws the list as a table with a header row of column names", async () => {
+    mountDirectory(OFFICE, [row()])
+    await screen.findByRole("table", { name: "Faculty" })
+    const names = screen.getAllByRole("columnheader").map((th) => th.textContent)
+    expect(names).toEqual(["Faculty", "Department", "Scopus", "In Scopus", "Last synced", "Papers", "Claims in 2026", "Incentives paid in 2026"])
   })
 
   it("says whether a research threshold is set, and links the editor to the office", async () => {
@@ -133,7 +150,7 @@ describe("the faculty directory", () => {
 
   it("shows a head no incentives column and no missing panel", async () => {
     mountDirectory(HOD, [row({ incentive: undefined, faculty_type: "RESEARCH", threshold_set: true })], false)
-    await screen.findByRole("list", { name: "Faculty" })
+    await screen.findByRole("table", { name: "Faculty" })
     expect(screen.queryByText("Incentives paid")).not.toBeInTheDocument()
     expect(screen.queryByText(/₹/)).not.toBeInTheDocument()
     expect(screen.queryByText("What is missing")).not.toBeInTheDocument()
@@ -143,8 +160,8 @@ describe("the faculty directory", () => {
 
   it("gives a head a list of their own department without the department line or a claims column", async () => {
     mountDirectory(HOD, [row({ incentive: undefined })], false)
-    const list = await screen.findByRole("list", { name: "Faculty" })
-    const item = within(list).getByRole("listitem")
+    const table = await screen.findByRole("table", { name: "Faculty" })
+    const item = bodyRows(table)[0]
     expect(within(item).queryByText("EEE")).toBeNull()
     expect(screen.queryByText(/Claims in/)).toBeNull()
     expect(screen.queryByText(/claims filed and/)).toBeNull()
@@ -157,14 +174,59 @@ describe("the faculty directory", () => {
     expect(await screen.findByText("My own record")).toBeInTheDocument()
   })
 
-  it("answers at a glance, each figure a link to the list behind it, and says who fixes a gap", async () => {
+  it("has no separate at-a-glance block repeating the totals", async () => {
     mountDirectory(OFFICE, [row({ missing: ["scopus"] })])
-    const glance = await screen.findByRole("group", { name: "At a glance" })
-    expect(within(glance).getByRole("link", { name: /1 Without a Scopus ID/ })).toHaveAttribute("href", "/faculty?missing=scopus")
-    expect(within(glance).getByRole("link", { name: /2 With no paper in 2026/ })).toHaveAttribute("href", "/faculty?nopapers=1")
-    // A person's gap is fixed on their account, with a link to it.
-    expect(await screen.findByRole("link", { name: "Fix on the account" })).toHaveAttribute("href", "/people/f1")
+    await screen.findByRole("table", { name: "Faculty" })
+    expect(screen.queryByRole("group", { name: "At a glance" })).not.toBeInTheDocument()
     expect(screen.queryByText("What is missing")).not.toBeInTheDocument()
+  })
+
+  it("says who fixes a gap on the account, and does not repeat the Scopus gap on the row", async () => {
+    mountDirectory(OFFICE, [row({ id: "f1", missing: ["department"], department: null })])
+    expect(await screen.findByRole("link", { name: "Fix on the account" })).toHaveAttribute("href", "/people/f1")
+  })
+
+  it("shows the No Scopus ID chip once per person and the helper sentence once", async () => {
+    mountDirectory(
+      OFFICE,
+      [
+        row({ id: "a", name: "Dr Unlinked A", scopus_author_id: null, scopus_url: null, missing: ["scopus"] }),
+        row({ id: "b", name: "Dr Unlinked B", scopus_author_id: null, scopus_url: null, missing: ["scopus"] }),
+        row({ id: "c", name: "Dr Linked C" }),
+      ],
+      true,
+      "/faculty",
+      {
+        "/api/directory/faculty?": () => ({
+          ...directory([
+            row({ id: "a", name: "Dr Unlinked A", scopus_author_id: null, scopus_url: null, missing: ["scopus"] }),
+            row({ id: "b", name: "Dr Unlinked B", scopus_author_id: null, scopus_url: null, missing: ["scopus"] }),
+            row({ id: "c", name: "Dr Linked C" }),
+          ]),
+          scopus_summary: SUMMARY,
+        }),
+      }
+    )
+    const table = await screen.findByRole("table", { name: "Faculty" })
+    const [a, b, c] = bodyRows(table)
+    expect(within(a).getAllByText("No Scopus ID")).toHaveLength(1)
+    expect(within(b).getAllByText("No Scopus ID")).toHaveLength(1)
+    expect(within(c).queryByText("No Scopus ID")).toBeNull()
+    expect(within(a).queryByRole("link", { name: "Fix on the account" })).toBeNull()
+    expect(screen.getAllByText(/have no Scopus ID\. Open a person to add it\./)).toHaveLength(1)
+    expect(screen.getByText("25 faculty have no Scopus ID. Open a person to add it.")).toBeInTheDocument()
+  })
+
+  it("sends the page size to the server and goes back to page one when it changes", async () => {
+    mountDirectory(OFFICE, [row()], true, "/faculty?page=2")
+    const user = userEvent.setup()
+    await screen.findByRole("table", { name: "Faculty" })
+    await user.click(screen.getByRole("button", { name: "Rows per page" }))
+    await user.click(within(screen.getByRole("listbox")).getByRole("option", { name: "100" }))
+    await waitFor(() => expect(vi.mocked(api).mock.calls.some(([p]) => String(p).includes("limit=100"))).toBe(true))
+    const last = vi.mocked(api).mock.calls.map(([p]) => String(p)).filter((p) => p.includes("/api/directory/faculty?")).at(-1)!
+    expect(last).toContain("offset=0")
+    expect(last).not.toContain("page=")
   })
 
   it("says what a missing filter means and asks only for current staff by default", async () => {
@@ -191,8 +253,8 @@ describe("the faculty directory", () => {
       row({ id: "a", name: "Dr Linked" }),
       row({ id: "b", name: "Dr Unlinked", scopus_author_id: null, scopus_url: null }),
     ])
-    const list = await screen.findByRole("list", { name: "Faculty" })
-    const [linked, unlinked] = within(list).getAllByRole("listitem")
+    const table = await screen.findByRole("table", { name: "Faculty" })
+    const [linked, unlinked] = bodyRows(table)
     expect(within(linked).getByText("Linked")).toBeInTheDocument()
     expect(within(unlinked).getByText("No Scopus ID")).toBeInTheDocument()
     expect(within(unlinked).queryByText("Linked")).toBeNull()
@@ -203,8 +265,8 @@ describe("the faculty directory", () => {
       row({ id: "a", name: "Dr Synced", scopus_papers: 134, papers: 159, scopus_synced_at: "2026-10-12T08:00:00Z" }),
       row({ id: "b", name: "Dr Never", scopus_papers: 0, papers: 0, scopus_synced_at: null }),
     ])
-    const list = await screen.findByRole("list", { name: "Faculty" })
-    const [synced, never] = within(list).getAllByRole("listitem")
+    const table = await screen.findByRole("table", { name: "Faculty" })
+    const [synced, never] = bodyRows(table)
     expect(within(synced).getByText("134 of 159")).toBeInTheDocument()
     expect(within(synced).getByText("12 Oct 2026")).toBeInTheDocument()
     expect(within(never).getAllByText("Never").length).toBeGreaterThan(0)
@@ -213,7 +275,7 @@ describe("the faculty directory", () => {
   it("sends the Scopus choice to the server", async () => {
     mountDirectory(OFFICE, [row()])
     const user = userEvent.setup()
-    await screen.findByRole("list", { name: "Faculty" })
+    await screen.findByRole("table", { name: "Faculty" })
     await user.click(screen.getByRole("button", { name: "Filter by Scopus" }))
     await user.click(within(screen.getByRole("listbox")).getByRole("option", { name: "No Scopus ID" }))
     await waitFor(() =>
@@ -223,9 +285,111 @@ describe("the faculty directory", () => {
 
   it("still renders when the summary and the new row fields are missing", async () => {
     mountDirectory(OFFICE, [row({ scopus_papers: undefined, scopus_synced_at: undefined })])
-    const list = await screen.findByRole("list", { name: "Faculty" })
-    expect(within(list).getByRole("link", { name: "Dr K R Devabalaji" })).toBeInTheDocument()
+    const table = await screen.findByRole("table", { name: "Faculty" })
+    expect(within(table).getByRole("link", { name: "Dr K R Devabalaji" })).toBeInTheDocument()
     expect(screen.queryByText(/linked to Scopus/)).toBeNull()
+  })
+
+  it("hides a column from the Columns menu and brings it back", async () => {
+    mountDirectory(OFFICE, [row()])
+    const user = userEvent.setup()
+    await screen.findByRole("table", { name: "Faculty" })
+    expect(screen.getByRole("columnheader", { name: "Department" })).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Columns" }))
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Department" }))
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("columnheader", { name: "Department" })).toBeNull()
+    await user.click(screen.getByRole("button", { name: "Columns" }))
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Department" }))
+    await user.keyboard("{Escape}")
+    expect(screen.getByRole("columnheader", { name: "Department" })).toBeInTheDocument()
+  })
+
+  it("hides Citations by default but lets the reader choose it from the Columns menu", async () => {
+    mountDirectory(OFFICE, [row()])
+    const user = userEvent.setup()
+    await screen.findByRole("table", { name: "Faculty" })
+    expect(screen.queryByRole("columnheader", { name: "Citations" })).toBeNull()
+    await user.click(screen.getByRole("button", { name: "Columns" }))
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Citations" }))
+    await user.keyboard("{Escape}")
+    expect(screen.getByRole("columnheader", { name: "Citations" })).toBeInTheDocument()
+  })
+
+  it("turns grid lines on and off with the Grid lines button", async () => {
+    mountDirectory(OFFICE, [row()])
+    const user = userEvent.setup()
+    const table = await screen.findByRole("table", { name: "Faculty" })
+    expect(table).not.toHaveAttribute("data-grid")
+    await user.click(screen.getByRole("button", { name: "Grid lines" }))
+    expect(table).toHaveAttribute("data-grid", "true")
+    await user.click(screen.getByRole("button", { name: "Grid lines" }))
+    expect(table).not.toHaveAttribute("data-grid")
+  })
+
+  it("exports the visible columns of every matching row, following the pages", async () => {
+    const all = Array.from({ length: 250 }, (_, i) => row({ id: `f${i}`, name: `Dr Person ${i}` }))
+    mountDirectory(OFFICE, all.slice(0, 30), true, "/faculty", {
+      "/api/directory/faculty?": (path: string) => {
+        const sp = new URL(path, "http://test.local").searchParams
+        const offset = Number(sp.get("offset"))
+        const limit = Number(sp.get("limit"))
+        return { ...directory(all.slice(offset, offset + limit)), total: all.length, limit, offset }
+      },
+    })
+    vi.mocked(apiFile).mockResolvedValue({ blob: new Blob(["x"]), filename: "faculty.csv" })
+    URL.createObjectURL = vi.fn(() => "blob:faculty")
+    URL.revokeObjectURL = vi.fn()
+    const user = userEvent.setup()
+    await screen.findByRole("table", { name: "Faculty" })
+    await user.click(screen.getByRole("button", { name: "Export" }))
+    await user.click(await screen.findByRole("menuitem", { name: "CSV" }))
+    await waitFor(() => expect(vi.mocked(apiFile)).toHaveBeenCalled())
+    const [path, body] = vi.mocked(apiFile).mock.calls[0]
+    expect(path).toBe("/api/export/table")
+    const req = body as { format: string; columns: { label: string }[]; rows: unknown[][] }
+    expect(req.format).toBe("csv")
+    expect(req.columns.map((c) => c.label)).toEqual([
+      "Faculty",
+      "Department",
+      "Scopus",
+      "In Scopus",
+      "Last synced",
+      "Papers",
+      "Claims in 2026",
+      "Incentives paid in 2026",
+    ])
+    expect(req.rows).toHaveLength(250)
+    const pageOffsets = vi
+      .mocked(api)
+      .mock.calls.map(([p]) => String(p))
+      .filter((p) => p.includes("/api/directory/faculty?") && p.includes("limit=100"))
+      .map((p) => new URL(p, "http://test.local").searchParams.get("offset"))
+    expect(pageOffsets).toEqual(["0", "100", "200"])
+  })
+
+  it("keeps the three lines of a faculty member when the rows stack on a phone", async () => {
+    mountDirectory(OFFICE, [row({ scopus_papers: 134, papers: 159 })])
+    const table = await screen.findByRole("table", { name: "Faculty" })
+    expect(table).toHaveClass("stack-table")
+    const item = bodyRows(table)[0]
+    expect(within(item).getByRole("link", { name: "Dr K R Devabalaji" })).toBeInTheDocument()
+    expect(within(item).getByText("TSEE001 · Professor")).toBeInTheDocument()
+    expect(within(item).getByText("Linked")).toBeInTheDocument()
+    expect(item.querySelector('td[data-label="In Scopus"]')).toHaveTextContent("134 of 159")
+  })
+
+  it("sorts from a column heading and puts the choice in the address", async () => {
+    mountDirectory(OFFICE, [row()])
+    const user = userEvent.setup()
+    await screen.findByRole("table", { name: "Faculty" })
+    await user.click(screen.getByRole("button", { name: "Papers" }))
+    await waitFor(() =>
+      expect(
+        vi.mocked(api).mock.calls.some(([p]) => String(p).includes("sort=papers") && String(p).includes("dir=desc"))
+      ).toBe(true)
+    )
+    expect(screen.getByRole("columnheader", { name: /Papers/ })).toHaveAttribute("aria-sort", "descending")
   })
 })
 

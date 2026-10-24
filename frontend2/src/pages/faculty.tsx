@@ -3,6 +3,7 @@ import { Link, Navigate, useSearchParams } from "react-router-dom"
 import { ArrowDown, ArrowUp, Download, ExternalLink, Search, SearchX, Users } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
+import { api } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
@@ -15,8 +16,9 @@ import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { Avatar } from "@/ui/person"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
-import { Answer, AnswerLine, AnswerWord } from "@/ui/answer"
-import { ColumnLabel, Meta } from "@/ui/text"
+import { AnswerLine, AnswerWord } from "@/ui/answer"
+import { Table, type Column } from "@/ui/table"
+import { Meta } from "@/ui/text"
 import {
   MISSING_WORDS,
   count,
@@ -27,9 +29,9 @@ import {
 } from "@/pages/faculty-types"
 
 /**
- * The faculty directory: every faculty member as a row, with the things the
- * office is asked about most (photo, Scopus ID, papers, citations, claims,
- * incentives) on one line, and the whole record one click away
+ * The faculty directory: every faculty member as a row of a real table, with
+ * the things the office is asked about most (photo, Scopus ID, papers,
+ * claims, incentives) on one line, and the whole record one click away
  * (`/faculty/:id`, see faculty-record.tsx).
  *
  * The server decides what a reader may see; this page asks for what is
@@ -37,7 +39,14 @@ import {
  * on any row but their own, so the money column simply does not appear.
  */
 
+/** The page sizes on offer; the API takes at most 100 a page. */
+const PAGE_SIZES = [30, 50, 100]
 const PAGE_SIZE = 30
+/** Export: the API's largest page, and the most rows one file will carry. */
+const EXPORT_PAGE = 100
+const EXPORT_LIMIT = 5000
+/** The width from which Citations and Last paper are shown by default. */
+const WIDE_QUERY = "(min-width: 1536px)"
 
 const TYPE_OPTIONS: ComboboxOption[] = [
   { value: "", label: "All faculty" },
@@ -58,13 +67,6 @@ const SCOPUS_OPTIONS: ComboboxOption[] = [
   { value: "gap", label: "Papers missing from Scopus" },
 ]
 
-/** "12 Oct 2026" from an ISO time, or null when there is none. */
-function syncedLabel(iso: string | null | undefined): string | null {
-  if (!iso) return null
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
-}
-
 const SORT_OPTIONS: ComboboxOption[] = [
   { value: "name", label: "Name" },
   { value: "department", label: "Department" },
@@ -76,14 +78,25 @@ const SORT_OPTIONS: ComboboxOption[] = [
   { value: "completeness", label: "Profile completeness" },
 ]
 
-/** Columns of the wide layout. The money column is added for those who may see it. */
-const GRID =
-  "lg:grid-cols-[minmax(13rem,2.3fr)_minmax(10rem,1.6fr)_5.5rem_6.5rem_4.5rem_5.5rem_5.5rem_minmax(6.5rem,1fr)]"
-/** A head's list: their own department, so no department line; and incentive
- *  claims are not their concern, so no claims column. */
-const GRID_HEAD = "lg:grid-cols-[minmax(13rem,2.3fr)_minmax(10rem,1.6fr)_5.5rem_6.5rem_4.5rem_5.5rem_minmax(6.5rem,1fr)]"
-const GRID_MONEY =
-  "lg:grid-cols-[minmax(13rem,2.3fr)_minmax(10rem,1.6fr)_5.5rem_6.5rem_4.5rem_5.5rem_5.5rem_minmax(6.5rem,1fr)_minmax(6.5rem,1fr)]"
+/** "12 Oct 2026" from an ISO time, or null when there is none. */
+function syncedLabel(iso: string | null | undefined, withYear = true): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleDateString("en-IN", withYear ? { day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" })
+}
+
+/** "Missing from the record", without the Scopus gap (the Scopus column says it). */
+function missingList(r: FacultyRow): string {
+  return r.missing
+    .filter((m) => m !== "scopus")
+    .map((m) => MISSING_WORDS[m].replace(/^No /, ""))
+    .join(", ")
+}
+
+function isWide(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(WIDE_QUERY).matches
+}
 
 export function FacultyDirectory() {
   const { me } = useAuth()
@@ -122,6 +135,8 @@ function Directory() {
   const sort = params.get("sort") ?? "name"
   const dir = params.get("dir") === "desc" ? "desc" : "asc"
   const page = Math.max(0, Number.parseInt(params.get("page") ?? "0", 10) || 0)
+  const limitParam = Number.parseInt(params.get("limit") ?? "", 10)
+  const limit = PAGE_SIZES.includes(limitParam) ? limitParam : PAGE_SIZE
 
   const [draft, setDraft] = useState(q)
   useEffect(() => setDraft(q), [q])
@@ -143,8 +158,8 @@ function Directory() {
   filters.set("sort", sort)
   filters.set("dir", dir)
   const listQuery = new URLSearchParams(filters)
-  listQuery.set("limit", String(PAGE_SIZE))
-  listQuery.set("offset", String(page * PAGE_SIZE))
+  listQuery.set("limit", String(limit))
+  listQuery.set("offset", String(page * limit))
 
   const list = useApi<DirectoryPayload>(
     ["faculty-directory", listQuery.toString()],
@@ -162,12 +177,14 @@ function Directory() {
   const year = data?.year ?? new Date().getFullYear()
   const rows = data?.results ?? []
   const summary = data?.scopus_summary
+  const noScopus = summary?.without_id ?? data?.counts.no_scopus ?? 0
   const filtered = Boolean(q || department || type || missing || scopus || noPapers || left)
   const office = can(me?.role).manageUsers
   // A head sees their own department only, so the list drops what is the same
   // on every row (the department) and what is not theirs to chase (claims).
   const headView = data?.scope === "department"
   const sortOptions = headView ? SORT_OPTIONS.filter((o) => o.value !== "department" && o.value !== "claims") : SORT_OPTIONS
+  const columns = facultyColumns({ year, money: Boolean(data?.money), head: headView, office, wide: isWide() })
 
   function clear() {
     setDraft("")
@@ -178,6 +195,36 @@ function Directory() {
     if (sort === key) set({ dir: dir === "asc" ? "desc" : null })
     else set({ sort: key, dir: ["papers", "citations", "h_index", "last_paper", "claims", "completeness"].includes(key) ? "desc" : null })
   }
+
+  /** Every row the current filters match, following `offset` to the total (capped). */
+  async function fetchAllRows(): Promise<FacultyRow[]> {
+    const out: FacultyRow[] = []
+    let offset = 0
+    let total = Number.POSITIVE_INFINITY
+    while (offset < total && out.length < EXPORT_LIMIT) {
+      const qs = new URLSearchParams(filters)
+      qs.set("limit", String(EXPORT_PAGE))
+      qs.set("offset", String(offset))
+      const res = await api<DirectoryPayload>(`/api/directory/faculty?${qs.toString()}`)
+      total = res.total
+      if (res.results.length === 0) break
+      out.push(...res.results)
+      offset += res.results.length
+    }
+    return out.slice(0, EXPORT_LIMIT)
+  }
+
+  const words: string[] = []
+  if (q) words.push(`search "${q}"`)
+  if (department) words.push(department)
+  if (type) words.push(TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type)
+  if (missing) words.push(MISSING_WORDS[missing as MissingKey] ?? missing)
+  if (scopus) words.push(SCOPUS_OPTIONS.find((o) => o.value === scopus)?.label ?? scopus)
+  if (noPapers) words.push(`no papers in ${year}`)
+  if (left) words.push("including people who have left")
+  const headline = data ? `${count(data.total)} of ${count(data.counts.people)} faculty` : "Faculty"
+  const subtitle = (words.length ? `${headline}, filtered by ${words.join(", ")}.` : `${headline}.`) +
+    (data && data.total > EXPORT_LIMIT ? ` The file holds the first ${count(EXPORT_LIMIT)}.` : "")
 
   return (
     <div className="page space-y-6">
@@ -212,13 +259,6 @@ function Directory() {
         </div>
       )}
 
-      <Answer
-        items={[
-          { value: data?.counts.no_photo, label: "Without a photo", zero: "Everyone has a photo", to: "/faculty?missing=photo", tone: "caution" },
-          { value: data?.counts.no_scopus, label: "Without a Scopus ID", zero: "Everyone has a Scopus ID", to: "/faculty?missing=scopus", tone: "caution" },
-          { value: data?.counts.no_papers_year, label: `With no paper in ${year}`, zero: `Everyone has a paper in ${year}`, to: "/faculty?nopapers=1" },
-        ]}
-      />
       {missing && <MissingHint kind={missing} office={office} />}
 
       <div className={filterBar}>
@@ -342,17 +382,36 @@ function Directory() {
         />
       ) : (
         <>
-          <div>
-            <HeaderRow money={Boolean(data?.money)} head={headView} sort={sort} dir={dir} onSort={sortBy} year={year} />
-            <ul aria-label="Faculty" className="divide-y divide-line border-y border-line">
-              {rows.map((r) => (
-                <FacultyRowView key={r.id} row={r} year={year} money={Boolean(data?.money)} office={office} head={headView} />
-              ))}
-            </ul>
+          {noScopus > 0 && (
+            <p className="text-base text-fg-muted">
+              {count(noScopus)} {noScopus === 1 ? "person has" : "faculty have"} no Scopus ID. Open a person to add it.
+            </p>
+          )}
+          <Table<FacultyRow>
+            caption="Faculty"
+            rows={rows}
+            columns={columns}
+            getKey={(r) => r.id}
+            stack
+            minWidth="50rem"
+            sortKey={sort}
+            sortDir={dir}
+            onSort={sortBy}
+            tools={{ id: "faculty", title: "Faculty", subtitle, getAllRows: fetchAllRows }}
+          />
+          <div className="flex items-center justify-end gap-2">
+            <Meta>Show</Meta>
+            <Combobox
+              value={String(limit)}
+              onChange={(v) => set({ limit: v === String(PAGE_SIZE) ? null : v, page: null })}
+              options={PAGE_SIZES.map((n) => ({ value: String(n), label: String(n) }))}
+              aria-label="Rows per page"
+              className="w-24"
+            />
           </div>
           <Pagination
             page={page}
-            pageSize={PAGE_SIZE}
+            pageSize={limit}
             total={data?.total ?? 0}
             onChange={(p) => set({ page: p ? String(p) : null })}
           />
@@ -362,204 +421,233 @@ function Directory() {
   )
 }
 
-function HeaderRow({
-  money: showMoney,
-  head,
-  sort,
-  dir,
-  onSort,
-  year,
-}: {
-  money: boolean
-  head: boolean
-  sort: string
-  dir: string
-  onSort: (key: string) => void
-  year: number
-}) {
-  const cols: { key: string | null; label: string }[] = [
-    { key: "name", label: "Faculty" },
-    { key: null, label: "Scopus" },
-    { key: null, label: "In Scopus" },
-    { key: null, label: "Last synced" },
-    { key: "papers", label: "Papers" },
-    { key: "citations", label: "Citations" },
-    ...(head ? [] : [{ key: "claims", label: `Claims in ${year}` }]),
-    { key: "last_paper", label: "Last paper" },
+/**
+ * The columns the list shows, in order. Faculty is always first (the table
+ * locks it on). Citations, Last paper and Missing start hidden; the reader
+ * shows them from the Columns menu. Citations and Last paper start shown at 2xl.
+ */
+function facultyColumns(o: { year: number; money: boolean; head: boolean; office: boolean; wide: boolean }): Column<FacultyRow>[] {
+  const cols: Column<FacultyRow>[] = [
+    {
+      key: "name",
+      header: "Faculty",
+      sortable: true,
+      exportValue: (r) => r.name,
+      exportKind: "text",
+      cell: (r) => <FacultyCell row={r} office={o.office} />,
+    },
   ]
-  if (showMoney) cols.push({ key: null, label: `Incentives paid in ${year}` })
-  return (
-    <div
-      className={cn(
-        "hidden gap-x-4 border-t border-line px-1 py-2 lg:grid",
-        showMoney ? GRID_MONEY : head ? GRID_HEAD : GRID
-      )}
-    >
-      {cols.map((c) =>
-        c.key ? (
-          <button
-            key={c.label}
-            type="button"
-            onClick={() => onSort(c.key!)}
-            aria-label={`Sort by ${c.label}`}
-            className="flex items-center gap-1 text-left hover:text-fg"
-          >
-            <ColumnLabel>{c.label}</ColumnLabel>
-            {sort === c.key && (dir === "asc" ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />)}
-          </button>
+  if (!o.head) {
+    cols.push({
+      key: "department",
+      header: "Department",
+      sortable: true,
+      empty: "No department",
+      exportValue: (r) => r.department,
+      exportKind: "text",
+      cell: (r) => <DepartmentCell row={r} office={o.office} />,
+    })
+  }
+  cols.push(
+    {
+      key: "scopus",
+      header: "Scopus",
+      exportValue: (r) => (r.scopus_author_id ? `Linked ${r.scopus_author_id}` : "No Scopus ID"),
+      exportKind: "text",
+      cell: (r) => <ScopusCell row={r} />,
+    },
+    {
+      key: "in_scopus",
+      header: "In Scopus",
+      align: "right",
+      exportValue: (r) => r.scopus_papers ?? null,
+      exportKind: "number",
+      cell: (r) => (
+        <span className={cn("tabular", r.papers === 0 && "text-fg-muted")}>
+          {count(r.scopus_papers)} of {count(r.papers)}
+        </span>
+      ),
+    },
+    {
+      key: "last_synced",
+      header: "Last synced",
+      exportValue: (r) => r.scopus_synced_at ?? null,
+      exportKind: "date",
+      cell: (r) => <SyncedCell row={r} />,
+    },
+    {
+      key: "papers",
+      header: "Papers",
+      align: "right",
+      sortable: true,
+      exportValue: (r) => r.papers,
+      exportKind: "number",
+      cell: (r) => (
+        <div>
+          <span className="tabular block">{count(r.papers)}</span>
+          <span className={cn("tabular block text-sm", r.papers_year === 0 ? "text-caution" : "text-fg-muted")}>
+            {count(r.papers_year)} in {o.year}
+          </span>
+        </div>
+      ),
+    }
+  )
+  if (!o.head) {
+    cols.push({
+      key: "claims",
+      header: `Claims in ${o.year}`,
+      align: "right",
+      sortable: true,
+      exportValue: (r) => r.claims_filed_year,
+      exportKind: "number",
+      cell: (r) => (
+        <div>
+          <span className="tabular block">{count(r.claims_filed_year)} filed</span>
+          <span className="tabular block text-sm text-fg-muted">
+            {count(r.claims_done_year)} {o.money ? "paid" : "completed"}
+          </span>
+        </div>
+      ),
+    })
+  }
+  if (o.money) {
+    cols.push({
+      key: "incentive",
+      header: `Incentives paid in ${o.year}`,
+      align: "right",
+      exportValue: (r) => r.incentive?.amount ?? null,
+      exportKind: "money",
+      cell: (r) =>
+        r.incentive ? (
+          <div>
+            <span className="tabular block">{money(r.incentive.amount)}</span>
+            <span className="tabular block text-sm text-fg-muted">{money(r.incentive.total_amount)} in all years</span>
+          </div>
         ) : (
-          <ColumnLabel key={c.label}>{c.label}</ColumnLabel>
-        )
+          <span className="text-fg-muted">Not shown</span>
+        ),
+    })
+  }
+  cols.push(
+    {
+      key: "citations",
+      header: "Citations",
+      align: "right",
+      sortable: true,
+      defaultHidden: !o.wide,
+      exportValue: (r) => r.citations,
+      exportKind: "number",
+      cell: (r) => (
+        <div>
+          <span className="tabular block">{count(r.citations)}</span>
+          <span className="tabular block text-sm text-fg-muted">h-index {r.h_index}</span>
+        </div>
+      ),
+    },
+    {
+      key: "last_paper",
+      header: "Last paper",
+      sortable: true,
+      defaultHidden: !o.wide,
+      exportValue: (r) => r.last_paper_on ?? r.last_paper_year ?? null,
+      exportKind: "date",
+      cell: (r) => <span>{r.last_paper_year ? paperDate(r.last_paper_on, r.last_paper_year) : "None yet"}</span>,
+    },
+    {
+      key: "missing",
+      header: "Missing",
+      defaultHidden: true,
+      empty: "None",
+      exportValue: (r) => missingList(r) || null,
+      exportKind: "text",
+      cell: (r) => (missingList(r) ? <span className="text-caution">{missingList(r)}</span> : null),
+    }
+  )
+  return cols
+}
+
+function FacultyCell({ row: r, office }: { row: FacultyRow; office: boolean }) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <Avatar person={r} size="md" />
+      <div className="min-w-0 flex-1">
+        <Link
+          to={`/faculty/${r.id}`}
+          className={cn("block truncate font-medium hover:underline", !r.active && "text-fg-muted")}
+        >
+          {r.name}
+        </Link>
+        <Meta className="block truncate">
+          {[r.staff_id, r.designation].filter(Boolean).join(" · ") || "No staff ID or designation"}
+        </Meta>
+        {!r.active && <Meta className="block truncate">No longer at the college</Meta>}
+        {r.faculty_type === "RESEARCH" && (
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+            <Chip tone="area" area="research" title="On a research post, with a yearly paper threshold">
+              Research faculty
+            </Chip>
+            <Threshold row={r} office={office} />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function DepartmentCell({ row: r, office }: { row: FacultyRow; office: boolean }) {
+  return (
+    <div className="min-w-0">
+      {r.department}
+      {office && r.missing.some((m) => m !== "photo" && m !== "scopus") && (
+        <div>
+          <Button kind="quiet" size="sm" asChild className="-ml-2 mt-0.5">
+            <Link to={`/people/${r.id}`}>Fix on the account</Link>
+          </Button>
+        </div>
       )}
     </div>
   )
 }
 
-function FacultyRowView({
-  row: r,
-  year,
-  money: showMoney,
-  office,
-  head,
-}: {
-  row: FacultyRow
-  year: number
-  money: boolean
-  office: boolean
-  head: boolean
-}) {
-  const hasIncentive = showMoney && r.incentive
+function ScopusCell({ row: r }: { row: FacultyRow }) {
   return (
-    <li className={cn("grid grid-cols-[minmax(0,1fr)] gap-x-4 gap-y-3 px-1 py-3 lg:items-center", showMoney ? GRID_MONEY : head ? GRID_HEAD : GRID)}>
-      {/* Who */}
-      <div className="flex min-w-0 items-center gap-3">
-        <Avatar person={r} size="md" />
-        <div className="min-w-0">
-          <Link
-            to={`/faculty/${r.id}`}
-            className={cn("block truncate text-base font-medium hover:underline", !r.active && "text-fg-muted")}
+    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-sm">
+      {r.scopus_author_id ? (
+        <>
+          <Chip tone="positive">Linked</Chip>
+          <a
+            href={r.scopus_url ?? undefined}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-fg underline-offset-2 hover:underline"
+            aria-label={`Scopus author page for ${r.name}`}
           >
-            {r.name}
-          </Link>
-          <Meta className="block truncate">
-            {[r.staff_id, r.designation].filter(Boolean).join(" · ") || "No staff ID or designation"}
-          </Meta>
-          {(!head || !r.active || !r.department) && (
-            <Meta className="block truncate">
-              {r.department || "No department"}
-              {!r.active && " · No longer at the college"}
-            </Meta>
-          )}
-          {r.missing.length > 0 && (
-            <span className="block text-sm text-caution" title="Missing from the record">
-              Missing: {r.missing.map((m) => MISSING_WORDS[m].replace(/^No /, "")).join(", ")}
-            </span>
-          )}
-          {r.missing.length > 0 && office && r.missing.some((m) => m !== "photo") && (
-            <Button kind="quiet" size="sm" asChild className="-ml-2 mt-0.5">
-              <Link to={`/people/${r.id}`}>Fix on the account</Link>
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 lg:block lg:space-y-1">
-          {r.faculty_type === "RESEARCH" && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Chip tone="area" area="research" title="On a research post, with a yearly paper threshold">
-                Research faculty
-              </Chip>
-              <Threshold row={r} office={office} />
-            </div>
-          )}
-          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-sm">
-            {r.scopus_author_id ? (
-              <>
-                <Chip tone="positive">Linked</Chip>
-                <a
-                  href={r.scopus_url ?? undefined}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-fg underline-offset-2 hover:underline"
-                  aria-label={`Scopus author page for ${r.name}`}
-                >
-                  <span className="tabular">{r.scopus_author_id}</span>
-                  <ExternalLink aria-hidden className="size-3.5 text-fg-subtle" />
-                </a>
-              </>
-            ) : (
-              <Chip tone="caution">No Scopus ID</Chip>
-            )}
-            {r.orcid_id && (
-              <a
-                href={r.orcid_url ?? undefined}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-fg-muted underline-offset-2 hover:underline"
-              >
-                ORCID
-                <ExternalLink aria-hidden className="size-3.5" />
-              </a>
-            )}
-          </div>
-      </div>
-
-      {/* On a phone the figures are three plain sentences; on a wide screen they are columns. */}
-      <div className="space-y-0.5 text-sm text-fg-muted lg:hidden">
-        <p>
-          <b className="tabular font-medium text-fg">{count(r.papers)}</b> papers ({count(r.papers_year)} in {year}),{" "}
-          <b className="tabular font-medium text-fg">{count(r.citations)}</b> citations, h-index {r.h_index}
-        </p>
-        {!head && (
-          <p>
-            {count(r.claims_filed_year)} {r.claims_filed_year === 1 ? "claim" : "claims"} filed and {count(r.claims_done_year)}{" "}
-            {showMoney ? "paid" : "completed"} in {year}
-            {hasIncentive && (
-              <>
-                , <b className="tabular font-medium text-fg">{money(r.incentive!.amount)}</b> paid
-              </>
-            )}
-          </p>
-        )}
-        <p>
-          {count(r.scopus_papers)} of {count(r.papers)} papers in Scopus · Last synced {syncedLabel(r.scopus_synced_at) ?? "never"}
-        </p>
-        <p>
-          Last paper {r.last_paper_year ? paperDate(r.last_paper_on, r.last_paper_year) : "none yet"}
-          {r.missing.length > 0 && <span className="text-caution">. {r.missing.map((m) => MISSING_WORDS[m]).join(", ")}</span>}
-        </p>
-      </div>
-
-      <div className="hidden lg:contents">
-        <Cell label="In Scopus" main={`${count(r.scopus_papers)} of ${count(r.papers)}`} mainTone={r.papers === 0 ? "text-fg-muted" : undefined} />
-        <Cell
-          label="Last synced"
-          main={syncedLabel(r.scopus_synced_at) ?? "Never"}
-          mainTone={syncedLabel(r.scopus_synced_at) ? undefined : r.scopus_author_id ? "text-caution" : "text-fg-muted"}
-        />
-        <Cell label="Papers" main={count(r.papers)} sub={`${count(r.papers_year)} in ${year}`} attention={r.papers_year === 0} />
-        <Cell label="Citations" main={count(r.citations)} sub={`h-index ${r.h_index}`} />
-        {!head && (
-          <Cell
-            label={`Claims in ${year}`}
-            main={`${count(r.claims_filed_year)} filed`}
-            sub={`${count(r.claims_done_year)} ${showMoney ? "paid" : "completed"}`}
-          />
-        )}
-        <Cell
-          label="Last paper"
-          main={r.last_paper_year ? paperDate(r.last_paper_on, r.last_paper_year) : "None yet"}
-        />
-        {showMoney && (
-          <Cell
-            label={`Incentives paid in ${year}`}
-            main={hasIncentive ? money(r.incentive!.amount) : "Not shown"}
-            sub={hasIncentive ? `${money(r.incentive!.total_amount)} in all years` : ""}
-          />
-        )}
-      </div>
-    </li>
+            <span className="tabular">{r.scopus_author_id}</span>
+            <ExternalLink aria-hidden className="size-3.5 text-fg-subtle" />
+          </a>
+        </>
+      ) : (
+        <Chip tone="caution">No Scopus ID</Chip>
+      )}
+      {r.orcid_id && (
+        <a
+          href={r.orcid_url ?? undefined}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-fg-muted underline-offset-2 hover:underline"
+        >
+          ORCID
+          <ExternalLink aria-hidden className="size-3.5" />
+        </a>
+      )}
+    </div>
   )
+}
+
+function SyncedCell({ row: r }: { row: FacultyRow }) {
+  const label = syncedLabel(r.scopus_synced_at)
+  const tone = label ? "text-fg" : r.scopus_author_id ? "text-caution" : "text-fg-muted"
+  return <span className={cn("tabular", tone)}>{label ?? "Never"}</span>
 }
 
 function Threshold({ row: r, office }: { row: FacultyRow; office: boolean }) {
@@ -574,35 +662,6 @@ function Threshold({ row: r, office }: { row: FacultyRow; office: boolean }) {
     <Link to={`/people/${r.id}`} className="underline-offset-2 hover:underline" title="Open the account to change the threshold">
       {inner}
     </Link>
-  )
-}
-
-/** One figure with its own label on a phone (where the column head is hidden). */
-function Cell({
-  label,
-  main,
-  sub,
-  subTitle,
-  attention,
-  mainTone,
-}: {
-  label: string
-  main: string
-  sub?: string
-  subTitle?: string
-  attention?: boolean
-  mainTone?: string
-}) {
-  return (
-    <div className="min-w-0">
-      <span className="block text-xs text-fg-muted lg:hidden">{label}</span>
-      <span className={cn("tabular block truncate text-base", mainTone ?? "text-fg")}>{main}</span>
-      {sub ? (
-        <span title={subTitle} className={cn("block truncate text-sm", attention ? "text-caution" : "text-fg-muted")}>
-          {sub}
-        </span>
-      ) : null}
-    </div>
   )
 }
 

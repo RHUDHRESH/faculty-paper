@@ -1,5 +1,4 @@
-import { screen } from "@testing-library/react"
-import { Route, Routes } from "react-router-dom"
+import { screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -9,7 +8,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 import type { Role } from "@/app/auth"
 import { api } from "@/lib/api"
-import { ResearchToolsTabs, ToolsRedirect } from "@/pages/research-tools-tabs"
+import { ResearchTools, ResearchToolsTabs } from "@/pages/research-tools-tabs"
 import { FACULTY, fakeApi, renderWithProviders } from "@/test/harness"
 
 function mountAs(role: Role) {
@@ -19,41 +18,49 @@ function mountAs(role: Role) {
 }
 
 describe("Research tools tabs", () => {
-  it("shows the compass to a claimant", async () => {
+  it("shows the Research compass tab to a claimant, and the way back to the list", async () => {
     mountAs("FACULTY")
     renderWithProviders(<ResearchToolsTabs />, { route: "/discover" })
-    expect(await screen.findByRole("link", { name: "Compass" })).toHaveAttribute("href", "/compass")
+    expect(await screen.findByRole("link", { name: "Research compass" })).toHaveAttribute("href", "/compass")
+    expect(screen.queryByRole("link", { name: "Compass" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "All research tools" })).toHaveAttribute("href", "/tools")
   })
 
   it("hides the compass from the super admin, who files no papers", async () => {
     mountAs("SUPER_ADMIN")
-    // The super admin is sent to Discover by /tools, not the compass.
     renderWithProviders(<ResearchToolsTabs />, { route: "/discover" })
     expect(await screen.findByRole("link", { name: "Discover" })).toBeInTheDocument()
-    expect(screen.queryByRole("link", { name: "Compass" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Research compass" })).not.toBeInTheDocument()
+  })
+})
+
+describe("Research tools page", () => {
+  it("lists the three tools a faculty claimant can use, each linking to its page", async () => {
+    mountAs("FACULTY")
+    renderWithProviders(<ResearchTools />, { route: "/tools" })
+    const list = await screen.findByRole("list")
+    const items = within(list).getAllByRole("listitem")
+    expect(items).toHaveLength(3)
+    expect(screen.getByRole("link", { name: "Check a journal" })).toHaveAttribute("href", "/journal-check")
+    expect(screen.getByRole("link", { name: "Discover" })).toHaveAttribute("href", "/discover")
+    expect(screen.getByRole("link", { name: "Research compass" })).toHaveAttribute("href", "/compass")
+    expect(screen.queryByRole("link", { name: "Ask the data" })).not.toBeInTheDocument()
   })
 
-  it("sends /tools to Discover for the super admin and to the compass for a claimant", async () => {
+  it("lists four tools for a head of department, who can also ask the data", async () => {
+    mountAs("HOD")
+    renderWithProviders(<ResearchTools />, { route: "/tools" })
+    const items = within(await screen.findByRole("list")).getAllByRole("listitem")
+    expect(items).toHaveLength(4)
+    expect(screen.getByRole("link", { name: "Ask the data" })).toHaveAttribute("href", "/insights")
+  })
+
+  it("leaves the compass row out for a role that cannot use the compass", async () => {
     mountAs("SUPER_ADMIN")
-    const { unmount } = renderWithProviders(
-      <Routes>
-        <Route path="/tools" element={<ToolsRedirect />} />
-        <Route path="/discover" element={<p>Discover page</p>} />
-        <Route path="/compass" element={<p>Compass page</p>} />
-      </Routes>,
-      { route: "/tools" }
-    )
-    expect(await screen.findByText("Discover page")).toBeInTheDocument()
-    unmount()
-    mountAs("FACULTY")
-    renderWithProviders(
-      <Routes>
-        <Route path="/tools" element={<ToolsRedirect />} />
-        <Route path="/discover" element={<p>Discover page</p>} />
-        <Route path="/compass" element={<p>Compass page</p>} />
-      </Routes>,
-      { route: "/tools" }
-    )
-    expect(await screen.findByText("Compass page")).toBeInTheDocument()
+    renderWithProviders(<ResearchTools />, { route: "/tools" })
+    const items = within(await screen.findByRole("list")).getAllByRole("listitem")
+    expect(items).toHaveLength(3)
+    expect(screen.queryByRole("link", { name: "Research compass" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Ask the data" })).toHaveAttribute("href", "/insights")
   })
 })

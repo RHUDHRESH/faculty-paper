@@ -80,6 +80,9 @@ class ErpScopusLinkTests(TestCase):
         self.assertEqual(c.post("/api/admin/scopus-ids/link", {"file": f}).status_code, 403)
 
 
+SEC = "Saveetha Engineering College, Chennai"
+
+
 def pub(title, **kw):
     return Publication.objects.create(title=title, normalized_title=title.lower(), year=2024, **kw)
 
@@ -97,7 +100,7 @@ class AuthorAccuracyTests(TestCase):
         self.assertEqual(name_score("Kumaran R", "Kumar R"), 0.0)
         p = pub("A long enough title about kamala devi things")
         Authorship.objects.create(publication=p, position=1, display_name="K. Kamala Devi",
-                                  author_key="n:k", is_college=True)
+                                  author_key="n:k", is_college=True, raw_affiliation=SEC)
         P.match_authors()
         self.assertEqual(Authorship.objects.get(publication=p).user, self.kamala)
 
@@ -106,10 +109,13 @@ class AuthorAccuracyTests(TestCase):
         # The record put her on (no position); OpenAlex spelt her name its own way, not college.
         Authorship.objects.create(publication=p, position=None, display_name=self.subha.name, author_key="n:s",
                                   user=self.subha, match_method="record", match_confidence=0.95, is_college=True)
+        # The OpenAlex row names the college in its raw affiliation (is_college is left
+        # unset, so the name step does not take it first and the absorb step is what runs).
         Authorship.objects.create(publication=p, position=1, display_name="R. Subhashini", author_key="A9",
-                                  openalex_author_id="A9", institution_name="Saveetha Engineering College")
+                                  openalex_author_id="A9", institution_name="Saveetha Engineering College",
+                                  raw_affiliation=SEC)
         Authorship.objects.create(publication=p, position=2, display_name="K. Kamala Devi", author_key="n:kd",
-                                  is_college=True)
+                                  is_college=True, raw_affiliation=SEC)
         out = P.match_authors()
         self.assertEqual(out["own_variants_absorbed"], 1)
         rows = list(p.authorships.order_by("position"))
@@ -222,7 +228,7 @@ class MergedNamesakeTests(TestCase):
 
     def test_name_only_match_does_not_carry_outside_the_college(self):
         Authorship.objects.create(publication=self.ours, position=1, display_name="R. Subhashini", author_key="A7",
-                                  openalex_author_id="A7", is_college=True)
+                                  openalex_author_id="A7", is_college=True, raw_affiliation=SEC)
         P.match_authors()
         self.assertEqual(Authorship.objects.get(publication=self.ours).user, self.u)
         self.theirs_row.refresh_from_db()

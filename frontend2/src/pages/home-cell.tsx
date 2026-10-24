@@ -305,7 +305,7 @@ export function CellHome() {
                     </p>
                   )}
                 </div>
-                <Button size="sm" asChild className="col-start-2 justify-self-start sm:col-start-auto">
+                <Button kind="default" size="sm" asChild className="col-start-2 justify-self-start sm:col-start-auto">
                   <Link to={`/review/${r.id}?queue=clearing`} aria-label={`Review again: ${paperTitle(r.paper_title)}`}>
                     Review again
                   </Link>
@@ -474,7 +474,7 @@ function DeskList({ rows, sla }: { rows: DeskRow[]; sla: number }) {
           </div>
           <div className="col-start-2 flex items-center justify-between gap-3 sm:contents">
             <Waited days={r.waiting_days} sla={sla} className="w-20 shrink-0 max-sm:text-left" />
-            <Button size="sm" asChild className="shrink-0">
+            <Button kind="default" size="sm" asChild className="shrink-0">
               <Link to={`/review/${r.id}?queue=clearing`} aria-label={`Review: ${paperTitle(r.paper_title)}`}>
                 Review
               </Link>

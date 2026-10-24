@@ -244,6 +244,26 @@ describe("the clearing queue", () => {
     expect(posted("/api/desk/bulk-hold")[0].body).toEqual({ claim_ids: ["c1", "c2"], reason: "Waiting on the erratum" })
   })
 
+  it("offers one Choose all, on the ready lane, and none on the rest", async () => {
+    await open()
+    expect(screen.getAllByText("Choose all")).toHaveLength(1)
+    expect(ready().getByRole("checkbox", { name: /Choose all 2 in ready to clear/ })).toBeInTheDocument()
+    expect(look().queryByText("Choose all")).toBeNull()
+  })
+
+  it("says Not recorded, with its title, for an old-system claim with no amount, never ₹0", async () => {
+    serve({
+      "/api/admin/clearing-queue": [claim({ id: "c9", ticket_number: "ERP-RAW-9", remuneration: 0, verification_ok: false })],
+    })
+    renderWithProviders(at(<Clearing />), { route: "/clearing" })
+    const labels = await screen.findAllByText("Not recorded")
+    expect(labels.length).toBeGreaterThan(0)
+    expect(labels[0].closest("[title]")).toHaveAttribute("title", "The old system did not record an amount.")
+    // The row itself never prints a rupee zero (the queue total above is a sum, not a claim's amount).
+    const row = labels[0].closest("li") as HTMLElement
+    expect(within(row).queryByText("₹0")).toBeNull()
+  })
+
   it("does not draw an empty queue when the load fails", async () => {
     vi.mocked(api).mockImplementation((async (path: string) => {
       if (path.startsWith("/api/auth/me")) return cell

@@ -10,7 +10,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 import type { Me } from "@/app/auth"
 import { api } from "@/lib/api"
 import { DataHealth } from "@/pages/data-health"
-import { fakeApi, renderWithProviders } from "@/test/harness"
+import { failing, fakeApi, renderWithProviders } from "@/test/harness"
 
 const ADMIN: Me = { id: "u-a", email: "a@x.edu", name: "Admin", role: "SUPER_ADMIN", department: null }
 const finding = (key: string, count: number, extra: object = {}) => ({
@@ -51,6 +51,16 @@ describe("Data health", () => {
     expect(screen.getByRole("button", { name: /Show the checks that found nothing\s*\(2\)/ })).toBeTruthy()
     // No backup is a figure and an empty state, not a blank.
     expect(screen.getAllByText("No backup is stored").length).toBeGreaterThan(0)
+  })
+
+  it("shows the calm not-open gate, not a server error, when the API says 403", async () => {
+    vi.mocked(api).mockImplementation(
+      fakeApi({ "/api/auth/me": () => ADMIN, "/api/admin/data-health": failing(403, "Forbidden") })
+    )
+    renderWithProviders(<DataHealth />)
+    expect(await screen.findByRole("heading", { name: "Not open to this account" })).toBeInTheDocument()
+    expect(screen.getByText("Ask the research office if you think it should be yours.")).toBeInTheDocument()
+    expect(screen.queryByText("The server did not answer.")).not.toBeInTheDocument()
   })
 
   it("asks before a fix and says how many records it changes", async () => {

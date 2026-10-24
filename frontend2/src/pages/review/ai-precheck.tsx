@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { AlertTriangle, CheckCircle2, RotateCcw, Sparkles, ThumbsDown, ThumbsUp, XCircle } from "lucide-react"
+import { AlertTriangle, CheckCircle2, MinusCircle, RotateCcw, Sparkles, ThumbsDown, ThumbsUp, XCircle, type LucideIcon } from "lucide-react"
 
 import type { Role } from "@/app/auth"
 import { api, ApiError } from "@/lib/api"
@@ -156,23 +156,6 @@ function where(r: { model: string; host: string; hosted: boolean }): string {
 
 const WORD: Record<AiStatusWord, string> = { pass: "Pass", warn: "Check this", fail: "Fail" }
 
-function StatusMark({ status }: { status: AiStatusWord }) {
-  const Icon = status === "pass" ? CheckCircle2 : status === "warn" ? AlertTriangle : XCircle
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1 text-sm font-medium",
-        status === "pass" && "text-positive",
-        status === "warn" && "text-caution",
-        status === "fail" && "text-critical"
-      )}
-    >
-      <Icon className="size-4" aria-hidden />
-      {WORD[status]}
-    </span>
-  )
-}
-
 /** Thumbs up or down on one answer. One tap, and it can be changed. */
 export function Thumbs({ onRate, label }: { onRate: (rating: 1 | -1) => Promise<unknown>; label: string }) {
   const [rated, setRated] = useState<1 | -1 | null>(null)
@@ -240,22 +223,37 @@ function Evidence({ items }: { items: AiEvidence[] }) {
   )
 }
 
+const ICON: Record<string, LucideIcon> = { pass: CheckCircle2, warn: AlertTriangle, fail: XCircle }
+const TONE: Record<string, string> = { pass: "text-positive", warn: "text-caution", fail: "text-critical" }
+
+/** One check as one row of the list: icon, name, and one line of detail. */
 function Item({ item }: { item: AiItem }) {
+  // Any status the server did not name reads as unknown: a grey dash.
+  const Icon = ICON[item.status] ?? MinusCircle
   return (
-    <li className="py-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-        <h4 className="text-sm font-medium">{item.label}</h4>
-        <StatusMark status={item.status} />
+    <li className="py-2.5">
+      <div className="flex items-start gap-2">
+        <Icon className={cn("mt-0.5 size-4 shrink-0", TONE[item.status] ?? "text-fg-subtle")} aria-hidden />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+            <h4 className="text-sm font-medium">
+              {item.label}
+              <span className="sr-only"> {WORD[item.status as AiStatusWord] ?? "Unknown"}</span>
+            </h4>
+          </div>
+          <p className="break-words text-sm text-fg-muted">{item.detail}</p>
+        </div>
       </div>
-      <p className="mt-1 break-words text-sm text-fg-muted">{item.detail}</p>
-      <Evidence items={item.evidence} />
-      {item.ai && item.ai.note && (
-        <p className="mt-2 break-words text-xs text-fg-muted">
-          <span className="font-medium text-fg">The AI says: </span>
-          {item.ai.note}
-          {item.ai.quote_unverified && " It gave a quote that is not in the file, so it is not shown."}
-        </p>
-      )}
+      <div className="pl-6">
+        <Evidence items={item.evidence} />
+        {item.ai && item.ai.note && (
+          <p className="mt-2 break-words text-xs text-fg-muted">
+            <span className="font-medium text-fg">The AI says: </span>
+            {item.ai.note}
+            {item.ai.quote_unverified && " It gave a quote that is not in the file, so it is not shown."}
+          </p>
+        )}
+      </div>
     </li>
   )
 }
@@ -393,11 +391,35 @@ function Result({
         </span>
         {result.summary ? <span className="text-fg-muted"> · {result.summary}</span> : null}
       </p>
-      <ul className="divide-y divide-line border-y border-line">
-        {result.items.map((item) => (
-          <Item key={item.key} item={item} />
-        ))}
-      </ul>
+      {/* Warnings and failures first, as they are; the passes sit behind one line. */}
+      {(() => {
+        const problems = result.items.filter((i) => i.status !== "pass")
+        const passed = result.items.filter((i) => i.status === "pass")
+        return (
+          <>
+            {problems.length > 0 && (
+              <ul className="divide-y divide-line border-y border-line">
+                {problems.map((item) => (
+                  <Item key={item.key} item={item} />
+                ))}
+              </ul>
+            )}
+            {passed.length > 0 && (
+              <details className="group border-b border-line">
+                <summary className="flex cursor-pointer items-center gap-2 py-2 text-sm text-positive hover:underline">
+                  <CheckCircle2 className="size-4" aria-hidden />
+                  {passed.length} {passed.length === 1 ? "check" : "checks"} passed
+                </summary>
+                <ul className="divide-y divide-line">
+                  {passed.map((item) => (
+                    <Item key={item.key} item={item} />
+                  ))}
+                </ul>
+              </details>
+            )}
+          </>
+        )
+      })()}
       {fails + warns > 0 && (
         <p className="text-xs text-fg-muted">
           To send this back, press <kbd className="rounded border border-edge px-1">s</kbd>. The reason box can draft

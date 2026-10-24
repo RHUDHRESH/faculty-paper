@@ -44,6 +44,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from core.models import (
+    AuditLog,
     Authorship,
     Claim,
     ClaimStatus,
@@ -52,7 +53,13 @@ from core.models import (
     PublicationMetrics,
     User,
 )
-from core.services.author_names import departments_in, name_key, name_parts, name_score
+from core.services.author_names import (
+    departments_in,
+    name_key,
+    name_parts,
+    name_score,
+    surname_and_initial_agree,
+)
 from core.services.normalize import clean_venue, normalize_doi, normalize_title
 
 logger = logging.getLogger(__name__)
@@ -540,11 +547,13 @@ def link_records() -> dict[str, int]:
 
 #: Evidence that survives a re-match: somebody's record or a person said so.
 ANCHORED = ("record", "scopus_sheet", "scopus", "scopus_id", "manual")
+#: name_dept is no longer made; a run clears any such row and re-derives it under the gate.
 INFERRED = ("orcid", "alias", "author_id", "name", "name_dept")
 
 
 def _people() -> list[User]:
-    return list(User.objects.filter(active=True).only("id", "name", "department", "orcid_id", "scopus_synced_at"))
+    return list(User.objects.filter(active=True).only(
+        "id", "name", "department", "orcid_id", "scopus_author_id", "scopus_synced_at"))
 
 
 class _NameIndex:
@@ -567,18 +576,54 @@ class _NameIndex:
         return sorted([s for s in scored if s[0] >= 0.85], key=lambda s: -s[0])
 
 
-def _choose(cands: list[tuple[float, User]], affiliation: str) -> tuple[User | None, str, float]:
-    if not cands:
-        return None, "", 0.0
-    top = cands[0][0]
-    best = [u for s, u in cands if s == top]
-    if len(best) == 1:
-        return best[0], "name", round(0.8 * top, 2)
-    depts = departments_in(affiliation)
-    in_dept = [u for u in best if (u.department or "") in depts]
-    if len(in_dept) == 1:
-        return in_dept[0], "name_dept", round(0.7 * top, 2)
-    return None, "", 0.0
+def _scopus_member(user: User) -> bool:
+    """A member with a Scopus author id is matched by the Scopus sync (and by
+    their own claims) only: name and OpenAlex-id matching skip them."""
+    return bool((user.scopus_author_id or "").strip())
+
+
+def disputed_pairs() -> set[tuple[str, str]]:
+    """(person id, publication id) for each paper the person reported as not
+    theirs. The report is an AuditLog row (api/publications.py,
+    dispute_my_publication) and the only record of it, so the matcher reads it:
+    a link the person removed is not made again."""
+    out: set[tuple[str, str]] = set()
+    rows = AuditLog.objects.filter(action="PUBLICATION_DISPUTED", actor__isnull=False).values_list(
+        "actor_id", "entity_id", "detail_json")
+    for actor_id, pub_id, detail in rows:
+        try:
+            reason = json.loads(detail or "{}").get("reason")
+        except (ValueError, AttributeError):
+            continue
+        if reason == "not_mine" and pub_id:
+            out.add((actor_id, pub_id))
+    return out
+
+
+def _affiliation_confirms(raw: str, user: User) -> bool:
+    """The author's own affiliation names the college. With no affiliation text
+    the department check that name_dept used must confirm it instead; with no
+    text there is no department to find, so nothing confirms the link."""
+    if (raw or "").strip():
+        return is_college_affiliation(raw)
+    return bool(user.department) and user.department in departments_in(raw)
+
+
+def _may_link_by_name(user: User, row: Authorship, cands: list[tuple[float, User]],
+                      blocked: set[tuple[str, str]]) -> bool:
+    """The gate for an automatic name or OpenAlex-id link of `row` to `user`.
+
+    Never for a member with a Scopus id, nor for a paper the person reported as
+    not theirs. Otherwise `user` must be the only active member who matches the
+    author (`cands`), the surname and first initial must agree, and the college
+    must be named in the author's affiliation.
+    """
+    if _scopus_member(user) or (user.id, row.publication_id) in blocked:
+        return False
+    if [u.id for _, u in cands] != [user.id]:
+        return False
+    return (surname_and_initial_agree(row.display_name, user.name)
+            and _affiliation_confirms(row.raw_affiliation, user))
 
 
 SELF_FLOOR = 0.85
@@ -591,7 +636,7 @@ def is_own_variant(user_name: str, display_name: str) -> bool:
     return name_score(user_name, display_name) >= SELF_FLOOR
 
 
-def _absorb_own_variants(by_id: dict[str, User]) -> int:
+def _absorb_own_variants(by_id: dict[str, User], names: _NameIndex, blocked: set[tuple[str, str]]) -> int:
     """A paper that already has a member on it through a record (a loose row
     with no author position) and an unlinked OpenAlex row carrying that
     member's name: the OpenAlex row *is* them. Move them onto it and drop the
@@ -605,7 +650,7 @@ def _absorb_own_variants(by_id: dict[str, User]) -> int:
     moved = 0
     free = Authorship.objects.filter(
         user__isnull=True, match_locked=False, publication_id__in=list(on_paper)
-    ).only("id", "publication_id", "display_name", "position")
+    ).only("id", "publication_id", "display_name", "raw_affiliation", "position")
     for row in free:
         linked = on_paper.get(row.publication_id) or []
         fits = [a for a in linked if a.user_id in by_id and is_own_variant(by_id[a.user_id].name, row.display_name)]
@@ -615,6 +660,8 @@ def _absorb_own_variants(by_id: dict[str, User]) -> int:
         if row.position is None or not loose or any(a.position is not None for a in fits):
             continue
         keep = loose[0]
+        if not _may_link_by_name(by_id[keep.user_id], row, names.candidates(row.display_name), blocked):
+            continue
         Authorship.objects.filter(id=row.id).update(
             user_id=keep.user_id, match_confidence=keep.match_confidence,
             match_method=keep.match_method, is_college=True,
@@ -634,23 +681,34 @@ def match_authors() -> dict[str, Any]:
     2. Records -- a claim or ledger row put them on the paper (0.95, kept
        from link_records; never cleared here).
     3. OpenAlex author id -- an author id already matched to exactly one
-       member is theirs on every other paper too, if the name agrees (0.9).
+       member is theirs on another paper of the college, under the gate
+       below (0.9).
     4. Name -- a college-affiliated author whose name matches exactly one
-       member best (0.8 x score), department breaking a tie (0.7 x score).
-       Anything still tied is left unmatched and listed.
+       active member, under the gate below (0.8 x score). Anything else with
+       a candidate is left unmatched and listed.
+
+    The gate (`_may_link_by_name`) applies to steps 3 and 4 and to the
+    own-variant absorb: a member with a Scopus id is never linked by name or
+    author id; any other member needs exactly one candidate, the same surname
+    and first initial, and the college in the author's affiliation. A paper the
+    person reported as not theirs is never linked to them again. Office
+    decisions (aliases) and ORCIDs are not gated by name.
     """
     people = _people()
     names = _NameIndex(people)
     by_id = {u.id: u for u in people}
+    blocked = disputed_pairs()
     with transaction.atomic():
         Authorship.objects.filter(match_locked=False, match_method__in=INFERRED).update(
             user=None, match_confidence=0, match_method=""
         )
         # 1. ORCID
         orcid_of = {u.orcid_id.strip(): u for u in people if u.orcid_id}
-        for row in Authorship.objects.filter(user__isnull=True, match_locked=False).exclude(orcid="").only("id", "orcid"):
+        for row in Authorship.objects.filter(user__isnull=True, match_locked=False).exclude(orcid="").only(
+            "id", "orcid", "publication_id"
+        ):
             u = orcid_of.get(row.orcid)
-            if u:
+            if u and (u.id, row.publication_id) not in blocked:
                 Authorship.objects.filter(id=row.id).update(user=u, match_confidence=1.0, match_method="orcid")
 
         # 1b. Names the office has already said belong to somebody
@@ -665,67 +723,53 @@ def match_authors() -> dict[str, Any]:
                 alias_of[k] = by_id[uid]
         if alias_of:
             for row in Authorship.objects.filter(user__isnull=True, is_college=True, match_locked=False).only(
-                "id", "display_name"
+                "id", "display_name", "publication_id"
             ):
                 u = alias_of.get(name_key(row.display_name))
-                if u:
+                if u and not _scopus_member(u) and (u.id, row.publication_id) not in blocked:
                     Authorship.objects.filter(id=row.id).update(user=u, match_confidence=0.9, match_method="alias")
 
-        #: Evidence strong enough to carry an OpenAlex author id onto papers
-        #: outside the college. OpenAlex merges namesakes ("R. Subhashini" at
-        #: TNAU and at SEC under one id), so a name-only match may label only
-        #: college rows, and a member whose Scopus list has been synced keeps
-        #: only the outside papers Scopus confirms.
-        strong_methods = ("orcid", "record", "scopus", "scopus_id", "scopus_sheet", "manual", "alias")
-        scopus_pubs: dict[str, set[str]] = {}
-        for pid, uid in Authorship.objects.filter(match_method="scopus", user__isnull=False).values_list(
-            "publication_id", "user_id"
-        ):
-            scopus_pubs.setdefault(uid, set()).add(pid)
-
         def propagate() -> int:
+            # An author id already on a member's paper carries them to the same
+            # author's other rows, under the gate. The gate reads the row's own
+            # affiliation, so an outside row (not the college's) never passes:
+            # papers outside the college come from the Scopus sync or a claim.
             owners: dict[str, set[str]] = {}
-            strong: dict[str, set[str]] = {}
-            for aid, uid, method in (
+            for aid, uid in (
                 Authorship.objects.filter(user__isnull=False, match_confidence__gte=0.75)
-                .exclude(openalex_author_id="").values_list("openalex_author_id", "user_id", "match_method")
+                .exclude(openalex_author_id="").values_list("openalex_author_id", "user_id")
             ):
                 owners.setdefault(aid, set()).add(uid)
-                if method in strong_methods:
-                    strong.setdefault(aid, set()).add(uid)
             done = 0
             for row in (
                 Authorship.objects.filter(user__isnull=True, match_locked=False, openalex_author_id__in=list(owners))
-                .only("id", "openalex_author_id", "display_name", "is_college", "publication_id")
+                .only("id", "openalex_author_id", "display_name", "raw_affiliation", "publication_id")
             ):
-                uids = owners[row.openalex_author_id] if row.is_college else strong.get(row.openalex_author_id, set())
-                if len(uids) != 1 or len(owners[row.openalex_author_id]) != 1:
+                uids = owners[row.openalex_author_id]
+                if len(uids) != 1:
                     continue
                 u = by_id.get(next(iter(uids)))
-                if not u or name_score(row.display_name, u.name) < 0.85:
-                    continue
-                if not row.is_college and u.scopus_synced_at and row.publication_id not in scopus_pubs.get(u.id, ()):
-                    continue
-                Authorship.objects.filter(id=row.id).update(user=u, match_confidence=0.9, match_method="author_id")
-                done += 1
+                if u and _may_link_by_name(u, row, names.candidates(row.display_name), blocked):
+                    Authorship.objects.filter(id=row.id).update(user=u, match_confidence=0.9, match_method="author_id")
+                    done += 1
             return done
 
         propagated = propagate()
-        # 4. names
+        # 4. names: exactly one active candidate, under the gate; the rest are listed
         ambiguous: list[dict] = []
         for row in (
             Authorship.objects.filter(user__isnull=True, is_college=True, match_locked=False)
             .only("id", "display_name", "raw_affiliation", "publication_id")
         ):
             cands = names.candidates(row.display_name)
-            u, method, conf = _choose(cands, row.raw_affiliation)
-            if u:
-                Authorship.objects.filter(id=row.id).update(user=u, match_confidence=conf, match_method=method)
-            elif cands:
+            if len(cands) == 1 and _may_link_by_name(cands[0][1], row, cands, blocked):
+                Authorship.objects.filter(id=row.id).update(
+                    user=cands[0][1], match_confidence=round(0.8 * cands[0][0], 2), match_method="name")
+            elif len(cands) > 1:
                 ambiguous.append({"name": row.display_name, "publication_id": row.publication_id,
                                   "candidates": [c.name for _, c in cands[:5]]})
         propagated += propagate()
-        absorbed = _absorb_own_variants(by_id)
+        absorbed = _absorb_own_variants(by_id, names, blocked)
         # One person once per paper: keep their most certain row.
         dupes = 0
         seen: set[tuple[str, str]] = set()
@@ -768,6 +812,7 @@ def link_by_scopus_ids(*, fetch: Fetch = openalex_get) -> dict[str, int]:
     summary = {"scopus_ids": len(by_sid), "authors_checked": 0, "authors_linked": 0, "rows_linked": 0}
     if not by_sid:
         return summary
+    blocked = disputed_pairs()
     ids = set(
         Authorship.objects.filter(Q(is_college=True) | Q(user__isnull=False))
         .exclude(openalex_author_id="").values_list("openalex_author_id", flat=True)
@@ -784,6 +829,7 @@ def link_by_scopus_ids(*, fetch: Fetch = openalex_get) -> dict[str, int]:
             summary["rows_linked"] += (
                 Authorship.objects.filter(openalex_author_id=short_id(a.get("id")), match_locked=False)
                 .exclude(match_method__in=("record", "manual", "scopus_sheet", "scopus"))
+                .exclude(publication_id__in=[pid for uid, pid in blocked if uid == u.id])
                 .update(user=u, match_confidence=0.97, match_method="scopus_id", is_college=True)
             )
     return summary

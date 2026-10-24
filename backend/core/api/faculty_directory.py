@@ -485,6 +485,11 @@ def _dash(v: Any) -> Any:
     return "" if v is None else v
 
 
+def _synced_date(iso: str | None) -> str:
+    """The Scopus sync day as YYYY-MM-DD, or blank when the person was never synced."""
+    return iso[:10] if iso else ""
+
+
 @api.get("/directory/faculty/export.csv", auth=session_auth)
 def faculty_directory_csv(
     request: HttpRequest,
@@ -503,7 +508,8 @@ def faculty_directory_csv(
     year = timezone.localdate().year
     money = rbac.can_view_reports(viewer.role)
     head = [
-        "Name", "Staff ID", "Department", "Designation", "Faculty type", "Scopus ID", "Scopus profile", "ORCID",
+        "Name", "Staff ID", "Department", "Designation", "Faculty type", "Scopus ID", "Scopus papers",
+        "Scopus last synced", "Scopus profile", "ORCID",
         "Papers on record", f"Papers in {year}", "Citations", "h-index", "Last paper",
         f"Claims filed in {year}", f"Claims paid in {year}" if money else f"Claims completed in {year}",
         "Profile complete (%)",
@@ -517,7 +523,8 @@ def faculty_directory_csv(
         line = [
             r["name"], _dash(r["staff_id"]), _dash(r["department"]), _dash(r["designation"]),
             "Research" if r["faculty_type"] == "RESEARCH" else "Regular",
-            _dash(r["scopus_author_id"]), _dash(r["scopus_url"]), _dash(r["orcid_id"]),
+            _dash(r["scopus_author_id"]), r["scopus_papers"], _synced_date(r["scopus_synced_at"]),
+            _dash(r["scopus_url"]), _dash(r["orcid_id"]),
             r["papers"], r["papers_year"], r["citations"], r["h_index"],
             r["last_paper_on"] or _dash(r["last_paper_year"]),
             r["claims_filed_year"], r["claims_done_year"], r["completeness"],

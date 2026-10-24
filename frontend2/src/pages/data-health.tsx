@@ -11,7 +11,7 @@ import { Button } from "@/ui/button"
 import { ConfirmDialog } from "@/ui/dialog"
 import { PageHeader } from "@/ui/page-header"
 import { Details, Rows, Section } from "@/ui/section"
-import { Callout, ErrorState, SkeletonRows } from "@/ui/state"
+import { Callout, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
@@ -170,6 +170,14 @@ export function DataHealth() {
   const backups = [...(data?.backups ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at))
   const newest = backups[0]
   const newestAge = newest ? age(newest.created_at) : null
+
+  if (error?.status === 403) {
+    return (
+      <div className="page py-8">
+        <NotOpen message="Ask the research office if you think it should be yours." />
+      </div>
+    )
+  }
 
   return (
     <div className="page space-y-10">

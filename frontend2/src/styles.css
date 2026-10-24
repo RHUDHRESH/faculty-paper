@@ -1241,3 +1241,47 @@
   src: url(./assets/fonts/inter-rupee.woff2) format("woff2-variations");
   unicode-range: U+20B9;
 }
+
+/* ---------------------------------------------------------------------------
+ * Table tools (ui/table-tools.tsx): grid lines, compact rows, sticky head.
+ * Tokens only. The header row takes `sunken`, the one ground a head sits on.
+ * ------------------------------------------------------------------------- */
+table[data-grid="true"] th,
+table[data-grid="true"] td {
+  border: 1px solid var(--color-edge);
+}
+table[data-grid="true"] thead th,
+table[data-density="compact"] thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+table[data-grid="true"] thead th {
+  background-color: var(--color-sunken);
+}
+table[data-density="compact"] th,
+table[data-density="compact"] td {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+/* A finger needs a 40px row, so compact rows keep their height on a touch screen. */
+@media (pointer: coarse) {
+  table[data-density="compact"] th,
+  table[data-density="compact"] td {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+}
+@media print {
+  .table-tools {
+    display: none !important;
+  }
+  .table-with-tools table th,
+  .table-with-tools table td {
+    border: 1px solid #000 !important;
+  }
+  .table-with-tools thead th {
+    position: static !important;
+    background-color: #fff !important;
+  }
+}

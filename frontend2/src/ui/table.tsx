@@ -5,6 +5,8 @@ import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react"
 import { cn } from "@/lib/cn"
 import { EmptyState, type EmptyStateProps } from "@/ui/state"
 import { ColumnLabel } from "@/ui/text"
+import { exportTable, printTable, type ExportCell, type ExportColumn } from "@/lib/table-export"
+import { TableToolbar, useTablePrefs } from "@/ui/table-tools"
 
 /**
  * The Stripe-like table: a bounded, scrolling grid for the lists that run to
@@ -54,6 +56,15 @@ export type Column<T> = {
   truncate?: boolean | ((row: T) => string)
   className?: string
   headerClassName?: string
+  /** Plain-text value for an export (CSV, Excel, PDF). Without it the export
+   *  reads `row[key]` when that is a plain value; a column with neither (an
+   *  actions column) is left out of the file. */
+  exportValue?: (row: T) => string | number | boolean | null
+  /** How the export formats the value: money and dates get their own format in the file. */
+  exportKind?: "text" | "number" | "money" | "date"
+  /** Hidden until the reader shows it in the Columns menu. Applies only when
+   *  nothing is saved for this table yet; a saved choice always wins. */
+  defaultHidden?: boolean
   cell: (row: T, i: number) => React.ReactNode
 }
 
@@ -255,7 +266,7 @@ function columnLabel<T>(col: Column<T>): string {
  * a "download", a person's own name linking elsewhere), so only the lead
  * cell — the one that reads as the row's title — becomes the link.
  */
-export function Table<T>({
+function PlainTable<T>({
   rows,
   columns,
   getKey,
@@ -271,6 +282,7 @@ export function Table<T>({
   sortKey,
   sortDir = "asc",
   onSort,
+  tableAttrs,
 }: {
   rows: T[]
   columns: Column<T>[]
@@ -300,6 +312,8 @@ export function Table<T>({
   sortKey?: string
   sortDir?: SortDir
   onSort?: (key: string) => void
+  /** Attributes for the `<table>` itself; the tools set `data-grid` and `data-density`. */
+  tableAttrs?: Record<string, string | undefined>
 }) {
   if (rows.length === 0) {
     const isProps = empty !== null && typeof empty === "object" && !isValidElement(empty) && "title" in empty
@@ -327,7 +341,7 @@ export function Table<T>({
       minWidthFrom={stack ? "sm" : "always"}
       className={className}
     >
-      <table className={cn("w-full border-collapse text-sm", stack && "stack-table")}>
+      <table className={cn("w-full border-collapse text-sm", stack && "stack-table")} {...tableAttrs}>
         {caption && <caption className="sr-only">{caption}</caption>}
         <thead>
           <tr>
@@ -457,5 +471,97 @@ export function Table<T>({
         )}
       </table>
     </TableScroller>
+  )
+}
+
+/** The tools a table can carry. Without `tools` the table is exactly the plain one. */
+export type TableTools<T> = {
+  /** Keys the saved view and the file name. Unique per table. */
+  id: string
+  /** Named on the exported file and the printed page. */
+  title: string
+  subtitle?: string
+  /** Every row the current filters match, for a table that shows one page at a
+   *  time, so an export is the whole list rather than the page on screen. */
+  getAllRows?: () => Promise<T[]>
+}
+
+type PlainProps<T> = Parameters<typeof PlainTable<T>>[0]
+
+/**
+ * A `Table` with the tools above it: a column chooser, grid lines, compact
+ * rows, and one Export menu (Excel, PDF, CSV, Print). Hidden columns leave
+ * the screen and the file together; the file has the visible columns only,
+ * in the order shown.
+ *
+ * What goes wrong without it: a person who hides the columns they do not use
+ * finds them back on the next visit, and an export of a paged list is the
+ * twenty rows on the screen, not the hundred and forty that match.
+ */
+export function Table<T>(props: PlainProps<T> & { tools?: TableTools<T> }) {
+  const { tools, ...plain } = props
+  if (!tools) return <PlainTable<T> {...plain} />
+  return <ToolTable<T> {...plain} tools={tools} />
+}
+
+function isPrimitiveCell(v: unknown): v is string | number | boolean | null {
+  return v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean"
+}
+
+function hasField<T>(row: T, key: string): boolean {
+  return typeof row === "object" && row !== null && key in row && isPrimitiveCell((row as Record<string, unknown>)[key])
+}
+
+function exportCell<T>(col: Column<T>, row: T): ExportCell {
+  if (col.exportValue) return col.exportValue(row) ?? null
+  const v = (row as Record<string, unknown>)[col.key]
+  return isPrimitiveCell(v) ? (v ?? null) : null
+}
+
+function ToolTable<T>({ tools, rows, columns, ...rest }: PlainProps<T> & { tools: TableTools<T> }) {
+  const prefs = useTablePrefs(
+    tools.id,
+    columns.map((c) => c.key),
+    columns.filter((c) => c.defaultHidden).map((c) => c.key)
+  )
+  const shown = columns.filter((c, i) => i === 0 || !prefs.hidden.has(c.key))
+  const labelOf = (c: Column<T>) => c.label ?? (typeof c.header === "string" ? c.header : c.key)
+
+  async function run(format: "xlsx" | "pdf" | "csv" | "print") {
+    if (format === "print") {
+      printTable(tools.title)
+      return
+    }
+    const all = tools.getAllRows ? await tools.getAllRows() : rows
+    // A column with no export value and no plain field (an actions column) is left out.
+    const exported = shown.filter((c) => c.exportValue || all.some((r) => hasField(r, c.key)))
+    const columnsOut: ExportColumn[] = exported.map((c) => ({ key: c.key, label: labelOf(c), kind: c.exportKind ?? null }))
+    await exportTable({
+      title: tools.title,
+      subtitle: tools.subtitle,
+      format,
+      filename: `${tools.id}-${new Date().toISOString().slice(0, 10)}`,
+      columns: columnsOut,
+      rows: all.map((r) => exported.map((c) => exportCell(c, r))),
+    })
+  }
+
+  return (
+    <div className="table-with-tools">
+      <div className="hidden print:mb-3 print:block">
+        <p className="text-base font-medium">{tools.title}</p>
+        {tools.subtitle && <p className="text-sm text-fg-muted">{tools.subtitle}</p>}
+      </div>
+      <TableToolbar columns={columns.map((c) => ({ key: c.key, label: labelOf(c) }))} prefs={prefs} onExport={run} />
+      <PlainTable<T>
+        {...rest}
+        rows={rows}
+        columns={shown}
+        tableAttrs={{
+          "data-grid": prefs.grid ? "true" : undefined,
+          "data-density": prefs.density === "compact" ? "compact" : undefined,
+        }}
+      />
+    </div>
   )
 }

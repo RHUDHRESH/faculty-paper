@@ -6,6 +6,7 @@ import { paperTitle } from "@/lib/names"
 import { Button } from "@/ui/button"
 import { ClaimNo } from "@/ui/claim-number"
 import { Checkbox } from "@/ui/field"
+import { amountUnrecorded, NOT_RECORDED, NOT_RECORDED_TITLE } from "@/lib/amount"
 import { money } from "@/ui/paper"
 import { Avatar, initialsOf } from "@/ui/person"
 import { waitingLabel, waitTone } from "@/ui/queue"
@@ -70,6 +71,7 @@ export function ClearingRow({
   const days = c.waiting_days
   const late = (days ?? 0) > 14
   const hasAmount = c.remuneration != null && !c.calc_error
+  const unrecorded = amountUnrecorded(c.remuneration, c.ticket_number)
 
   return (
     <li
@@ -104,7 +106,9 @@ export function ClearingRow({
           {c.journal_title && <span className="max-w-[20rem] truncate">{c.journal_title}</span>}
           {c.quartile && <span className="rounded-sm bg-sunken px-1.5 font-medium text-fg">{c.quartile}</span>}
           {/* On a phone the figures sit here, under the paper. */}
-          <span className="tabular sm:hidden">{hasAmount ? money(c.remuneration) : ""}</span>
+          <span className="tabular sm:hidden" title={unrecorded ? NOT_RECORDED_TITLE : undefined}>
+            {unrecorded ? <span className="text-fg-muted">{NOT_RECORDED}</span> : hasAmount ? money(c.remuneration) : ""}
+          </span>
           <span className={cn("tabular sm:hidden", late ? waitTone(days) + " font-medium" : "")}>
             {waitingLabel(days)}
             {late ? ", late" : ""}
@@ -118,7 +122,11 @@ export function ClearingRow({
       </div>
 
       <div className="hidden w-28 shrink-0 text-right sm:block">
-        {hasAmount ? (
+        {unrecorded ? (
+          <p className="text-sm text-fg-muted" title={NOT_RECORDED_TITLE}>
+            {NOT_RECORDED}
+          </p>
+        ) : hasAmount ? (
           <>
             <p className="tabular text-base">{money(c.remuneration)}</p>
             {c.remuneration_is_estimate && <p className="text-xs text-caution">Estimate</p>}

@@ -12,7 +12,7 @@ from ninja.errors import HttpError
 
 from core.api.common import api, session_auth
 from core.api.teams import _require_office
-from core.models import AuditLog
+from core.models import AuditLog, User
 from core.services import author_review as svc
 
 
@@ -103,6 +103,12 @@ def duplicate_accounts(request: HttpRequest):
 @api.post("/admin/duplicate-accounts/merge", auth=session_auth)
 def merge_accounts(request: HttpRequest, payload: MergeIn):
     user = _require_office(request)
+    # Merging switches the dropped account off and moves its claims onto the kept
+    # one, so for a protected account it is a deactivation by another door.
+    from core.api.admin import _refuse_protected  # late: keeps route registration order
+
+    for account in User.objects.filter(pk__in=[payload.keep_id, payload.drop_id]):
+        _refuse_protected(user, account, doing="merge")
     try:
         return svc.merge_accounts(payload.keep_id, payload.drop_id, actor=user, confirm=payload.confirm)
     except svc.ReviewError as exc:

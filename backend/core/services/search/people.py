@@ -14,6 +14,9 @@ Three tables, one query:
   thing a new lecturer with no publications here can be found by. Without it
   the newest member of staff is invisible to "who could I work with" forever.
 
+Which tickets a person may find is the claims list's rule, not the college's
+(`visible_claims`): a ticket names the claimant, the stage and the amount.
+
 Two rules on the way out, both about a head of department:
 
 - The amount on a ticket is *omitted*, not zeroed. `amount: 0` is a figure as
@@ -31,24 +34,56 @@ from django.db.models import Count, Q
 
 from core import hod
 from core.models import Claim, ClaimStatus, ResearchInterest, Role, User
+from core.services import claim_scope
 from core.services.normalize import normalize_doi, normalize_title
 from core.services.search.money import amount_for, may_see_money
 
 
 def visible_claims(viewer) -> Any:
-    """Which claims this viewer's search may reach.
+    """The claims a ticket or a "this paper is already filed" badge may show.
 
-    A head of department sees their own department and nothing else -- read
-    from their account, never from a parameter, because a head asking about
-    another department is a different question rather than a filter. Everybody
-    else sees the college, which is what makes "has this been claimed before"
-    answerable at all.
+    Exactly the claims list's rule (`claim_scope.visible_to`): a faculty member
+    reads their own claims; the Principal, the Director, Finance, the research
+    office and the super admin read every claim that has been filed, and no
+    draft but their own. A ticket carries the claimant, the stage and the
+    rupee figure, so it is held to the rule that guards those.
+
+    A head of department also sees their own department's *filed* claims, the
+    same set as their department screen (`/hod/publications`) -- read from
+    their account, never from a parameter, because a head asking about another
+    department is a different question rather than a filter.
     """
     scope = Claim.objects.select_related("owner")
+    if not getattr(viewer, "pk", None):
+        return scope.none()
     if getattr(viewer, "role", None) == Role.HOD:
-        department = hod.department_of(viewer)
-        return scope.filter(owner__department__iexact=department) if department else scope.none()
-    return scope
+        return scope.filter(_head_reach(viewer))
+    return claim_scope.visible_to(viewer, scope)
+
+
+def work_claims(viewer) -> Any:
+    """The claims that make somebody a person who has worked on a subject.
+
+    Wider than `visible_claims` on purpose: "who here has published on this"
+    is answered from what the college has filed, so a new lecturer can find a
+    collaborator. A draft is not published work and is nobody's but its
+    author's, so it neither finds a person nor counts towards them.
+    """
+    if getattr(viewer, "role", None) == Role.HOD:
+        return visible_claims(viewer)
+    scope = Claim.objects.select_related("owner")
+    if not getattr(viewer, "pk", None):
+        return scope.none()
+    return claim_scope.hide_others_drafts(scope, viewer)
+
+
+def _head_reach(head) -> Q:
+    """A head's own claims, and their department's filed ones."""
+    own = Q(owner=head)
+    department = hod.department_of(head)
+    if not department:
+        return own
+    return own | (Q(owner__department__iexact=department) & ~Q(status=ClaimStatus.DRAFT))
 
 
 def visible_users(viewer) -> Any:
@@ -161,7 +196,7 @@ def find_people(query: str, *, viewer, limit: int = 10) -> list[dict[str, Any]]:
         return []
 
     users = visible_users(viewer)
-    claims = visible_claims(viewer)
+    claims = work_claims(viewer)
 
     by_name = set(
         users.filter(Q(name__icontains=text) | Q(department__icontains=text))

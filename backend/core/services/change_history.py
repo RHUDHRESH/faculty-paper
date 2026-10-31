@@ -41,6 +41,7 @@ ACTION_WORDS: dict[str, str] = {
     "USER_ROLE_CHANGE": "changed the role",
     "USER_CREATE": "created the account",
     "USER_RESET_PASSWORD": "reset the password",
+    "USER_ACTION_REFUSED": "tried to change a protected account and was refused",
     "PASSWORDS_ISSUE": "issued sign-in passwords",
     "PROFILE_UPDATE": "updated the profile",
     "PROFILE_SELF_UPDATE": "updated their own profile",

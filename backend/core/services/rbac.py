@@ -33,6 +33,14 @@ ROLE_RANK = {
 #: may do, and that includes the second signature on a high-value claim.
 ADMIN_ROLES = (Role.SUPER_ADMIN, Role.RESEARCH_CELL, Role.RESEARCH_COORDINATOR)
 
+#: The accounts that decide whether money moves: the super admin who stands in
+#: at every desk, the Principal who approves the spend, the Director who
+#: authorises it and Finance who pays it. The office that manages accounts
+#: (ADMIN_ROLES) prepares and clears claims, so it may not create, edit,
+#: deactivate or reset the password of any of these -- only a super admin may,
+#: or the desk that clears a payment could take over the desks that pay it.
+PROTECTED_ROLES = (Role.SUPER_ADMIN, Role.DIRECTOR, Role.FINANCE, Role.PRINCIPAL)
+
 #: The accounts a claim can belong to: everybody on the staff who publishes,
 #: which is everybody but the super admin. A head of department is faculty
 #: who also heads the department; a Principal, a research cell member, the

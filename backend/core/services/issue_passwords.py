@@ -28,6 +28,7 @@ from django.db import transaction
 from django.db.models import QuerySet
 
 from core.models import Role, User
+from core.services import rbac
 from core.services.cell_safe import csv_writer
 
 #: Ambiguous characters are left out: these get read off a paper and typed.
@@ -67,6 +68,12 @@ def scope_queryset(
         qs = qs.filter(active=True)
     if actor is not None:
         qs = qs.exclude(pk=actor.pk)
+        if actor.role != Role.SUPER_ADMIN:
+            # The accounts that approve, authorise and pay are a super admin's
+            # to reset (`rbac.PROTECTED_ROLES`). The route is already
+            # super-admin-only; this keeps the rule in the one place both
+            # doors share.
+            qs = qs.exclude(role__in=rbac.PROTECTED_ROLES)
 
     if who == "ids":
         listed = [str(i) for i in (ids or []) if i]

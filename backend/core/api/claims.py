@@ -19,7 +19,7 @@ from django.db.models import Count, Max, Q
 from django.http import HttpRequest
 from ninja.errors import HttpError
 from core.models import AttachmentKind, Claim, ClaimReason, ClaimStatus, FormulaConfig, Role, User
-from core.services import rbac
+from core.services import claim_scope, rbac
 from core.services.remuneration import calculate_remuneration, formula_from_model, snapshot_formula
 from core.services.tickets import assign_ticket_number
 from core import hod
@@ -43,9 +43,7 @@ def _claims_queryset(user: User):
         .prefetch_related("attachments")
         .all()
     )
-    if rbac.can_view_college_wide(user.role):
-        return qs.filter(~Q(status=ClaimStatus.DRAFT) | Q(owner=user))
-    return qs.filter(owner=user)
+    return claim_scope.visible_to(user, qs)
 
 
 

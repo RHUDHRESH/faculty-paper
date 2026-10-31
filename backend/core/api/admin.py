@@ -157,7 +157,14 @@ def admin_user_detail(request: HttpRequest, user_id: str):
 #: could promote itself, or reset the Finance password and pay the claim it had
 #: just cleared. Every separation in the approval chain was optional for the
 #: one role positioned to exploit it.
+#:
+#: This tuple is only what `assign_heads` needs (it is assigning PRINCIPAL, so
+#: PRINCIPAL cannot be on its list). The account editor's guard is
+#: `rbac.PROTECTED_ROLES`, which adds the Principal.
 PRIVILEGED_ROLES = (Role.SUPER_ADMIN, Role.DIRECTOR, Role.FINANCE)
+
+#: The accounts only a super admin may create, edit, deactivate or reset.
+PROTECTED_ROLES = rbac.PROTECTED_ROLES
 
 ASSIGNABLE_ROLES = (
     Role.FACULTY,
@@ -174,6 +181,46 @@ ASSIGNABLE_ROLES = (
 )
 
 
+def _refuse_protected(
+    actor: User, target: User | None, *, doing: str, new_role: str | None = None
+) -> None:
+    """Only a super admin touches an account that decides whether money moves.
+
+    Refused when the account being acted on holds a protected role now
+    (`target`), or when the role being asked for is one (`new_role`): the
+    office that prepares a payment must not be able to take over, switch off or
+    re-role the accounts that approve, authorise and pay it, nor mint a new one
+    to do so. The refusal is written to the audit log, because somebody trying
+    this is something the college should be able to find out afterwards.
+
+    The research cell and the coordinator keep every other part of account
+    management: faculty and heads of department are theirs to create, correct
+    and reset.
+    """
+    if actor.role == Role.SUPER_ADMIN:
+        return
+    held = target.role if target is not None else None
+    if held not in PROTECTED_ROLES and new_role not in PROTECTED_ROLES:
+        return
+    AuditLog.objects.create(
+        actor=actor,
+        action="USER_ACTION_REFUSED",
+        entity="User",
+        entity_id=target.id if target is not None else None,
+        detail_json=json.dumps({"doing": doing, "account_role": held, "requested_role": new_role}),
+    )
+    if held in PROTECTED_ROLES:
+        what = f"the {held.replace('_', ' ').lower()} account"
+    else:
+        what = f"the {new_role.replace('_', ' ').lower()} role"
+    raise HttpError(
+        403,
+        f"Only a super admin can {doing} {what}. It decides whether money moves, "
+        "so the office that prepares a payment cannot also create, change or "
+        "take over the account that approves, authorises or pays it.",
+    )
+
+
 def _check_privileged_assignment(actor: User, role: str | None) -> None:
     """Only a super admin appoints the roles that decide whether money moves.
 
@@ -181,13 +228,7 @@ def _check_privileged_assignment(actor: User, role: str | None) -> None:
     role"; this answers "is this yours to hand out". The research cell keeps
     every other part of account management.
     """
-    if role and role in PRIVILEGED_ROLES and actor.role != Role.SUPER_ADMIN:
-        raise HttpError(
-            403,
-            f"Only a super admin can appoint the {role.replace('_', ' ').lower()} "
-            "role. It decides whether money moves, so the office that prepares "
-            "a payment cannot also create the account that authorises it.",
-        )
+    _refuse_protected(actor, None, doing="appoint", new_role=role)
 
 
 def _appoint_head(u: User, *, replace: bool, actor: User) -> None:
@@ -285,6 +326,10 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
         raise HttpError(403, "Forbidden")
     u = get_object_or_404(User, pk=user_id)
     data = payload.dict(exclude_unset=True)
+    # First, and for every field: any edit to a protected account (its role, its
+    # active flag, its department) and any promotion into a protected role is a
+    # super admin's alone.
+    _refuse_protected(actor, u, doing="change", new_role=data.get("role"))
     # An instruction about this write, not a field of the account.
     replace_hod = bool(data.pop("replace_hod", False))
     if "role" in data:
@@ -303,7 +348,6 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
                 + ". You can still set the role, the department and whether the "
                 "account is active.",
             )
-    _check_privileged_assignment(actor, data.get("role"))
     # Self-lockout guard: an admin demoting or deactivating their own account
     # can leave the system with nobody able to manage users.
     if u.id == actor.id:
@@ -359,6 +403,7 @@ def admin_reset_password(request: HttpRequest, user_id: str, payload: ResetPassw
     if not rbac.can_manage_users(actor.role):
         raise HttpError(403, "Forbidden")
     u = get_object_or_404(User, pk=user_id)
+    _refuse_protected(actor, u, doing="reset the password of")
     u.set_password(payload.password)
     u.must_change_password = True
     u.save()
@@ -380,6 +425,7 @@ def admin_reset_password_by_email(request: HttpRequest, payload: ResetPasswordBy
     if len(payload.password) < 8:
         raise HttpError(400, "Password must be at least 8 characters")
     u = get_object_or_404(User, email=payload.email.strip().lower())
+    _refuse_protected(actor, u, doing="reset the password of")
     u.set_password(payload.password)
     u.must_change_password = True
     u.save()
@@ -1232,9 +1278,11 @@ def admin_clearing_queue(
 __all__ = [
     'ASSIGNABLE_ROLES',
     'PRIVILEGED_ROLES',
+    'PROTECTED_ROLES',
     'ScimagoSyncIn',
     '_check_assignable_role',
     '_check_privileged_assignment',
+    '_refuse_protected',
     'admin_audit',
     'admin_clearing_queue',
     'admin_create_user',

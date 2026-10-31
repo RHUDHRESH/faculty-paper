@@ -861,10 +861,11 @@ class RoundingTests(SimpleTestCase):
         self.assertEqual(format_inr(None), "—")
 
     def test_the_rounding_rule_is_the_same_everywhere(self):
-        """round2 is round-half-to-even, consistently, in both directions."""
-        self.assertEqual(round2(0.125), 0.12)
+        """round2 is round-half-up (away from zero) on the decimal figure, in both directions."""
+        self.assertEqual(round2(0.125), 0.13)
         self.assertEqual(round2(0.135), 0.14)
-        self.assertEqual(round2(-0.125), -0.12)
+        self.assertEqual(round2(2.675), 2.68)
+        self.assertEqual(round2(-0.125), -0.13)
         self.assertEqual(round2(1e-9), 0.0)
 
     def _share_sum(self, base_kwargs, total):

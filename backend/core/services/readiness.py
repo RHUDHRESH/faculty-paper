@@ -48,9 +48,16 @@ def _age_days(when) -> float | None:
 
 def _desk_checks() -> list[dict[str, Any]]:
     out = []
+    # Everybody who holds any desk, once: the desks' roles do not overlap, and a
+    # desk is its holders' names in order, how many there are, and the first three.
+    holders = list(
+        User.objects.filter(active=True, role__in=[r for _k, _n, roles in DESKS for r in roles])
+        .order_by("name").values_list("role", "name")
+    )
     for key, name, roles in DESKS:
-        people = list(User.objects.filter(active=True, role__in=roles).order_by("name").values_list("name", flat=True)[:3])
-        n = User.objects.filter(active=True, role__in=roles).count()
+        names = [who for role, who in holders if role in roles]
+        people = names[:3]
+        n = len(names)
         link = f"/people?role={_ROLE_FOR_LINK[key]}"
         if n:
             shown = ", ".join(people) + (f" and {n - len(people)} more" if n > len(people) else "")

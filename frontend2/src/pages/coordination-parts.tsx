@@ -7,6 +7,8 @@ import { Answer } from "@/ui/answer"
 import { useApi, useApiMutation } from "@/lib/query"
 import { AssigneeBadge, type Assignee } from "@/ui/assignee"
 import { Button } from "@/ui/button"
+import { Checkbox, Input, Select } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
 import { Combobox } from "@/ui/combobox"
 import { Section } from "@/ui/section"
 import { Table, type Column } from "@/ui/table"
@@ -353,6 +355,11 @@ const SCOPES = [
 ] as const
 type Scope = (typeof SCOPES)[number]["id"]
 
+/**
+ * Handing claims out: the desk's work, as one table. Pick the claims (or filter
+ * to the ones not given to anyone), say who gets them in the bar above, or set
+ * one claim's reviewer in the last column of its row.
+ */
 export function Assign({ slaDays }: { slaDays: number }) {
   // The desk's figures link here as ?scope=unassigned or ?scope=breach.
   const [params] = useSearchParams()
@@ -360,6 +367,7 @@ export function Assign({ slaDays }: { slaDays: number }) {
   const [scope, setScope] = useState<Scope>(SCOPES.some((s) => s.id === fromUrl) ? (fromUrl as Scope) : "unassigned")
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [to, setTo] = useState<string>("")
+  const [needle, setNeedle] = useState("")
   const list = useApi<{ total: number; results: DeskRow[] }>(["coordination", "claims", scope], `/api/coordination/claims?scope=${scope}`, {
     placeholderData: (prev) => prev,
   })
@@ -375,7 +383,13 @@ export function Assign({ slaDays }: { slaDays: number }) {
         .map((p) => ({ value: p.user_id, label: p.name, hint: p.role_label })),
     [people.data]
   )
-  const rows = list.data?.results ?? []
+  const all = list.data?.results ?? []
+  const typed = needle.trim().toLowerCase()
+  const rows = typed
+    ? all.filter((r) =>
+        [r.ticket_number, r.paper_title, r.owner_name, r.owner_department].some((v) => String(v ?? "").toLowerCase().includes(typed))
+      )
+    : all
 
   async function run(ids: string[], assignee: string | null) {
     if (ids.length === 0) return
@@ -396,6 +410,7 @@ export function Assign({ slaDays }: { slaDays: number }) {
   }
 
   const allOn = rows.length > 0 && rows.every((r) => picked.has(r.id))
+  const someOn = rows.some((r) => picked.has(r.id))
   const toggle = (id: string) =>
     setPicked((p) => {
       const n = new Set(p)
@@ -404,9 +419,85 @@ export function Assign({ slaDays }: { slaDays: number }) {
       return n
     })
 
+  const columns: Column<DeskRow>[] = [
+    {
+      key: "choose",
+      header: (
+        <Checkbox
+          checked={allOn ? true : someOn ? "indeterminate" : false}
+          onCheckedChange={() => setPicked(allOn ? new Set() : new Set(rows.map((r) => r.id)))}
+          aria-label="Choose all shown"
+        />
+      ),
+      label: "Choose",
+      className: "w-10",
+      cell: (r) => (
+        <Checkbox checked={picked.has(r.id)} onCheckedChange={() => toggle(r.id)} aria-label={`Choose ${r.ticket_number ?? "this claim"}`} />
+      ),
+    },
+    {
+      key: "claim_no",
+      header: "Claim no.",
+      exportValue: (r) => r.ticket_number,
+      cell: (r) => (
+        <span className="flex flex-wrap items-center gap-x-1">
+          <Link to={`/review/${r.id}?queue=clearing`} className="font-medium tabular hover:underline">
+            <ClaimNo ticket={r.ticket_number} origin={r.origin} />
+          </Link>
+          {r.ticket_number && <CopyButton value={r.ticket_number} label="claim number" />}
+          {r.on_hold && <span className="text-caution">On hold</span>}
+        </span>
+      ),
+    },
+    {
+      key: "paper",
+      header: "Paper",
+      exportValue: (r) => unshout(r.paper_title),
+      cell: (r) => <span className="line-clamp-2 break-words text-base">{unshout(r.paper_title) || "Untitled paper"}</span>,
+    },
+    {
+      key: "claimant",
+      header: "Claimant",
+      exportValue: (r) => [r.owner_name, r.owner_department].filter(Boolean).join(", "),
+      cell: (r) => (
+        <span className="flex min-w-0 items-center gap-3">
+          <Avatar person={{ name: r.owner_name, initials: initialsOf(r.owner_name), photo_url: r.owner_photo_url ?? null }} size="md" />
+          <span className="min-w-0">
+            <span className="block font-medium">{r.owner_name}</span>
+            <span className="block text-fg-muted">{r.owner_department ?? "No department"}</span>
+          </span>
+        </span>
+      ),
+    },
+    {
+      key: "waiting",
+      header: "Waiting",
+      align: "right",
+      exportValue: (r) => r.waiting_days,
+      cell: (r) => <span className={cn("tabular", r.waiting_days > slaDays && "font-medium text-critical")}>{days(r.waiting_days)}</span>,
+    },
+    {
+      key: "given",
+      header: "Given to",
+      label: "Given to",
+      className: "min-w-56",
+      exportValue: (r) => r.assigned_to?.name ?? "Not given to anyone",
+      cell: (r) => (
+        <Combobox
+          value={r.assigned_to?.user_id ?? null}
+          onChange={(v) => void run([r.id], v)}
+          options={options}
+          placeholder="Not given to anyone"
+          aria-label={`Reviewer for ${r.ticket_number ?? "this claim"}`}
+          className="w-full"
+        />
+      ),
+    },
+  ]
+
   useHashScroll(!list.isLoading)
   return (
-    <section id="assign" aria-labelledby="assign-h" className="scroll-mt-6 space-y-3">
+    <section id="assign" aria-labelledby="assign-h" className="scroll-mt-6 space-y-4">
       <div>
         <SectionTitle id="assign-h">Assign claims to reviewers</SectionTitle>
         <p className="mt-1 max-w-prose text-sm text-fg-muted">
@@ -414,24 +505,35 @@ export function Assign({ slaDays }: { slaDays: number }) {
           them. A claim can never go to the person who filed it.
         </p>
       </div>
-      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Which claims">
-        {SCOPES.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            aria-pressed={scope === s.id}
-            onClick={() => {
-              setScope(s.id)
-              setPicked(new Set())
-            }}
-            className={cn(
-              "h-7 rounded-full px-3 text-sm ring-1 ring-inset transition-colors duration-[var(--dur-1)] ease-out max-sm:h-10",
-              scope === s.id ? "bg-accent-wash font-medium text-accent ring-accent-line" : "bg-surface text-fg-muted ring-line hover:text-fg"
-            )}
-          >
-            {s.id === "breach" ? `Past ${slaDays} days` : s.label}
-          </button>
-        ))}
+
+      <div className={filterBar} role="search">
+        <Input
+          value={needle}
+          onChange={(e) => setNeedle(e.target.value)}
+          placeholder="Claim no., paper or claimant"
+          aria-label="Search these claims"
+          className="w-full min-w-0 sm:w-72"
+        />
+        <Select
+          aria-label="Which claims"
+          value={scope}
+          onChange={(e) => {
+            setScope(e.target.value as Scope)
+            setPicked(new Set())
+          }}
+          className="w-auto max-sm:w-full"
+        >
+          {SCOPES.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.id === "breach" ? `Past ${slaDays} days` : s.label}
+            </option>
+          ))}
+        </Select>
+        {needle && (
+          <Button kind="quiet" onClick={() => setNeedle("")}>
+            Clear search
+          </Button>
+        )}
       </div>
 
       {scope === "unassigned" && rows.length > 1 && options.length > 0 && (
@@ -459,17 +561,15 @@ export function Assign({ slaDays }: { slaDays: number }) {
         />
       )}
 
-      <div className="flex flex-wrap items-center gap-2 rounded-lg bg-sunken px-3 py-2">
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" className="size-4 accent-[var(--color-accent)]" checked={allOn} onChange={() => setPicked(allOn ? new Set() : new Set(rows.map((r) => r.id)))} />
-          {picked.size > 0 ? `${picked.size} chosen` : "Choose all shown"}
-        </label>
-        <span className="hidden flex-1 sm:block" />
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Give the chosen claims out">
+        <p className="mr-2 text-sm tabular" aria-live="polite">
+          {picked.size > 0 ? <span className="font-semibold">{picked.size} chosen</span> : <span className="text-fg-muted">None chosen</span>}
+        </p>
         <Combobox value={to || null} onChange={setTo} options={options} placeholder="Give to…" aria-label="Give the chosen claims to" className="w-full sm:w-56" />
-        <Button kind="primary" size="sm" disabled={!to || picked.size === 0 || assign.isPending} onClick={() => void run([...picked], to)}>
+        <Button kind="primary" disabled={!to || picked.size === 0 || assign.isPending} onClick={() => void run([...picked], to)}>
           {picked.size > 0 ? `Assign ${picked.size} ${picked.size === 1 ? "claim" : "claims"}${to ? ` to ${options.find((o) => o.value === to)?.label ?? ""}` : ""}` : "Assign chosen claims"}
         </Button>
-        <Button kind="quiet" size="sm" disabled={picked.size === 0 || assign.isPending} onClick={() => void run([...picked], null)}>
+        <Button kind="default" disabled={picked.size === 0 || assign.isPending} onClick={() => void run([...picked], null)}>
           {picked.size > 0 ? `Take back ${picked.size} ${picked.size === 1 ? "claim" : "claims"}` : "Take back chosen claims"}
         </Button>
       </div>
@@ -478,60 +578,52 @@ export function Assign({ slaDays }: { slaDays: number }) {
         <SkeletonRows rows={4} rowHeight={56} />
       ) : list.isError ? (
         <ErrorState title="Could not load the claims" onRetry={() => list.refetch()} />
-      ) : rows.length === 0 ? (
-        <EmptyState
-          art="empty-queue"
-          title={scope === "unassigned" ? "Every claim is given to someone" : "No claims here"}
-          message={scope === "unassigned" ? "Nothing is waiting without a reviewer." : "Try another filter above."}
-        />
       ) : (
-        <ul className="divide-y divide-line border-y border-line">
-          {rows.map((r) => (
-            <li key={r.id} className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3 gap-y-2 py-3 md:grid-cols-[1.5rem_minmax(0,1fr)_11rem_13rem] md:items-center">
-              <input
-                type="checkbox"
-                aria-label={`Choose ${r.ticket_number ?? "this claim"}`}
-                className="mt-1 size-4 accent-[var(--color-accent)] md:mt-0"
-                checked={picked.has(r.id)}
-                onChange={() => toggle(r.id)}
-              />
-              <div className="min-w-0">
-                <p className="flex flex-wrap items-center gap-x-2 text-sm">
-                  <Link to={`/review/${r.id}?queue=clearing`} className="font-medium tabular hover:underline">
-                    <ClaimNo ticket={r.ticket_number} origin={r.origin} />
-                  </Link>
-                  {r.ticket_number && <CopyButton value={r.ticket_number} label="claim number" />}
-                  <span className={cn("tabular", r.waiting_days > slaDays ? "font-medium text-critical" : "text-fg-muted")}>
-                    {days(r.waiting_days)}
-                  </span>
-                  {r.on_hold && <span className="text-caution">On hold</span>}
-                </p>
-                <p className="line-clamp-2 break-words text-sm">{unshout(r.paper_title) || "Untitled paper"}</p>
-              </div>
-              <div className="col-start-2 flex min-w-0 items-center gap-2 md:col-start-auto">
-                <Avatar person={{ name: r.owner_name, initials: initialsOf(r.owner_name), photo_url: r.owner_photo_url ?? null }} size="xs" />
-                <span className="min-w-0 text-sm">
-                  <span className="block truncate">{r.owner_name}</span>
-                  <span className="block truncate text-xs text-fg-muted">{r.owner_department ?? "No department"}</span>
-                </span>
-              </div>
-              <div className="col-start-2 flex min-w-0 flex-wrap items-center gap-2 md:col-start-auto">
-                <Combobox
-                  value={r.assigned_to?.user_id ?? null}
-                  onChange={(v) => void run([r.id], v)}
-                  options={options}
-                  placeholder="Not given to anyone"
-                  aria-label={`Reviewer for ${r.ticket_number ?? "this claim"}`}
-                  className="w-full"
-                />
-              </div>
-            </li>
-          ))}
-        </ul>
+        <Table
+          rows={rows}
+          columns={columns}
+          getKey={(r) => r.id}
+          maxHeight="none"
+          caption="Claims at the research office"
+          tools={{ id: "coordination-claims", title: "Claims at the research office" }}
+          empty={
+            needle
+              ? {
+                  title: "No claim matches your search",
+                  message: "Try another claim number, paper or name.",
+                  action: (
+                    <Button kind="default" onClick={() => setNeedle("")}>
+                      Clear search
+                    </Button>
+                  ),
+                }
+              : scope === "unassigned"
+                ? {
+                    art: "empty-queue",
+                    title: "Every claim is given to someone",
+                    message: "Nothing is waiting without a reviewer.",
+                    action: (
+                      <Button kind="default" asChild>
+                        <Link to="/clearing">Open the clearing queue</Link>
+                      </Button>
+                    ),
+                  }
+                : {
+                    art: "empty-queue",
+                    title: "No claims here",
+                    message: "No claim fits this view.",
+                    action: (
+                      <Button kind="default" onClick={() => setScope("unassigned")}>
+                        Show the claims not given to anyone
+                      </Button>
+                    ),
+                  }
+          }
+        />
       )}
       <ClaimNoLegend show={rows.some((r) => !!r.origin)} />
-      {list.data && list.data.total > rows.length && (
-        <Meta className="block">Showing the oldest {rows.length} of {list.data.total}.</Meta>
+      {list.data && list.data.total > all.length && (
+        <Meta className="block">Showing the oldest {all.length} of {list.data.total}.</Meta>
       )}
     </section>
   )

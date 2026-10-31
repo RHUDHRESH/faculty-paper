@@ -22,7 +22,7 @@ import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
 import { Avatar } from "@/ui/person"
 import { Chip } from "@/ui/chip"
-import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { Callout, EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import {
@@ -85,8 +85,10 @@ function toIso(d: Date) {
 }
 
 export function ResearchFaculty() {
-  const { me } = useAuth()
-  const list = useApi<List>(LIST_KEY, "/api/research-faculty")
+  const { me, loading: signingIn } = useAuth()
+  // `rbac.can_set_research_threshold`: the coordinator and a super admin.
+  const allowed = me?.role === "SUPER_ADMIN" || me?.role === "RESEARCH_COORDINATOR"
+  const list = useApi<List>(LIST_KEY, "/api/research-faculty", { enabled: allowed })
   const [q, setQ] = useState("")
   const [onlyUnset, setOnlyUnset] = useState(false)
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null)
@@ -99,6 +101,22 @@ export function ResearchFaculty() {
         (!term || `${r.name} ${r.department ?? ""}`.toLowerCase().includes(term))
     )
   }, [list.data, q, onlyUnset])
+
+  if (signingIn) {
+    return (
+      <div className="page space-y-6 pb-24">
+        <SkeletonRows rows={5} />
+      </div>
+    )
+  }
+
+  if (!allowed) {
+    return (
+      <div className="page py-8">
+        <NotOpen message="This page is for the research coordinator." />
+      </div>
+    )
+  }
 
   const d = list.data
   const yearRange = d ? `${longDate(d.year_start)} to ${longDate(toIso(new Date(new Date(`${d.year_end}T00:00:00`).getTime() - 86400000)))}` : ""

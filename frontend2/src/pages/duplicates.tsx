@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
-import { CircleCheck, Copy, Users } from "lucide-react"
+import { CircleCheck } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
 import { reviewsFlags } from "@/app/nav"
@@ -16,7 +16,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/ui/dialog"
-import { Field, NumberInput, Textarea } from "@/ui/field"
+import { Field, Input, NumberInput, Select, Textarea } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
+import { Table, type Column } from "@/ui/table"
 import { PageHeader } from "@/ui/page-header"
 import { Answer } from "@/ui/answer"
 import { ChangeHistory } from "./admin-b-parts"
@@ -24,7 +26,7 @@ import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { Avatar, initialsOf } from "@/ui/person"
 import { useQueueKeys } from "@/ui/queue-keys"
-import { Callout, EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
+import { Callout, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { ColumnLabel, Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { unshout } from "@/lib/names"
@@ -133,6 +135,7 @@ export function Duplicates() {
   const kind: Kind = searchParams.get("kind") === "CROSS_PERSON" ? "CROSS_PERSON" : "SAME_PERSON"
   const history = searchParams.get("view") === "history"
   const page = Math.max(0, Number.parseInt(searchParams.get("page") ?? "0", 10) || 0)
+  const [search, setSearch] = useState("")
   const [selected, setSelected] = useState(0)
   const [decision, setDecision] = useState<{ finding: Finding; status: FindingStatus } | null>(null)
 
@@ -194,31 +197,104 @@ export function Duplicates() {
 
   const summary = data?.summary
   const decided = summary ? summary.confirmed + summary.dismissed + summary.recovered : 0
+  const needle = search.trim().toLowerCase()
+  const shown = needle
+    ? findings.filter((f) =>
+        [f.faculty_name, f.paper_title, ...f.rows.map((m) => m.person)].some((v) => String(v ?? "").toLowerCase().includes(needle))
+      )
+    : findings
+  const shownCurrent = shown.find((f) => f.id === current?.id) ?? shown[0]
+
+  const columns: Column<Finding>[] = [
+    {
+      key: "person",
+      header: "Faculty",
+      exportValue: (f) => f.faculty_name || f.rows[0]?.person || "Unknown",
+      cell: (f) => {
+        const p = personOf(f)
+        return (
+          <span className="flex min-w-0 items-center gap-3">
+            <Avatar person={p} size="sm" />
+            <span className="min-w-0 font-medium">{p.name}</span>
+          </span>
+        )
+      },
+    },
+    {
+      key: "paper",
+      header: "Paper",
+      exportValue: (f) => unshout(f.paper_title) || "Untitled paper",
+      cell: (f) => <span className="line-clamp-2">{unshout(f.paper_title) || "Untitled paper"}</span>,
+    },
+    {
+      key: "payments",
+      header: "Payments",
+      exportValue: (f) => `${f.payment_count} payments${paymentSpan(f) ? `, ${paymentSpan(f)}` : ""}`,
+      cell: (f) => (
+        <span className="block">
+          {f.payment_count} payments
+          {paymentSpan(f) && <Meta className="block">{paymentSpan(f)}</Meta>}
+        </span>
+      ),
+    },
+    {
+      key: "extra",
+      header: kind === "SAME_PERSON" ? "At issue" : "Paid in all",
+      align: "right",
+      exportKind: "money",
+      exportValue: (f) => (kind === "SAME_PERSON" ? f.extra_amount : f.total_amount),
+      cell: (f) =>
+        kind === "SAME_PERSON" ? (
+          <span className={f.extra_amount > 0 && !history ? "text-critical" : undefined}>{money(f.extra_amount)}</span>
+        ) : (
+          money(f.total_amount)
+        ),
+    },
+    ...(kind === "SAME_PERSON"
+      ? [
+          {
+            key: "total",
+            header: "Paid in all",
+            align: "right" as const,
+            exportKind: "money" as const,
+            exportValue: (f: Finding) => f.total_amount,
+            cell: (f: Finding) => money(f.total_amount),
+          },
+        ]
+      : []),
+    ...(history
+      ? [
+          {
+            key: "status",
+            header: "Decision",
+            exportValue: (f: Finding) => STATUS_LABEL[f.status],
+            cell: (f: Finding) => STATUS_LABEL[f.status],
+          },
+        ]
+      : []),
+    {
+      key: "open",
+      header: <span className="sr-only">Compare</span>,
+      label: "Compare",
+      cell: (f) => (
+        <Button
+          kind={f.id === shownCurrent?.id ? "quiet" : "default"}
+          size="sm"
+          aria-pressed={f.id === shownCurrent?.id}
+          onClick={() => setSelected(Math.max(0, findings.findIndex((x) => x.id === f.id)))}
+        >
+          {f.id === shownCurrent?.id ? "Comparing" : "Compare"}
+        </Button>
+      ),
+    },
+  ]
 
   return (
-    <div className="page space-y-8">
+    <div className="page space-y-6">
       <PageHeader
         title="Duplicates"
         sub="Compare the payments side by side, then record your decision."
-        spot="spot-audit"
       />
-
-      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Kind">
-        <Tab active={kind === "SAME_PERSON"} onClick={() => setParam("kind", "")}>
-          <Copy className="size-4" aria-hidden />
-          Same person paid twice
-        </Tab>
-        <Tab active={kind === "CROSS_PERSON"} onClick={() => setParam("kind", "CROSS_PERSON")}>
-          <Users className="size-4" aria-hidden />
-          One paper, several people
-        </Tab>
-      </div>
-
-      {kind === "CROSS_PERSON" && (
-        <Callout tone="info" title="Usually correct">
-          Each co-author is paid by author position. Check the names against the author list.
-        </Callout>
-      )}
 
       {summary && (
         <Answer
@@ -244,27 +320,45 @@ export function Duplicates() {
         />
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div className="flex flex-wrap items-center gap-1" role="group" aria-label="View">
-          <Chip active={!history} onClick={() => setParam("view", "")}>
-            To review
-          </Chip>
-          <Chip active={history} onClick={() => setParam("view", "history")}>
-            History
-          </Chip>
-        </div>
-        {findings.length > 0 && (
-          <Meta className="hidden sm:block">
-            <Kbd>j</Kbd> <Kbd>k</Kbd> move
-            {mayReview && !history && (
-              <>
-                {" · "}
-                <Kbd>a</Kbd> confirm · <Kbd>r</Kbd> not a duplicate
-              </>
-            )}
-          </Meta>
+      {kind === "CROSS_PERSON" && (
+        <Callout tone="info" title="Usually correct">
+          Each co-author is paid by author position. Check the names against the author list.
+        </Callout>
+      )}
+
+      <div className={filterBar} role="search">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search faculty or paper"
+          aria-label="Search the groups on this page"
+          className="w-full min-w-0 sm:w-80"
+        />
+        <Select aria-label="Kind" value={kind} onChange={(e) => setParam("kind", e.target.value === "CROSS_PERSON" ? "CROSS_PERSON" : "")} className="w-auto max-sm:w-full">
+          <option value="SAME_PERSON">Same person paid twice</option>
+          <option value="CROSS_PERSON">One paper, several people</option>
+        </Select>
+        <Select aria-label="View" value={history ? "history" : ""} onChange={(e) => setParam("view", e.target.value)} className="w-auto max-sm:w-full">
+          <option value="">To review</option>
+          <option value="history">History</option>
+        </Select>
+        {search && (
+          <Button kind="quiet" onClick={() => setSearch("")}>
+            Clear search
+          </Button>
         )}
       </div>
+      {findings.length > 0 && (
+        <p className="hidden text-sm text-fg-muted sm:block">
+          Keys: <Kbd>j</Kbd> <Kbd>k</Kbd> move
+          {mayReview && !history && (
+            <>
+              , <Kbd>a</Kbd> confirm, <Kbd>r</Kbd> not a duplicate
+            </>
+          )}
+          .
+        </p>
+      )}
 
       {isLoading && !data ? (
         <SkeletonRows rows={6} rowHeight={72} />
@@ -278,39 +372,42 @@ export function Duplicates() {
           }
           onRetry={error?.status === 403 ? false : () => refetch()}
         />
-      ) : findings.length === 0 ? (
-        <EmptyState
-          art={history ? "no-results" : "empty-queue"}
-          icon={CircleCheck}
-          title={history ? "Nothing decided yet" : "Nothing left to review"}
-          message={
-            history
-              ? "Decisions you record move here."
-              : "The next sweep adds any new groups here."
-          }
-        />
       ) : (
-        <>
-          <ul className="divide-y divide-line border-y border-line">
-            {findings.map((f, i) => (
-              <FindingRow
-                key={f.id}
-                finding={f}
-                selected={current?.id === f.id}
-                quiet={history}
-                onSelect={() => setSelected(i)}
-                mayReview={mayReview}
-                onDecide={(status) => setDecision({ finding: f, status })}
-              />
-            ))}
-          </ul>
+        <div className="space-y-6">
+          <Table
+            rows={shown}
+            columns={columns}
+            getKey={(f) => f.id}
+            maxHeight="none"
+            caption={history ? "Decided groups" : "Groups to review"}
+            isCurrent={(f) => f.id === shownCurrent?.id}
+            tools={{ id: `duplicates-${kind}-${history ? "history" : "open"}`, title: "Duplicates" }}
+            empty={{
+              art: history || needle ? "no-results" : "empty-queue",
+              icon: CircleCheck,
+              title: needle ? "No group matches" : history ? "Nothing decided yet" : "Nothing left to review",
+              message: needle
+                ? "Nothing on this page fits the search."
+                : history
+                  ? "Decisions you record move here."
+                  : "The next sweep adds any new groups here.",
+            }}
+          />
           <Pagination
             page={page}
             pageSize={PAGE_SIZE}
             total={data?.total ?? 0}
             onChange={(next) => setParam("page", next > 0 ? String(next) : "")}
           />
-        </>
+          {shownCurrent && (
+            <DecisionPanel
+              key={shownCurrent.id}
+              finding={shownCurrent}
+              mayReview={mayReview}
+              onDecide={(status) => setDecision({ finding: shownCurrent, status })}
+            />
+          )}
+        </div>
       )}
 
       <ReviewDialog
@@ -323,144 +420,94 @@ export function Duplicates() {
 }
 
 /* ------------------------------------------------------------------------ */
-/* One group in the queue                                                    */
+/* The group being compared                                                  */
 /* ------------------------------------------------------------------------ */
 
-function FindingRow({
+function personOf(finding: Finding) {
+  const first = [...finding.rows].sort((a, b) => (a.when || "").localeCompare(b.when || ""))[0]
+  const name = finding.faculty_name || first?.person || "Unknown"
+  return {
+    name,
+    initials: initialsOf((finding.faculty_name || first?.person || "").replace(/[(][^)]*[)]/g, "")),
+    photo_url: finding.faculty_photo_url ?? finding.rows.find((m) => m.photo_url)?.photo_url ?? null,
+  }
+}
+
+/** "Apr 2019 and Jun 2020, last paid 2 years ago": when the payments went out. */
+function paymentSpan(finding: Finding): string {
+  const ordered = [...finding.rows].sort((a, b) => (a.when || "").localeCompare(b.when || ""))
+  const latest = [...ordered].reverse().map(monthOf).find(Boolean) ?? null
+  const first = ordered.map(monthOf).find(Boolean) ?? null
+  const span = first && latest && first !== latest ? `${monthLabel(first)} and ${monthLabel(latest)}` : first ? monthLabel(first) : ""
+  return [span, latest ? `last paid ${ageLabel(latest)}` : ""].filter(Boolean).join(", ")
+}
+
+function DecisionPanel({
   finding,
-  selected,
-  quiet,
-  onSelect,
   mayReview,
   onDecide,
 }: {
   finding: Finding
-  selected: boolean
-  quiet: boolean
-  onSelect: () => void
   mayReview: boolean
   onDecide: (status: FindingStatus) => void
 }) {
-  const ref = useRef<HTMLLIElement>(null)
   const samePerson = finding.kind === "SAME_PERSON"
   const ordered = useMemo(
     () => [...finding.rows].sort((a, b) => (a.when || "").localeCompare(b.when || "")),
     [finding.rows]
   )
-  const latest = [...ordered].reverse().map(monthOf).find(Boolean) ?? null
-  const first = ordered.map(monthOf).find(Boolean) ?? null
-
-  useEffect(() => {
-    if (selected) ref.current?.scrollIntoView({ block: "nearest" })
-  }, [selected])
-
-  const person = {
-    name: finding.faculty_name || ordered[0]?.person || "Unknown",
-    initials: initialsOf((finding.faculty_name || ordered[0]?.person || "").replace(/[(][^)]*[)]/g, "")),
-    photo_url: finding.faculty_photo_url ?? ordered.find((m) => m.photo_url)?.photo_url ?? null,
-  }
+  const person = personOf(finding)
 
   return (
-    <li
-      ref={ref}
-      aria-current={selected || undefined}
-      className={cn("py-1", selected && "bg-sunken/60")}
-    >
-      <button
-        type="button"
-        onClick={onSelect}
-        aria-expanded={selected}
-        className={cn(
-          "flex w-full min-w-0 items-start gap-3 rounded-control px-2 py-2.5 text-left",
-          "hover:bg-hover",
-          quiet && "text-fg-muted"
-        )}
-      >
-        <Avatar person={person} size="sm" />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-base text-fg">{person.name}</span>
-          <span className="block truncate text-sm text-fg-muted">
-            {unshout(finding.paper_title) || "Untitled paper"}
-          </span>
-          <Meta className="block">
-            {finding.payment_count} payments
-            {first && latest && first !== latest
-              ? ` · ${monthLabel(first)} and ${monthLabel(latest)}`
-              : first
-                ? ` · ${monthLabel(first)}`
-                : ""}
-            {latest ? ` · last paid ${ageLabel(latest)}` : ""}
-          </Meta>
-        </span>
-        <span className="shrink-0 text-right">
-          {quiet ? (
-            <span className="block text-sm">{STATUS_LABEL[finding.status]}</span>
-          ) : samePerson && finding.extra_amount > 0 ? (
-            <span className="block text-base font-semibold text-critical tabular">
-              {money(finding.extra_amount)}
-            </span>
-          ) : null}
-          <Meta className="hidden tabular sm:block">{money(finding.total_amount)} paid in all</Meta>
-        </span>
-      </button>
+    <section aria-label="The payments in this group" className="space-y-4">
+      <h2 className="text-base font-semibold">
+        {person.name}: {short(finding.paper_title)}
+      </h2>
+      {finding.matched_on !== "doi" && (
+        <Meta className="block">Grouped on the title, not a DOI. Check the paper row before deciding.</Meta>
+      )}
 
-      {selected && (
-        <div className="space-y-4 px-2 pb-4 pt-2">
-          {finding.matched_on !== "doi" && (
-            <Meta className="block">
-              Grouped on the title, not a DOI. Check the paper row before deciding.
-            </Meta>
-          )}
+      <Comparison members={ordered} />
 
-          <Comparison members={ordered} />
+      {finding.reviewed_by_name && (
+        <div className="rounded-control bg-sunken px-3 py-2 text-sm">
+          <p className="text-fg-muted">
+            {STATUS_LABEL[finding.status]} by {finding.reviewed_by_name}
+            {finding.reviewed_at ? ` on ${formatDate(finding.reviewed_at)}` : ""}
+            {finding.recovered_amount != null ? `. ${money(finding.recovered_amount)} recovered` : ""}
+          </p>
+          {finding.note && <p className="mt-1">&ldquo;{finding.note}&rdquo;</p>}
+        </div>
+      )}
 
-          {finding.reviewed_by_name && (
-            <div className="rounded-control bg-sunken px-3 py-2 text-sm">
-              <p className="text-fg-muted">
-                {STATUS_LABEL[finding.status]} by {finding.reviewed_by_name}
-                {finding.reviewed_at ? ` on ${formatDate(finding.reviewed_at)}` : ""}
-                {finding.recovered_amount != null
-                  ? `. ${money(finding.recovered_amount)} recovered`
-                  : ""}
-              </p>
-              {finding.note && <p className="mt-1">&ldquo;{finding.note}&rdquo;</p>}
-            </div>
-          )}
+      <ChangeHistory entity="DuplicateFinding" id={finding.id} />
 
-          <ChangeHistory entity="DuplicateFinding" id={finding.id} />
-
-          {mayReview && (
-            <div className="flex flex-wrap gap-2">
-              {finding.status === "OPEN" ? (
-                <>
-                  <Button
-                    kind={samePerson ? "primary" : "quiet"}
-                    size="sm"
-                    onClick={() => onDecide("CONFIRMED")}
-                  >
-                    {VERB.CONFIRMED}
-                  </Button>
-                  <Button kind="default" size="sm" onClick={() => onDecide("DISMISSED")}>
-                    {VERB.DISMISSED}
-                  </Button>
-                </>
-              ) : (
-                <>
-                  {finding.status === "CONFIRMED" && (
-                    <Button kind="primary" size="sm" onClick={() => onDecide("RECOVERED")}>
-                      {VERB.RECOVERED}
-                    </Button>
-                  )}
-                  <Button kind="quiet" size="sm" onClick={() => onDecide("OPEN")}>
-                    {VERB.OPEN}
-                  </Button>
-                </>
+      {mayReview && (
+        <div className="flex flex-wrap gap-2">
+          {finding.status === "OPEN" ? (
+            <>
+              <Button kind={samePerson ? "primary" : "default"} onClick={() => onDecide("CONFIRMED")}>
+                {VERB.CONFIRMED}
+              </Button>
+              <Button kind="default" onClick={() => onDecide("DISMISSED")}>
+                {VERB.DISMISSED}
+              </Button>
+            </>
+          ) : (
+            <>
+              {finding.status === "CONFIRMED" && (
+                <Button kind="primary" onClick={() => onDecide("RECOVERED")}>
+                  {VERB.RECOVERED}
+                </Button>
               )}
-            </div>
+              <Button kind="quiet" onClick={() => onDecide("OPEN")}>
+                {VERB.OPEN}
+              </Button>
+            </>
           )}
         </div>
       )}
-    </li>
+    </section>
   )
 }
 
@@ -751,39 +798,6 @@ function ReviewDialog({
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
     <kbd className="rounded-sm border border-line bg-sunken px-1 font-mono text-xs text-fg">{children}</kbd>
-  )
-}
-
-function Tab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "inline-flex h-8 items-center gap-1.5 rounded-control px-3 text-sm font-medium",
-        "transition-colors duration-[var(--dur-1)] ease-out",
-        active ? "bg-selected text-fg" : "text-fg-muted hover:bg-hover hover:text-fg"
-      )}
-    >
-      {children}
-    </button>
-  )
-}
-
-function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "h-7 rounded-sm px-2 text-sm transition-colors duration-[var(--dur-1)] ease-out",
-        active ? "bg-selected font-medium text-fg" : "text-fg-muted hover:bg-hover hover:text-fg"
-      )}
-    >
-      {children}
-    </button>
   )
 }
 

@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { CheckCircle2, FileText } from "lucide-react"
 
@@ -12,6 +12,8 @@ import { PrintStamp } from "@/pages/reports-print"
 import { AnswerLine, AnswerWord, tieNumbers } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { Combobox } from "@/ui/combobox"
+import { Input } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
 import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
 import { Details, Section } from "@/ui/section"
@@ -110,6 +112,7 @@ export function Statements() {
   })
   const list = months.data?.months ?? []
   const month = params.get("month") || list[0]?.month || ""
+  const [search, setSearch] = useState("")
   const st = useApi<Statement>(["payouts", "statement", month], `/api/payouts/statement?month=${month}`, {
     enabled: allowed && !!month,
   })
@@ -145,12 +148,17 @@ export function Statements() {
   const agrees = s ? Math.abs(s.total - s.ledger_total) < 0.5 && s.reconciliation.balanced : false
   const toExplain = s ? s.reconciliation.issues.length + (Math.abs(s.total - s.ledger_total) >= 0.5 ? 1 : 0) : 0
   const sent = bank.data?.exports[0]
+  const needle = search.trim().toLowerCase()
+  const shownRows = needle
+    ? paidRows.filter((r) => [r.name, r.staff_id, r.department, r.paper_title, r.ticket, r.voucher].some((v) => String(v ?? "").toLowerCase().includes(needle)))
+    : paidRows
 
   const columns: Column<Row>[] = [
     {
       key: "who",
       header: "Paid to",
       className: "w-64",
+      exportValue: (r) => [r.name, r.staff_id, r.department].filter(Boolean).join(", "),
       cell: (r) => (
         <div>
           <span className="block">{r.name}</span>
@@ -161,6 +169,7 @@ export function Statements() {
     {
       key: "paper",
       header: "Paper",
+      exportValue: (r) => [unshout(r.paper_title) || "Title not recorded", r.ticket].filter(Boolean).join(", "),
       cell: (r) => (
         <div className="min-w-0">
           {r.claim_id ? (
@@ -182,12 +191,14 @@ export function Statements() {
         </div>
       ),
     },
-    { key: "voucher", header: "Voucher", className: "w-44 whitespace-nowrap", empty: "None", cell: (r) => r.voucher },
+    { key: "voucher", header: "Voucher", className: "w-44 whitespace-nowrap", empty: "None", exportValue: (r) => r.voucher, cell: (r) => r.voucher },
     {
       key: "amount",
       header: "Amount",
       align: "right",
       className: "w-52",
+      exportKind: "money",
+      exportValue: (r) => r.amount,
       cell: (r) => (
         <div className={cn(r.amount < 0 && "text-critical")}>
           <span className="font-medium">{money(r.amount)}</span>
@@ -200,24 +211,35 @@ export function Statements() {
   ]
 
   return (
-    <div className="page space-y-12">
+    <div className="page space-y-8">
       <PrintStamp title="Monthly payment statement" scope={s?.label ?? ""} />
       <PageHeader
         title="Monthly statements"
-        action={
-          <div className="print:hidden">
-            <ColumnLabel className="mb-1 block">Month paid</ColumnLabel>
-            <Combobox
-              value={month}
-              onChange={(v) => v && pick(v)}
-              options={options}
-              placeholder={months.isLoading ? "Loading…" : "Choose a month"}
-              aria-label="Month paid"
-              className="w-56 max-w-full"
-            />
-          </div>
-        }
+        sub="What went out in a month, and whether it agrees with the ledger."
       />
+
+      <div className={cn(filterBar, "print:hidden")} role="search">
+        <div>
+          <ColumnLabel className="mb-1 block">Month paid</ColumnLabel>
+          <Combobox
+            value={month}
+            onChange={(v) => v && pick(v)}
+            options={options}
+            placeholder={months.isLoading ? "Loading…" : "Choose a month"}
+            aria-label="Month paid"
+            className="w-56 max-w-full"
+          />
+        </div>
+        {s && (
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name, staff id, paper or voucher"
+            aria-label="Search the payments"
+            className="w-full min-w-0 sm:w-80"
+          />
+        )}
+      </div>
 
       {months.isError ? (
         <ErrorState what="the months" message="The server did not answer. No payment has been changed." onRetry={() => void months.refetch()} />
@@ -320,8 +342,9 @@ export function Statements() {
 
           <Section title={`Every payment in ${s.label}`}>
             <Table
-              rows={paidRows}
+              rows={shownRows}
               columns={columns}
+              tools={{ id: "statement", title: `Payments in ${s.label}`, subtitle: s.college }}
               getKey={(r) => r.ledger_id ?? r.claim_id ?? `${r.ticket}-${r.name}`}
               minWidth="56rem"
               caption={`Payments made in ${s.label}`}

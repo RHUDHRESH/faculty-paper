@@ -66,7 +66,7 @@ export function EstimatePanel(props: EstimateProps) {
       <span className="block text-sm text-fg-muted">{countOnly ? "Filing for the count" : "Your estimate"}</span>
       <Amount {...props} />
       {!countOnly && !calcFailed && (
-        <p className="text-xs text-fg-muted">
+        <p className="text-sm text-fg-muted">
           {amount === 0
             ? "As things stand this would be recorded and paid nothing."
             : amount == null
@@ -77,15 +77,15 @@ export function EstimatePanel(props: EstimateProps) {
         </p>
       )}
       {calc?.category_label && !countOnly && amount != null && (
-        <p className="text-xs text-fg-muted">{calc.category_label.replace(/\s+—\s+/g, ": ")}</p>
+        <p className="text-sm text-fg-muted">{calc.category_label.replace(/\s+—\s+/g, ": ")}</p>
       )}
       {props.assumedReferences ? (
-        <p className="text-xs text-fg-muted">
+        <p className="text-sm text-fg-muted">
           Assumes the {props.assumedReferences} cited references you attach on the proof step.
         </p>
       ) : null}
       {props.thresholdNote && !countOnly && (
-        <p className="text-xs text-fg" data-testid="threshold-estimate">
+        <p className="text-sm text-fg" data-testid="threshold-estimate">
           {props.thresholdNote}
         </p>
       )}
@@ -99,7 +99,7 @@ export function EstimatePanel(props: EstimateProps) {
               key={p.key}
               type="button"
               onClick={() => onGoToProblem(p)}
-              className="block text-left text-xs font-medium underline-offset-2 hover:underline"
+              className="block text-left text-sm font-medium underline-offset-2 hover:underline"
             >
               {p.label}
             </button>
@@ -109,7 +109,7 @@ export function EstimatePanel(props: EstimateProps) {
           </Button>
         </div>
       )}
-      <p className={cn("text-xs font-medium", ready ? "text-positive" : "text-fg-muted")}>
+      <p className={cn("text-sm font-medium", ready ? "text-positive" : "text-fg-muted")}>
         {ready ? "Ready to file" : "Still a few to answer"}
       </p>
     </section>
@@ -128,7 +128,7 @@ export function EstimateBar(props: EstimateProps) {
       aria-label="Incentive estimate"
       className="sticky top-12 z-20 -mx-4 flex min-h-11 flex-wrap items-center justify-between gap-x-3 border-b border-line bg-bg px-4 py-1.5 sm:-mx-8 sm:px-8 md:top-0 md:mx-0 md:rounded-panel md:border md:px-4"
     >
-      <span className="text-xs text-fg-muted">
+      <span className="text-sm text-fg-muted">
         {countOnly
           ? "Filing for the count"
           : props.assumedReferences
@@ -140,7 +140,7 @@ export function EstimateBar(props: EstimateProps) {
           <button
             type="button"
             onClick={() => onGoToProblem(unpaid[0])}
-            className="inline-flex items-center gap-1 text-xs font-medium text-caution"
+            className="inline-flex items-center gap-1 text-sm font-medium text-caution"
           >
             <AlertTriangle className="size-3.5" aria-hidden />
             Why ₹0
@@ -149,7 +149,7 @@ export function EstimateBar(props: EstimateProps) {
         <Amount {...props} className="text-lg" />
       </span>
       {props.thresholdNote && !countOnly && (
-        <span className="basis-full pb-0.5 text-xs text-fg" data-testid="threshold-estimate">
+        <span className="basis-full pb-0.5 text-sm text-fg" data-testid="threshold-estimate">
           {props.thresholdNote}
         </span>
       )}

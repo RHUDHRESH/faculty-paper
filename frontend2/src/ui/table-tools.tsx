@@ -94,7 +94,7 @@ const ITEM =
   "flex h-9 max-sm:h-11 cursor-pointer select-none items-center gap-2.5 rounded-control px-2.5 text-sm font-medium text-fg outline-none " +
   "transition-colors duration-[var(--dur-1)] " +
   "data-[disabled]:pointer-events-none data-[disabled]:opacity-50 " +
-  "data-[highlighted]:bg-hover data-[highlighted]:ring-1 data-[highlighted]:ring-inset data-[highlighted]:ring-edge"
+  "data-[highlighted]:bg-sunken"
 
 const FORMATS: { key: ExportFormat | "print"; label: string }[] = [
   { key: "xlsx", label: "Excel (.xlsx)" },
@@ -112,11 +112,14 @@ export function TableToolbar({
   columns,
   prefs,
   onExport,
+  search,
 }: {
   /** Every column in order, with the name a person sees. The first is locked on. */
   columns: { key: string; label: string }[]
   prefs: TablePrefs
   onExport: (format: ExportFormat | "print") => Promise<unknown> | void
+  /** Optional search field, placed on the left of the row. */
+  search?: React.ReactNode
 }) {
   const [busy, setBusy] = useState(false)
   const lead = columns[0]?.key
@@ -146,6 +149,8 @@ export function TableToolbar({
 
   return (
     <div className="table-tools mb-3 flex flex-wrap items-center gap-2">
+      {search && <div className="min-w-0 max-sm:w-full sm:w-72">{search}</div>}
+      <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
       <Menu>
         <MenuTrigger asChild>
           <Button kind="default" size="sm" type="button">
@@ -186,7 +191,7 @@ export function TableToolbar({
         type="button"
         aria-pressed={prefs.grid}
         onClick={() => prefs.setGrid(!prefs.grid)}
-        className="aria-pressed:bg-hover aria-pressed:text-fg"
+        className="aria-pressed:bg-sunken aria-pressed:text-fg"
       >
         <Grid3x3 />
         Grid lines
@@ -197,7 +202,7 @@ export function TableToolbar({
         type="button"
         aria-pressed={prefs.density === "compact"}
         onClick={() => prefs.setDensity(prefs.density === "compact" ? "comfortable" : "compact")}
-        className="aria-pressed:bg-hover aria-pressed:text-fg"
+        className="aria-pressed:bg-sunken aria-pressed:text-fg"
       >
         <Rows3 />
         Compact rows
@@ -221,6 +226,7 @@ export function TableToolbar({
           ))}
         </MenuContent>
       </Menu>
+      </div>
       {busy && (
         <span role="status" className="text-sm text-fg-muted">
           Preparing the file...

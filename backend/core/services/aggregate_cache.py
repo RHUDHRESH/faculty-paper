@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from typing import Any, Callable
 
 from django.conf import settings
@@ -79,6 +80,96 @@ def _shared_seconds() -> int:
     return int(getattr(settings, "SHARED_AGGREGATE_SECONDS", 600))
 
 
+class _RequestMemory(threading.local):
+    """What one read request has already worked out, for that thread only.
+
+    `None` outside a request, and in a write request: there is nothing to
+    remember it *for*, so nothing is kept. `BumpOnWriteMiddleware` opens it
+    before the view and closes it after.
+    """
+
+    memo: dict[str, tuple[int, Any]] | None = None
+
+
+_request = _RequestMemory()
+
+
+def once_per_request(name: str, compute: Callable[[], Any]) -> Any:
+    """`compute()`, at most once per read request while nothing has been written.
+
+    A home screen reads several shared figures and each one asks for the data
+    version, so the same fingerprint was worked out two to five times for one
+    answer. A save or delete moves the generation, which ends what was kept: a
+    figure is never built on a version older than a write made earlier in the
+    same request. `name` must be unique to what is computed; outside a read
+    request nothing is kept.
+    """
+    memo = _request.memo
+    if memo is None:
+        return compute()
+    gen = generation()
+    kept = memo.get(name)
+    if kept is not None and kept[0] == gen:
+        return kept[1]
+    value = compute()
+    memo[name] = (gen, value)
+    return value
+
+
+def _fingerprint(selects: str) -> tuple:
+    from django.db import connection
+
+    with connection.cursor() as cur:
+        cur.execute("SELECT " + selects)
+        return tuple(str(v) for v in cur.fetchone())
+
+
+#: The papers and who wrote them -- what the college picture is built from.
+#:
+#: Row counts and the newest value of a column that is indexed or sits in a
+#: small table, so none of it reads the wide rows. It used to sum every paper's
+#: citations and count every linked authorship, which are full passes over the
+#: two biggest tables on every call.
+#:
+#: * A citation refresh stamps `citations_refreshed_at` on every paper it
+#:   checks, so the newest stamp moves with it (it replaces the sum).
+#: * A match links authorships with `update()`, which leaves no trace on the
+#:   authorship rows. Every flow that matches authors ends in
+#:   `publications.refresh_metrics()` (the harvest, `rematch_authors`, the Scopus
+#:   sync, `manage.py match_authors`), which restamps `computed_at` on each
+#:   person's metrics, so the newest of those moves when a match finishes (it
+#:   replaces the count of linked authorships). A new job that links authors
+#:   must finish the same way.
+_RECORD = (
+    "(SELECT COUNT(*) FROM core_publication),"
+    "(SELECT MAX(citations_refreshed_at) FROM core_publication),"
+    "(SELECT COUNT(*) FROM core_authorship),"
+    "(SELECT MAX(id) FROM core_authorship),"
+    "(SELECT MAX(user_id) FROM core_authorship),"
+    "(SELECT MAX(computed_at) FROM core_publicationmetrics)"
+)
+
+#: The money, the claims and the people, which the other figures read.
+_LEDGER_CLAIMS_PEOPLE = (
+    "(SELECT COUNT(*) FROM core_paidledger),"
+    "(SELECT MAX(created_at) FROM core_paidledger),"
+    "(SELECT COUNT(*) FROM core_claim),"
+    "(SELECT MAX(updated_at) FROM core_claim),"
+    "(SELECT COUNT(*) FROM core_user),"
+    "(SELECT MAX(updated_at) FROM core_user)"
+)
+
+
+def record_version() -> tuple:
+    """A fingerprint of the publication record alone, in one query.
+
+    A harvest, a match or a citation refresh changes it. The college picture
+    (`research_picture`) takes this one: it is expensive to rebuild and does not
+    read claims or the ledger, so a claim saved by the worker must not rebuild it.
+    """
+    return once_per_request("record", lambda: _fingerprint(_RECORD))
+
+
 def data_version() -> tuple:
     """A cheap fingerprint of the college record, in one query.
 
@@ -87,25 +178,10 @@ def data_version() -> tuple:
     links authorships, an import adds ledger rows), which is what the short
     `cached` expiry was standing in for. Row counts and the newest change of
     each table the college-wide figures are built from.
-    """
-    from django.db import connection
 
-    sql = (
-        "SELECT "
-        "(SELECT COUNT(*) FROM core_publication),"
-        "(SELECT COALESCE(SUM(citations), 0) FROM core_publication),"
-        "(SELECT COUNT(*) FROM core_authorship),"
-        "(SELECT COUNT(user_id) FROM core_authorship),"
-        "(SELECT COUNT(*) FROM core_paidledger),"
-        "(SELECT MAX(created_at) FROM core_paidledger),"
-        "(SELECT COUNT(*) FROM core_claim),"
-        "(SELECT MAX(updated_at) FROM core_claim),"
-        "(SELECT COUNT(*) FROM core_user),"
-        "(SELECT MAX(updated_at) FROM core_user)"
-    )
-    with connection.cursor() as cur:
-        cur.execute(sql)
-        return tuple(str(v) for v in cur.fetchone())
+    Worked out once per read request (`once_per_request`).
+    """
+    return once_per_request("data", lambda: _fingerprint(_RECORD + "," + _LEDGER_CLAIMS_PEOPLE))
 
 
 def shared(name: str, params: dict[str, Any], compute: Callable[[], Any]) -> Any:
@@ -134,13 +210,24 @@ def shared(name: str, params: dict[str, Any], compute: Callable[[], Any]) -> Any
 
 
 class BumpOnWriteMiddleware:
-    """A write request of any kind moves the generation once it has run."""
+    """A write request of any kind moves the generation once it has run.
+
+    A read request also gets a memory for the data version (`once_per_request`), closed
+    when the view is done. A write request gets none: it may change rows
+    without sending a signal (`update()`), and what it reads afterwards must
+    see them.
+    """
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        response = self.get_response(request)
+        if request.method in _SAFE:
+            _request.memo = {}
+        try:
+            response = self.get_response(request)
+        finally:
+            _request.memo = None
         if request.method not in _SAFE:
             bump()
         return response

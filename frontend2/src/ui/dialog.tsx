@@ -102,7 +102,7 @@ export function DialogContent({
                 exit="hidden"
                 className={cn(
                   "relative flex max-h-[85vh] w-full flex-col overflow-hidden rounded-2xl",
-                  "bg-surface shadow-modal",
+                  "border border-edge bg-surface shadow-modal",
                   WIDTH[size],
                   className
                 )}
@@ -112,7 +112,7 @@ export function DialogContent({
                   aria-label="Close"
                   className={cn(
                     "absolute right-3 top-3 grid size-7 place-items-center rounded-sm",
-                    "text-fg-subtle hover:bg-hover hover:text-fg"
+                    "text-fg-subtle hover:bg-sunken hover:text-fg"
                   )}
                 >
                   <X className="size-4" aria-hidden />
@@ -142,7 +142,7 @@ export function DialogTitle({
   className,
   ...props
 }: React.ComponentProps<typeof RadixDialog.Title>) {
-  return <RadixDialog.Title className={cn("display text-lg", className)} {...props} />
+  return <RadixDialog.Title className={cn("text-lg font-semibold text-fg", className)} {...props} />
 }
 
 export function DialogDescription({

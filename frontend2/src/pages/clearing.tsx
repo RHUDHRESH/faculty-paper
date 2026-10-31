@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { Inbox } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
 import { openShortcuts } from "@/app/shortcuts"
 import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { countAssignedToMe, isAssignedToMe } from "@/ui/assignee"
-import { AnswerLine, AnswerWord, tieNumbers } from "@/ui/answer"
+import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { ClaimNoJump, matchesClaimNo } from "@/ui/claim-number"
-import { Checkbox } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
 import { OwnPapersNote } from "@/ui/own-papers"
 import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
@@ -24,14 +24,15 @@ import {
   useUrlFilters,
   waitingLabel,
 } from "@/ui/queue"
-import { Rows } from "@/ui/section"
-import { EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
+import { ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { AGE_BUCKETS, ageSplit, inBucket, isAgeBucket } from "@/pages/clearing-desk"
 import type { BulkClearResult, QueueClaim } from "@/pages/clearing-actions"
 import { ClearConfirmDialog } from "@/pages/cell/clear-confirm"
-import { ClearingRow, isReady, notReady } from "@/pages/cell/clearing-rows"
+import { isReady, notReady } from "@/pages/cell/clearing-rows"
+import { DeskTable } from "@/pages/desk-table"
+import { thresholdFlag } from "@/ui/research-threshold"
 
 /**
  * The research cell's daily job: every submitted claim, oldest first, in two
@@ -268,72 +269,23 @@ export function Clearing() {
   const dialogIds = new Set(dialogRows.map((c) => c.id))
   const notReadyInBatch = dialogRows.filter((c) => !isReady(c)).map((c) => ({ id: c.id, note: `${c.ticket_number ?? c.paper_title}: ${notReady(c).join(", ").toLowerCase()}` }))
 
-  // The answer, in a sentence. Two short clauses, at most.
-  const answer =
-    all.length === 0 ? (
-      <>Nothing is waiting. The desk is clear.</>
-    ) : readyAll.length > 0 ? (
-      <>
-        {readyAll.length} of {all.length} are <AnswerWord tone="sage">ready to clear</AnswerWord>.
-      </>
-    ) : (
-      <>
-        None of the {all.length} is <AnswerWord tone="amber">ready</AnswerWord> yet.
-      </>
-    )
+  const sub =
+    all.length === 0
+      ? "Every submitted claim waits here until the research office clears it."
+      : `${priced === 0 ? "Amounts are not worked out yet." : `${money(queueTotal)} in all${priced < all.length ? `, across the ${priced} priced` : ""}.`} The oldest has waited ${waitingLabel(oldest).toLowerCase()}.`
 
-  let cursor = -1
-  const lane = (list: QueueClaim[], isReadyLane: boolean) => (
-    <Rows>
-      {list.map((c) => {
-        cursor += 1
-        const i = cursor
-        return (
-          <ClearingRow
-            key={c.id}
-            claim={c}
-            ready={isReadyLane}
-            active={i === activeRow}
-            selected={selected.has(c.id)}
-            onToggle={() => toggleSelected(c)}
-            onActive={() => setActiveRow(i)}
-            href={href(c)}
-          />
-        )
-      })}
-    </Rows>
-  )
-
-  // One "Choose all": on the ready lane, the one the `a` key uses.
-  const laneHead = (title: string, list: QueueClaim[], hint: string, chooseAll: boolean) => (
-    <div className="mb-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1">
-      <div className="flex items-baseline gap-3">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <span className="tabular text-sm text-fg-muted">
-          {list.length}
-          {list.some((c) => c.remuneration != null) && ` · ${money(list.reduce((s, c) => s + (c.remuneration || 0), 0))}`}
-        </span>
-      </div>
-      <div className="flex items-center gap-3">
-        <Meta className="hidden sm:inline">{hint}</Meta>
-        {chooseAll && (
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
-            <Checkbox
-              checked={list.length > 0 && list.every((c) => selected.has(c.id))}
-              onCheckedChange={() => toggleLane(list)}
-              aria-label={`Choose all ${list.length} in ${title.toLowerCase()}`}
-            />
-            Choose all
-          </label>
-        )}
-      </div>
-    </div>
-  )
+  /** Why a claim is not ready, or that it is, as one plain phrase. */
+  const statusText = (c: QueueClaim) => {
+    if (isReady(c)) return "Ready to clear"
+    const extra = [thresholdFlag(c), c.owner_threshold_unset ? "Research faculty, threshold not set" : null].filter(Boolean) as string[]
+    return [...notReady(c), ...extra].join(", ")
+  }
 
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-6">
       <PageHeader
         title="Clearing queue"
+        sub={sub}
         action={
           ready.length > 0 ? (
             <Button kind="primary" onClick={() => setDialog({ kind: "clear", rows: ready })}>
@@ -343,39 +295,33 @@ export function Clearing() {
         }
       />
 
-      <div className="space-y-3">
-        <AnswerLine>{answer}</AnswerLine>
-        {all.length > 0 && (
-          <p className="text-sm text-fg-muted">
-            {priced === 0 ? (
-              "Amounts are not worked out yet. "
-            ) : (
-              <>
-                <span className="tabular text-fg">{money(queueTotal)}</span>{" "}
-                {priced < all.length ? `across the ${priced} priced. ` : "in all. "}
-              </>
-            )}
-            Oldest {waitingLabel(oldest).toLowerCase()}.{" "}
-            {late > 0 && (
-              <span className="text-critical">
-                {tieNumbers(`${late} past 14 days`)}.
-              </span>
-            )}
-          </p>
-        )}
-      </div>
+      <Answer
+        items={[
+          { value: claims ? all.length : null, label: "claims waiting", zero: "Nothing is waiting", to: "/clearing" },
+          { value: claims ? readyAll.length : null, label: "ready to clear", zero: "None is ready yet", tone: "positive", to: "/clearing?check=ready" },
+          { value: claims ? all.length - readyAll.length : null, label: "need a look", zero: "Nothing needs a look", tone: "caution" },
+          { value: claims ? late : null, label: "waiting over 14 days", zero: "None over 14 days", tone: "critical", to: "/clearing?age=month" },
+        ]}
+      />
 
       {all.length > 0 && (
-        <section aria-label="Find and narrow" className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2 border-b border-line pb-3">
-              <SearchBox
-                inputRef={searchRef}
-                value={q}
-                onCommit={(next) => set({ q: next })}
-                placeholder="Claim no., title, claimant or journal"
-                label="Search the queue"
-                className="w-full min-w-0 sm:w-80"
-              />
+        <section aria-label="Find and narrow" className="space-y-2">
+          <div className={filterBar} role="search">
+            <SearchBox
+              inputRef={searchRef}
+              value={q}
+              onCommit={(next) => set({ q: next })}
+              placeholder="Claim no., title, claimant or journal"
+              label="Search the queue"
+              className="w-full min-w-0 sm:w-80"
+            />
+            <QuietSelect value={check} onChange={(v) => set({ check: v })} label="Filter by checks">
+              <option value="">Any checks</option>
+              <option value="ready">Ready to clear</option>
+              <option value="passed">Checks passed</option>
+              <option value="failed">Checks failed</option>
+              <option value="flagged">Flagged</option>
+            </QuietSelect>
             <QuietSelect value={department} onChange={(v) => set({ department: v })} label="Filter by department">
               <option value="">All departments</option>
               {byDept.map(([d, n]) => (
@@ -398,17 +344,17 @@ export function Clearing() {
               <option value="none">Not given to anyone ({all.filter((c) => !c.assigned_to).length})</option>
             </QuietSelect>
             {filtered && (
-              <Button kind="quiet" size="sm" onClick={clear}>
+              <Button kind="quiet" onClick={clear}>
                 Show all {all.length}
               </Button>
             )}
           </div>
           <ClaimNoJump term={q} skip={new Set(all.map((c) => c.id))} />
-          <Meta className="hidden md:block">
-            <Kbd>j</Kbd> <Kbd>k</Kbd> move · <Kbd>c</Kbd> clear · <Kbd>a</Kbd> choose the ready · <Kbd>x</Kbd> choose one ·{" "}
-            <Kbd>s</Kbd> send back · <Kbd>Enter</Kbd> open · <Kbd>/</Kbd> search ·{" "}
+          <Meta className="hidden text-sm md:block">
+            <Kbd>j</Kbd> <Kbd>k</Kbd> move, <Kbd>c</Kbd> clear, <Kbd>a</Kbd> choose the ready, <Kbd>x</Kbd> choose one,{" "}
+            <Kbd>s</Kbd> send back, <Kbd>Enter</Kbd> open, <Kbd>/</Kbd> search.{" "}
             <button type="button" onClick={openShortcuts} className="underline underline-offset-2">
-              all shortcuts
+              All shortcuts
             </button>
           </Meta>
         </section>
@@ -418,10 +364,10 @@ export function Clearing() {
         <div className="sticky top-14 z-20 space-y-2 rounded-panel bg-surface px-4 py-3 shadow-pop ring-1 ring-edge md:top-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm">
-              <span className="font-semibold">{selected.size}</span> chosen ·{" "}
+              <span className="font-semibold">{selected.size}</span> chosen,{" "}
               <span className="tabular font-semibold">{money(selectedTotal)}</span>
               {selectedRows.some((c) => !isReady(c)) && (
-                <span className="text-caution"> · {selectedRows.filter((c) => !isReady(c)).length} not ready</span>
+                <span className="text-caution">, {selectedRows.filter((c) => !isReady(c)).length} not ready</span>
               )}
             </p>
             <div className="flex flex-wrap items-center gap-2">
@@ -441,50 +387,86 @@ export function Clearing() {
       )}
 
       {isLoading ? (
-        <>
-          <SkeletonRows rows={8} rowHeight={72} className="hidden md:block" />
-          <SkeletonRows rows={5} rowHeight={112} className="md:hidden" />
-        </>
+        <SkeletonRows rows={8} rowHeight={56} />
       ) : isError ? (
         <ErrorState
           title="Could not load the queue"
           message="The server did not answer. Nothing has been lost or cleared."
           onRetry={() => refetch()}
         />
-      ) : all.length > 0 && rows.length === 0 ? (
-        <EmptyState size="region" icon={Inbox} title="No claim matches these filters" message={`${all.length} are waiting in all.`} />
-      ) : rows.length === 0 ? (
-        <EmptyState
-          size="region"
-          guide="clear-a-claim"
-          art="empty-queue"
-          icon={Inbox}
-          title="Nothing waiting"
-          message="Every submitted claim has been checked. Come back when the next one lands."
-        />
       ) : (
-        <div className="space-y-10">
-          {ready.length > 0 && (
-            <section aria-label="Ready to clear">
-              {laneHead("Ready to clear", ready, "Every check passed and no journal is watched.", true)}
-              {lane(ready, true)}
-            </section>
+        <>
+          <DeskTable
+            rows={ordered}
+            href={href}
+            id="clearing-queue"
+            title="Clearing queue"
+            caption="Submitted claims, ready ones first"
+            active={activeRow}
+            onActive={setActiveRow}
+            selection={{
+              selected: new Set(selected.keys()),
+              onToggle: toggleSelected,
+              onToggleAll: () => toggleLane(ready),
+              allLabel: `Choose all ${ready.length} ready to clear`,
+              covers: isReady,
+            }}
+            status={{
+              header: "Checks",
+              text: statusText,
+              cell: (c) => (
+                <span className={isReady(c) ? "text-positive" : "text-caution"}>{statusText(c)}</span>
+              ),
+            }}
+            action={(c) =>
+              isReady(c) ? (
+                <>
+                  <Button kind="primary" size="sm" onClick={() => setDialog({ kind: "clear", rows: [c] })}>
+                    Clear
+                  </Button>
+                  <Button kind="quiet" size="sm" asChild>
+                    <Link to={href(c)}>Review</Link>
+                  </Button>
+                </>
+              ) : (
+                <Button kind="default" size="sm" asChild>
+                  <Link to={href(c)}>Review</Link>
+                </Button>
+              )
+            }
+            empty={
+              all.length > 0
+                ? {
+                    icon: Inbox,
+                    title: "No claim matches these filters",
+                    message: `${all.length} are waiting in all.`,
+                    action: (
+                      <Button kind="default" onClick={clear}>
+                        Show all {all.length}
+                      </Button>
+                    ),
+                  }
+                : {
+                    icon: Inbox,
+                    guide: "clear-a-claim",
+                    title: "Nothing is waiting",
+                    message: "Every submitted claim has been checked.",
+                    action: (
+                      <Button kind="default" asChild>
+                        <Link to="/track">See where claims are</Link>
+                      </Button>
+                    ),
+                  }
+            }
+          />
+          {rows.length > 0 && (
+            <p className="text-sm text-fg-muted">
+              Numbers that start with ERP were brought across from the old ERP workbook. They have no filing date of their own.
+            </p>
           )}
-          {rest.length > 0 && (
-            <section aria-label="Needs a look">
-              {laneHead("Needs a look", rest, "Open each one to decide.", false)}
-              {lane(rest, false)}
-            </section>
-          )}
-          <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 text-xs text-fg-muted">
-            <p>Numbers that start with ERP were brought across from the old ERP workbook. They have no filing date of their own.</p>
-            <Button kind="quiet" size="sm" onClick={() => downloadQueue(ordered)}>
-              Download these {ordered.length} as CSV
-            </Button>
-          </div>
           <OwnPapersNote />
           {readyTotal > 0 && ready.length > 0 && <span className="sr-only">{ready.length} ready, {money(readyTotal)}</span>}
-        </div>
+        </>
       )}
 
       <ClearConfirmDialog
@@ -535,31 +517,4 @@ export function Clearing() {
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return <kbd className="rounded border border-edge px-1 text-xs">{children}</kbd>
-}
-
-/** The queue as it stands on screen, for the office's own spreadsheet. */
-function downloadQueue(rows: QueueClaim[]) {
-  const head = ["Claim no.", "Paper", "Claimant", "Department", "Journal", "Quartile", "Waiting days", "Amount", "Checks"]
-  const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
-  const body = rows.map((c) =>
-    [
-      c.ticket_number,
-      c.paper_title,
-      c.owner_name,
-      c.owner_department,
-      c.journal_title,
-      c.quartile,
-      c.waiting_days,
-      c.remuneration,
-      c.verification_ok === true ? "passed" : c.verification_ok === false ? "failed" : "not checked",
-    ]
-      .map(cell)
-      .join(",")
-  )
-  const blob = new Blob(["﻿" + [head.map(cell).join(","), ...body].join("\r\n")], { type: "text/csv;charset=utf-8" })
-  const a = document.createElement("a")
-  a.href = URL.createObjectURL(blob)
-  a.download = `clearing-queue-${new Date().toISOString().slice(0, 10)}.csv`
-  a.click()
-  URL.revokeObjectURL(a.href)
 }

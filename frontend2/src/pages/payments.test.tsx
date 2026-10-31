@@ -264,8 +264,10 @@ describe("the payments desk says what it is doing", () => {
   it("keeps a claim awaiting a second signature out of the payable list", async () => {
     load([PAYABLE, HELD])
     renderWithProviders(<Payments />)
-    expect(await screen.findByRole("heading", { name: "Ready to pay (1)" })).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "Held up (1)" })).toBeInTheDocument()
+    expect(await screen.findByRole("link", { name: "1 Ready to pay" })).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "1 Held up" })).toBeInTheDocument()
+    // one table: the held claim sits in it with its reason and no Pay button
+    expect(screen.getByText(/Needs a second approver/)).toBeInTheDocument()
     // only the one ready claim can be paid
     expect(screen.getAllByRole("button", { name: "Pay" })).toHaveLength(1)
   })

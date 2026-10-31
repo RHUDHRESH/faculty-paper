@@ -29,11 +29,10 @@ import { Pagination } from "@/ui/pagination"
 import { ScopusProfileCard, type ScopusProfile } from "@/ui/scopus"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
-import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { Meta, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
-import { HeaderSpot, PageHeader } from "@/ui/page-header"
+import { PageHeader } from "@/ui/page-header"
 import { Answer } from "@/ui/answer"
-import { formatCount } from "@/lib/count"
 import { useCrumbLabel } from "@/app/crumbs"
 import type { FacultyRecordPayload } from "@/pages/faculty-types"
 import { Avatar } from "@/ui/person"
@@ -296,33 +295,59 @@ function AdminPeople({ issue }: { issue: boolean }) {
   const filtered = Boolean(q) || Boolean(role) || Boolean(department) || Boolean(research) || Boolean(status)
   const counts = data?.counts
 
+  async function allRows(): Promise<PersonRow[]> {
+    const out: PersonRow[] = []
+    for (let guard = 0; guard < 100; guard++) {
+      const pq = new URLSearchParams(listQuery)
+      pq.set("limit", "200")
+      pq.set("offset", String(out.length))
+      const res = await api<PeoplePayload>(`/api/admin/users?${pq.toString()}`)
+      out.push(...res.results)
+      if (out.length >= res.total || res.results.length === 0) break
+    }
+    return out
+  }
+
   const columns: Column<PersonRow>[] = [
     {
       key: "person",
       header: "Person",
+      exportValue: (p) => p.name || p.email,
       cell: (p) => (
         <span className="flex min-w-0 items-center gap-3">
-          <Avatar person={{ name: p.name || p.email, initials: p.initials ?? "", photo_url: p.photo_url ?? null }} size="sm" />
-          <span className="block min-w-0">
-            <span className={cn("block truncate text-base", !p.active && "text-fg-muted")}>{p.name || p.email}</span>
-            <Meta className="mt-0.5 block truncate">
-              {[p.department, p.designation].filter(Boolean).join(" · ") || "No department"}
-            </Meta>
-          </span>
+          <Avatar person={{ name: p.name || p.email, initials: p.initials ?? "", photo_url: p.photo_url ?? null }} size="md" />
+          <span className={cn("block min-w-0 text-base font-medium leading-snug", !p.active && "text-fg-muted")}>{p.name || p.email}</span>
         </span>
       ),
+    },
+    {
+      key: "department",
+      header: "Department",
+      empty: "No department",
+      exportValue: (p) => p.department,
+      cell: (p) => p.department,
+    },
+    {
+      key: "designation",
+      header: "Designation",
+      exportValue: (p) => p.designation,
+      cell: (p) => p.designation,
     },
     {
       key: "role",
       header: "Role",
       className: "w-48",
+      exportValue: (p) =>
+        [p.role === "HOD" ? ROLE_LABEL.FACULTY + ", head of department" : roleLabel(p.role), p.faculty_type === "RESEARCH" ? "research post" : ""]
+          .filter(Boolean)
+          .join(", "),
       // The three things the office records per person, readable at a
       // glance: faculty or an office role, whether they head their
       // department, and whether they hold a research post. A head is
       // faculty first, so they read as "Faculty" with the post beside it.
       cell: (p) => (
         <span className="flex flex-wrap items-center gap-1.5">
-          <span className="text-sm">{p.role === "HOD" ? ROLE_LABEL.FACULTY : roleLabel(p.role)}</span>
+          <span>{p.role === "HOD" ? ROLE_LABEL.FACULTY : roleLabel(p.role)}</span>
           {p.role === "HOD" && <KindBadge label="HOD" />}
           {p.faculty_type === "RESEARCH" && (
             <>
@@ -343,14 +368,16 @@ function AdminPeople({ issue }: { issue: boolean }) {
       key: "email",
       header: "Email",
       className: "max-w-[16rem]",
-      cell: (p) => <span className="block truncate text-sm text-fg-muted">{p.email}</span>,
+      exportValue: (p) => p.email,
+      cell: (p) => <span className="block truncate text-fg-muted">{p.email}</span>,
     },
     {
       key: "status",
       header: "Status",
       className: "w-24",
+      exportValue: (p) => (p.active ? "Active" : "Has left"),
       cell: (p) => (
-        <span className={cn("text-sm", p.active ? "text-fg-muted" : "text-critical")}>
+        <span className={cn(p.active ? "text-fg-muted" : "text-critical")}>
           {p.active ? "Active" : "Has left"}
         </span>
       ),
@@ -361,12 +388,7 @@ function AdminPeople({ issue }: { issue: boolean }) {
     <div className="page space-y-6">
       <PageHeader
         title="People"
-        sub={
-          counts
-            ? `${formatCount(counts.active)} active, ${counts.left === 0 ? "nobody has" : `${formatCount(counts.left)} ${counts.left === 1 ? "has" : "have"}`} left.`
-            : undefined
-        }
-        spot="spot-people"
+        sub="Everyone on the roster, with their role and department."
         action={
           can(me?.role).manageUsers ? (
             <Button kind="primary" size="md" onClick={() => setCreating(true)}>
@@ -377,19 +399,21 @@ function AdminPeople({ issue }: { issue: boolean }) {
         }
       />
 
-      {/* The only roster figure that needs somebody: a desk with nobody on it. */}
-      {(counts?.desks_empty ?? 0) > 0 && (
-        <Answer
-          items={[
-            {
-              value: counts?.desks_empty,
-              label: counts?.desks_empty === 1 ? "Desk with nobody on it" : "Desks with nobody on them",
-              to: "/admin",
-              tone: "critical",
-            },
-          ]}
-        />
-      )}
+      {/* The roster in four figures; the one that needs somebody is a desk with nobody on it. */}
+      <Answer
+        items={[
+          { value: counts?.active, label: "Active", to: "/people?status=active" },
+          { value: counts?.left, label: "Have left", zero: "Nobody has left", to: "/people?status=inactive" },
+          { value: counts?.research, label: "On a research post", zero: "No research posts", to: "/people?research=RESEARCH" },
+          {
+            value: counts?.desks_empty,
+            label: counts?.desks_empty === 1 ? "Desk with nobody on it" : "Desks with nobody on them",
+            zero: "Every desk has someone",
+            to: "/admin",
+            tone: (counts?.desks_empty ?? 0) > 0 ? "critical" : "neutral",
+          },
+        ]}
+      />
 
       {mayIssue && <IssuePasswordsRow onOpen={() => setIssuing(true)} />}
       {issuing && mayIssue && <IssuePasswordsDialog onClose={closeIssuing} />}
@@ -467,7 +491,7 @@ function AdminPeople({ issue }: { issue: boolean }) {
           message={filtered ? "Try clearing a filter." : "Accounts appear here once created."}
           action={
             filtered ? (
-              <Button kind="default" size="sm" onClick={clearFilters}>
+              <Button kind="default" onClick={clearFilters}>
                 Clear filters
               </Button>
             ) : undefined
@@ -480,7 +504,10 @@ function AdminPeople({ issue }: { issue: boolean }) {
             columns={columns}
             getKey={(p) => p.id}
             rowLink={(p) => `/people/${p.id}`}
+            maxHeight="none"
             minWidth="42rem"
+            caption="People on the roster"
+            tools={{ id: "people", title: "People", getAllRows: allRows }}
           />
           <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={goToPage} />
         </>
@@ -582,7 +609,7 @@ function TheirRecord({ id }: { id: string }) {
         <SectionTitle>
           <span id="person-record">Their record</span>
         </SectionTitle>
-        <Button kind="default" size="sm" asChild>
+        <Button kind="default" asChild>
           <Link to={`/faculty/${id}`}>Open the full record</Link>
         </Button>
       </div>
@@ -645,7 +672,7 @@ function CollegePerson() {
 
   if (isLoading) {
     return (
-      <div className="page space-y-8 py-8">
+      <div className="page space-y-8">
         <Skeleton className="h-4 w-24" />
         <div className="space-y-2">
           <Skeleton className="h-7 w-2/3 max-w-md" />
@@ -659,7 +686,7 @@ function CollegePerson() {
   if (error) {
     if (error.status === 403) {
       return (
-        <div className="page py-8">
+        <div className="page">
           <ErrorState
             title="This record is not visible to this account"
             message="You do not have permission to open this person's publication record."
@@ -669,7 +696,7 @@ function CollegePerson() {
     }
     if (error.status === 404) {
       return (
-        <div className="page py-8">
+        <div className="page">
           <ErrorState
             title="No such person"
             message="This account may have been removed, or the link is wrong."
@@ -678,7 +705,7 @@ function CollegePerson() {
       )
     }
     return (
-      <div className="page py-8">
+      <div className="page">
         <ErrorState
           title="Could not load this record"
           message="The server did not answer. Nothing has been lost."
@@ -690,7 +717,7 @@ function CollegePerson() {
 
   if (!report) {
     return (
-      <div className="page py-8">
+      <div className="page">
         <EmptyState title="Nothing here" message="This account has no record to show." />
       </div>
     )
@@ -709,10 +736,11 @@ function CollegePerson() {
       key: "title",
       header: "Paper",
       className: "max-w-[22rem]",
+      exportValue: (c) => paperTitle(c.paper_title),
       cell: (c) => (
         <span className="block">
-          <span className="block truncate text-base">{paperTitle(c.paper_title)}</span>
-          <Meta className="mt-0.5 block truncate">{c.ticket_number || "—"}</Meta>
+          <span className="block truncate text-base font-medium">{paperTitle(c.paper_title)}</span>
+          <Meta className="mt-0.5 block truncate">{c.ticket_number}</Meta>
         </span>
       ),
     },
@@ -720,20 +748,22 @@ function CollegePerson() {
       key: "journal",
       header: "Journal",
       className: "max-w-[14rem]",
-      cell: (c) => (
-        <span className="line-clamp-2 text-sm text-fg-muted">{c.journal_title || "—"}</span>
-      ),
+      exportValue: (c) => c.journal_title,
+      cell: (c) => <span className="line-clamp-2">{c.journal_title}</span>,
     },
     {
       key: "year",
       header: "Year",
       className: "w-16",
-      cell: (c) => <span className="tabular">{c.publication_year ?? "—"}</span>,
+      exportKind: "number",
+      exportValue: (c) => c.publication_year,
+      cell: (c) => <span className="tabular">{c.publication_year}</span>,
     },
     {
       key: "stage",
       header: "Stage",
       className: "w-36",
+      exportValue: (c) => stageOf(c.status).label,
       cell: (c) => <Stage stage={stageOf(c.status)} />,
     },
     ...(showMoney
@@ -742,6 +772,8 @@ function CollegePerson() {
             key: "amount",
             header: "Amount",
             align: "right" as const,
+            exportKind: "money" as const,
+            exportValue: (c: ReportClaim) => c.remuneration,
             cell: (c: ReportClaim) => <AmountCell claim={c} />,
           },
         ]
@@ -749,55 +781,48 @@ function CollegePerson() {
   ]
 
   return (
-    <div className="page space-y-10 py-8">
-      <header className="page-head">
-        <div className="flex min-w-0 items-center gap-4">
+    <div className="page space-y-8">
+      <PageHeader
+        title={faculty.name || faculty.email}
+        sub={
+          <>
+            {roleLabel(faculty.role)}
+            {[faculty.department, faculty.designation].filter(Boolean).length > 0
+              ? `, ${[faculty.department, faculty.designation].filter(Boolean).join(", ")}`
+              : ""}
+            . <span className="break-all">{faculty.email}</span>
+            {!faculty.active && <span className="ml-2 text-critical">Inactive</span>}
+          </>
+        }
+        action={
+          /* Claimants only -- faculty, and a head of department, who is
+             faculty too. A claim belongs to the person who published the
+             paper, and the server refuses an owner who is not one
+             (`rbac.CLAIMANT_ROLES`). */
+          manages && id && can(faculty.role).fileOwnPapers ? (
+            <Button kind="primary" asChild>
+              <Link to={`/papers/new?for=${id}`}>
+                <FilePlus />
+                File a paper for them
+              </Link>
+            </Button>
+          ) : undefined
+        }
+      />
+
+      <div className="flex flex-wrap items-center gap-2">
         <Avatar
           person={{ name: faculty.name || faculty.email, initials: faculty.initials ?? "", photo_url: faculty.photo_url ?? null }}
           size="lg"
         />
-        <div className="min-w-0 space-y-1">
-          <PageTitle>{faculty.name || faculty.email}</PageTitle>
-          <Sub>
-            {roleLabel(faculty.role)}
-            {[faculty.department, faculty.designation].filter(Boolean).length > 0
-              ? ` · ${[faculty.department, faculty.designation].filter(Boolean).join(" · ")}`
-              : ""}
-          </Sub>
-          <Meta className="block break-all">
-            {faculty.email}
-            {!faculty.active && <span className="ml-2 text-critical">Inactive</span>}
-          </Meta>
-        </div>
-        </div>
-        {manages && id && (
-          <div className="flex flex-wrap gap-2">
-            {/* Claimants only -- faculty, and a head of department, who is
-                faculty too. A claim belongs to the person who published the
-                paper, and the server refuses an owner who is not one
-                (`rbac.CLAIMANT_ROLES`). */}
-            {can(faculty.role).fileOwnPapers && (
-              <Button kind="default" size="md" asChild>
-                <Link to={`/papers/new?for=${id}`}>
-                  <FilePlus />
-                  File a paper for them
-                </Link>
-              </Button>
-            )}
-          </div>
-        )}
-        <HeaderSpot name="spot-profile" />
-      </header>
-
-      <div className="flex flex-wrap items-center gap-2">
         {/* One person's record as a file: what an appraisal or a promotion
             panel asks the office for. */}
         {id && (
           <>
-            <Button kind="default" size="sm" asChild>
+            <Button kind="default" asChild className="sm:ml-2">
               <a href={`/api/faculty/${id}/report/export?fmt=xlsx`}>Download record (Excel)</a>
             </Button>
-            <Button kind="quiet" size="sm" asChild>
+            <Button kind="quiet" asChild>
               <a href={`/api/faculty/${id}/report/export?fmt=csv`}>CSV</a>
             </Button>
           </>
@@ -843,19 +868,17 @@ function CollegePerson() {
           "0 publications" for a person with sixty-two on record. */}
       {manages && id && can(faculty.role).fileOwnPapers && <TheirRecord id={id} />}
       {!manages && (
-        <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
-          <Figure label="Publications" value={String(totals.publications)} />
-          <Figure
-            label="Paid"
-            value={String(totals.paid_claims)}
-            hint={showMoney ? money(totals.paid_amount) : undefined}
-          />
-          <Figure
-            label="In review"
-            value={String(totals.in_review)}
-            muted={!totals.in_review}
-          />
-        </section>
+        <Answer
+          items={[
+            { value: totals.publications, label: "Publications" },
+            {
+              value: totals.paid_claims,
+              label: showMoney ? `Paid, ${money(totals.paid_amount)}` : "Paid",
+              zero: "None paid yet",
+            },
+            { value: totals.in_review, label: "In review", zero: "Nothing in review" },
+          ]}
+        />
       )}
 
       <section className="space-y-3" aria-labelledby="person-scopus">
@@ -885,7 +908,9 @@ function CollegePerson() {
               columns={columns}
               getKey={(c) => c.id}
               rowLink={(c) => `/papers/${c.id}`}
-              minWidth="40rem"
+              maxHeight="none"
+              caption="Papers"
+              tools={{ id: "person-claims", title: `Papers of ${faculty.name || faculty.email}` }}
               empty="Nothing published yet."
             />
           </section>
@@ -904,42 +929,17 @@ function CollegePerson() {
  *  since that one isn't exported and this file may not touch `papers.tsx`. */
 function AmountCell({ claim }: { claim: ReportClaim }) {
   if (claim.calc_error) {
-    return <span className="text-xs text-critical">Could not calculate</span>
+    return <span className="text-sm text-critical">Could not calculate</span>
   }
   return (
     <span className="inline-flex flex-col items-end">
       <span className="tabular">{money(claim.remuneration)}</span>
       {claim.remuneration != null && claim.remuneration_is_estimate && (
-        <span className="text-xs font-normal leading-tight text-caution">Estimate</span>
+        <span className="text-sm font-normal leading-tight text-caution">Estimate</span>
       )}
     </span>
   )
 }
-
-/** A number that is an answer, not a tile — matches `home-faculty.tsx`'s
- *  `Figure`, redeclared locally for the same reason `AmountCell` is. */
-function Figure({
-  label,
-  value,
-  hint,
-  muted,
-}: {
-  label: string
-  value: string
-  hint?: string
-  muted?: boolean
-}) {
-  return (
-    <div>
-      <p className="text-sm text-fg-muted">{label}</p>
-      <p className={cn("mt-0.5 figure text-figure font-semibold tabular", muted && "text-fg-subtle")}>
-        {value}
-      </p>
-      {hint && <p className="mt-0.5 text-sm text-fg-muted">{hint}</p>}
-    </div>
-  )
-}
-
 
 /* ------------------------------------------------------------------------ */
 /* HodPerson - one member of a head's own department                        */
@@ -1004,7 +1004,7 @@ function HodPerson() {
 
   if (isLoading) {
     return (
-      <div className="page space-y-8 py-8">
+      <div className="page space-y-8">
         <SkeletonText lines={2} className="max-w-xs" />
         <SkeletonRows rows={6} />
       </div>
@@ -1013,7 +1013,7 @@ function HodPerson() {
 
   if (error || !data) {
     return (
-      <div className="page py-8">
+      <div className="page">
         <Button kind="quiet" size="sm" asChild className="-ml-2 mb-4">
           <Link to="/department">
             <ArrowLeft />
@@ -1034,36 +1034,48 @@ function HodPerson() {
   }
 
   const person = data.person
+  const paperColumns: Column<HodPersonPayload["papers"][number]>[] = [
+    {
+      key: "title",
+      header: "Paper",
+      exportValue: (c) => paperTitle(c.paper_title),
+      cell: (c) => <span className="line-clamp-2 text-base font-medium leading-snug">{paperTitle(c.paper_title)}</span>,
+    },
+    { key: "journal", header: "Journal", exportValue: (c) => c.journal_title, cell: (c) => c.journal_title },
+    { key: "year", header: "Year", exportKind: "number", exportValue: (c) => c.publication_year, cell: (c) => c.publication_year },
+    { key: "quartile", header: "Quartile", exportValue: (c) => c.quartile, cell: (c) => c.quartile },
+    {
+      key: "position",
+      header: "Author",
+      exportValue: (c) => (c.author_position && c.total_authors ? `${c.author_position} of ${c.total_authors}` : null),
+      cell: (c) => (c.author_position && c.total_authors ? `${c.author_position} of ${c.total_authors}` : null),
+    },
+    { key: "progress", header: "Where it is", exportValue: (c) => c.progress, cell: (c) => c.progress },
+  ]
 
   return (
     <div className="page space-y-8">
-      <div>
-        <Button kind="quiet" size="sm" asChild className="-ml-2">
-          <Link to="/department">
-            <ArrowLeft />
-            My department
-          </Link>
-        </Button>
-        <PageTitle className="mt-2">{person.name}</PageTitle>
-        <Sub className="mt-1">
-          {[person.designation, person.department, person.staff_id].filter(Boolean).join(" · ")}
-        </Sub>
-      </div>
+      <PageHeader
+        title={person.name}
+        sub={[person.designation, person.department, person.staff_id].filter(Boolean).join(", ")}
+        action={
+          <Button kind="default" asChild>
+            <Link to="/department">
+              <ArrowLeft />
+              My department
+            </Link>
+          </Button>
+        }
+      />
 
-      <section className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
-        <PersonFigure label="Publications" value={data.totals.publications} />
-        <PersonFigure label="Q1 papers" value={data.totals.q1} hint="Top-quartile journals" />
-        <PersonFigure
-          label="First author"
-          value={data.totals.first_author}
-          hint="Papers they led"
-        />
-        <PersonFigure
-          label="Under review"
-          value={data.totals.under_review}
-          hint="Filed, not yet finished"
-        />
-      </section>
+      <Answer
+        items={[
+          { value: data.totals.publications, label: "Publications" },
+          { value: data.totals.q1, label: "Q1 papers, in top-quartile journals", zero: "No Q1 paper yet" },
+          { value: data.totals.first_author, label: "First author, papers they led", zero: "No paper led yet" },
+          { value: data.totals.under_review, label: "Under review, filed and not yet finished", zero: "Nothing under review" },
+        ]}
+      />
 
       <section className="space-y-3" aria-labelledby="hod-person-scopus">
         <SectionTitle>
@@ -1137,64 +1149,21 @@ function HodPerson() {
             message="A paper nobody filed a claim for does not appear here."
           />
         ) : (
-          <ul className="divide-y divide-line border-y border-line">
-            {data.papers.map((c) => (
-              <li key={c.id} className="row">
-                <Link
-                  to={`/papers/${c.id}`}
-                  className="flex items-center gap-4 px-1 py-2.5 sm:px-2"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-base">
-                      {paperTitle(c.paper_title)}
-                    </span>
-                    <Meta className="block truncate">
-                      {[
-                        c.journal_title,
-                        c.publication_year,
-                        c.author_position && c.total_authors
-                          ? `author ${c.author_position} of ${c.total_authors}`
-                          : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </Meta>
-                  </span>
-                  {c.quartile && (
-                    <span className="w-12 shrink-0 text-right text-sm tabular text-fg-muted">
-                      {c.quartile}
-                    </span>
-                  )}
-                  <span className="w-28 shrink-0 text-right text-sm text-fg-muted">
-                    {c.progress}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <Table
+            rows={data.papers}
+            columns={paperColumns}
+            getKey={(c) => c.id}
+            rowLink={(c) => `/papers/${c.id}`}
+            maxHeight="none"
+            caption={`Papers of ${person.name}`}
+            tools={{ id: "hod-person-papers", title: `Papers of ${person.name}` }}
+          />
         )}
       </section>
     </div>
   )
 }
 
-function PersonFigure({
-  label,
-  value,
-  hint,
-}: {
-  label: string
-  value: number
-  hint?: string
-}) {
-  return (
-    <div>
-      <p className="text-sm text-fg-muted">{label}</p>
-      <p className="mt-0.5 figure text-figure font-semibold tabular">{value.toLocaleString("en-IN")}</p>
-      {hint && <p className="mt-0.5 text-sm text-fg-muted">{hint}</p>}
-    </div>
-  )
-}
 
 
 /* ------------------------------------------------------------------------ */

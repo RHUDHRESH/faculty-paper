@@ -1,38 +1,6 @@
-import { cn } from "@/lib/cn"
-
-/**
- * One of the college's generated illustrations (public/illustrations/generated,
- * catalogued in manifest.json). Ink line on transparent ground, so in the dark
- * theme it sits on a small paper plate — charcoal lines on a dark canvas vanish.
- *
- * Decorative by default (`alt=""`); pass `alt` when the picture carries meaning.
- */
-export function Picture({
-  name,
-  alt = "",
-  className,
-  eager = false,
-}: {
-  name: string
-  alt?: string
-  className?: string
-  eager?: boolean
-}) {
-  const base = `/illustrations/generated/${name}`
-  return (
-    <picture className={cn("block select-none dark:rounded-2xl dark:bg-plate dark:p-2", className)}>
-      <source srcSet={`${base}.webp`} type="image/webp" />
-      <img
-        src={`${base}.png`}
-        alt={alt}
-        aria-hidden={alt ? undefined : true}
-        loading={eager ? "eager" : "lazy"}
-        decoding="async"
-        draggable={false}
-        className="h-full w-full object-contain"
-      />
-    </picture>
-  )
+/** Decorative illustration: the minimalist skin renders nothing. Kept so imports compile. */
+export function Picture(_props: { name: string; alt?: string; className?: string; eager?: boolean }) {
+  return null
 }
 
 /** Topic picture for a paper, guessed from its title and journal; null when nothing fits. */

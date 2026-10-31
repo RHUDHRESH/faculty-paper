@@ -12,7 +12,7 @@ from core.api.common import require_user
 
 import json
 from typing import Optional
-from django.db.models import Sum
+from django.db.models import Count, Q, Sum
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -71,7 +71,16 @@ def list_duplicate_findings(
     rows_of = {f.id: json.loads(f.rows_json or "[]") for f in page}
     _add_faces(page, rows_of)
 
-    everything = DuplicateFinding.objects.filter(kind=kind or "SAME_PERSON")
+    S = DuplicateFinding.Status
+    # Every figure of the summary in one pass over the kind's findings.
+    figures = DuplicateFinding.objects.filter(kind=kind or "SAME_PERSON").aggregate(
+        open=Count("id", filter=Q(status=S.OPEN)),
+        confirmed=Count("id", filter=Q(status=S.CONFIRMED)),
+        dismissed=Count("id", filter=Q(status=S.DISMISSED)),
+        recovered=Count("id", filter=Q(status=S.RECOVERED)),
+        at_issue=Sum("extra_amount", filter=Q(status__in=(S.OPEN, S.CONFIRMED))),
+        recovered_amount=Sum("recovered_amount"),
+    )
     # `open` stays every open finding; Home headlines the actionable part.
     open_actionable, open_legacy = legacy.open_duplicates_split(kind or "SAME_PERSON")
     return {
@@ -99,25 +108,14 @@ def list_duplicate_findings(
             for f in page
         ],
         "summary": {
-            "open": everything.filter(status=DuplicateFinding.Status.OPEN).count(),
+            "open": figures["open"],
             "open_actionable": open_actionable,
             "open_legacy": open_legacy,
-            "confirmed": everything.filter(status=DuplicateFinding.Status.CONFIRMED).count(),
-            "dismissed": everything.filter(status=DuplicateFinding.Status.DISMISSED).count(),
-            "recovered": everything.filter(status=DuplicateFinding.Status.RECOVERED).count(),
-            "at_issue": round(
-                everything.filter(
-                    status__in=(
-                        DuplicateFinding.Status.OPEN,
-                        DuplicateFinding.Status.CONFIRMED,
-                    )
-                ).aggregate(s=Sum("extra_amount"))["s"]
-                or 0,
-                2,
-            ),
-            "recovered_amount": round(
-                everything.aggregate(s=Sum("recovered_amount"))["s"] or 0, 2
-            ),
+            "confirmed": figures["confirmed"],
+            "dismissed": figures["dismissed"],
+            "recovered": figures["recovered"],
+            "at_issue": round(figures["at_issue"] or 0, 2),
+            "recovered_amount": round(figures["recovered_amount"] or 0, 2),
         },
     }
 

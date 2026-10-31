@@ -48,8 +48,8 @@ describe("EmptyState and ErrorState are not the same thing", () => {
 
     const { container: failed } = render(<ErrorState />)
     const errorGround = failed.firstElementChild
-    expect(errorGround).toHaveClass("bg-critical-wash")
-    expect(errorGround).not.toHaveClass("bg-sunken")
+    expect(errorGround).toHaveClass("bg-surface", "border-edge")
+    expect(errorGround).not.toHaveClass("bg-sunken", "bg-critical-wash")
   })
 
   it("says the server did not answer, and that nothing was lost", () => {

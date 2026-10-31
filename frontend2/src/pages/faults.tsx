@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { CheckCircle2, RotateCw, ShieldAlert } from "lucide-react"
 
@@ -7,10 +7,12 @@ import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
+import { Input, Select } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
 import { PageHeader } from "@/ui/page-header"
 import { money, stageOf } from "@/ui/paper"
 import { Avatar } from "@/ui/person"
-import { Details, Rows, Section } from "@/ui/section"
+import { Details, Rows } from "@/ui/section"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { Ago } from "@/ui/when"
@@ -108,13 +110,16 @@ function when(iso: string): string {
 }
 
 export function Faults() {
-  const { me } = useAuth()
+  const { me, loading: signingIn } = useAuth()
   const isOffice = can(me?.role).manageUsers
+  // `admin_faults` (operations.py): the office and the Principal. Nav matches.
+  const canOpen = isOffice || me?.role === "PRINCIPAL"
   const [params] = useSearchParams()
   const show = params.get("show") === "urgent" ? "urgent" : params.get("show") === "other" ? "other" : "all"
   const { data, isLoading, isError, error, refetch, isFetching } = useApi<Payload>(
     ["admin-faults"],
-    "/api/admin/faults"
+    "/api/admin/faults",
+    { enabled: canOpen }
   )
 
   const { active, clear, other } = useMemo(() => {
@@ -134,12 +139,31 @@ export function Faults() {
   )
   const anyImported = active.some((f) => f.sample.some(isImported))
 
+  if (signingIn) {
+    return (
+      <div className="page space-y-10">
+        <SkeletonRows rows={6} rowHeight={64} />
+      </div>
+    )
+  }
+
+  if (!canOpen) {
+    return (
+      <div className="page py-8">
+        <ErrorState
+          art="closed-gate"
+          title="Not open to this account"
+          message="Open to the research office, system admins and the Principal."
+        />
+      </div>
+    )
+  }
+
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-6">
       <PageHeader
         title="Faults"
         sub="What is stuck or wrong right now."
-        spot="spot-audit"
         action={
           <Button kind="primary" onClick={() => refetch()} disabled={isFetching}>
             <RotateCw aria-hidden className={cn(isFetching && "animate-spin")} />
@@ -173,7 +197,7 @@ export function Faults() {
         />
       ) : (
         <>
-          <section aria-label="The answer" className="space-y-3">
+          <div className="space-y-3">
             <Answer
               items={[
                 {
@@ -196,35 +220,10 @@ export function Faults() {
             <p className="text-sm text-fg-muted">
               Checked <Ago iso={data.checked_at} />.
             </p>
-          </section>
+          </div>
 
-          <Section
-            title={show === "urgent" ? "Needs action now" : show === "other" ? "To look at" : "What needs fixing"}
-            action={
-              show !== "all" ? (
-                <Button kind="default" size="sm" asChild>
-                  <Link to="/faults">Show all {count(active.length)} checks</Link>
-                </Button>
-              ) : undefined
-            }
-            className="space-y-3"
-          >
-            <ImportedNote show={anyImported} />
-            {listed.length === 0 ? (
-              <p className="flex flex-wrap items-center justify-center gap-3 rounded-panel bg-sunken px-4 py-6 text-sm text-fg-muted">
-                Nothing in this list.
-                <Button kind="default" size="sm" asChild>
-                  <Link to="/faults">Show all {count(active.length)} checks</Link>
-                </Button>
-              </p>
-            ) : (
-              <Rows>
-                {listed.map((f) => (
-                  <FaultRow key={f.key} fault={f} isOffice={isOffice} />
-                ))}
-              </Rows>
-            )}
-          </Section>
+          <ImportedNote show={anyImported} />
+          <FaultsTable active={active} listed={listed} show={show} isOffice={isOffice} />
 
           <div id="clear">
             <Details label="the checks that found nothing" count={clear.length}>
@@ -243,35 +242,124 @@ export function Faults() {
   )
 }
 
-function FaultRow({ fault, isOffice }: { fault: Fault; isOffice: boolean }) {
-  const to = fault.to ? (LEGACY[fault.to] ?? fault.to) : null
-  const action = ACTION[fault.key]?.(fault.count)
+/** The checks that found something, as one table: most urgent first, the
+ *  whole list behind each one, and the button that goes to the fix at the end. */
+function FaultsTable({
+  active,
+  listed,
+  show,
+  isOffice,
+}: {
+  active: Fault[]
+  listed: Fault[]
+  show: "all" | "urgent" | "other"
+  isOffice: boolean
+}) {
+  const [, setParams] = useSearchParams()
+  const [search, setSearch] = useState("")
+  const needle = search.trim().toLowerCase()
+  const rows = listed.filter((f) => !needle || f.title.toLowerCase().includes(needle))
+  const narrowed = show !== "all" || Boolean(needle)
+  function clearFilters() {
+    setSearch("")
+    setParams(new URLSearchParams(), { replace: true })
+  }
+
+  const columns: Column<Fault>[] = [
+    {
+      key: "title",
+      header: "What is wrong",
+      exportValue: (f) => f.title,
+      cell: (f) => (
+        <div className="min-w-0">
+          <p className="font-medium">{f.title}</p>
+          <Details label="the whole list" count={f.count} className="mt-1">
+            <p className="mb-2 max-w-prose text-sm text-fg-muted">{f.detail}</p>
+            <FaultItems faultKey={f.key} />
+          </Details>
+        </div>
+      ),
+    },
+    {
+      key: "severity",
+      header: "How serious",
+      exportValue: (f) => SEVERITY_WORD[f.severity],
+      cell: (f) => (
+        <span className={cn("inline-flex items-center gap-1 font-medium", SEVERITY_TEXT[f.severity])}>
+          {f.severity === "critical" && <ShieldAlert aria-hidden className="size-3.5" />}
+          {SEVERITY_WORD[f.severity]}
+        </span>
+      ),
+    },
+    {
+      key: "count",
+      header: "Found",
+      align: "right",
+      exportKind: "number",
+      exportValue: (f) => f.count,
+      cell: (f) => <span className={SEVERITY_TEXT[f.severity]}>{count(f.count)}</span>,
+    },
+    {
+      key: "act",
+      header: <span className="sr-only">Fix</span>,
+      label: "Fix",
+      cell: (f) => {
+        const to = f.to ? (LEGACY[f.to] ?? f.to) : null
+        const action = ACTION[f.key]?.(f.count)
+        return isOffice && to && action ? (
+          <Button kind="default" size="sm" asChild>
+            <Link to={to}>{action}</Link>
+          </Button>
+        ) : null
+      },
+    },
+  ]
+
   return (
-    <li className="py-4">
-      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-        <div className="min-w-0 flex-1 basis-72">
-          <p className="flex flex-wrap items-baseline gap-x-2">
-            <span className="font-medium">{fault.title}</span>
-            <span className={cn("inline-flex items-center gap-1 text-xs font-medium", SEVERITY_TEXT[fault.severity])}>
-              {fault.severity === "critical" && <ShieldAlert aria-hidden className="size-3.5" />}
-              {SEVERITY_WORD[fault.severity]}
-            </span>
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-3">
-          <span className={cn("figure text-figure tabular", SEVERITY_TEXT[fault.severity])}>{count(fault.count)}</span>
-          {isOffice && to && action && (
-            <Button kind="default" size="sm" asChild>
-              <Link to={to}>{action}</Link>
-            </Button>
-          )}
-        </div>
+    <div className="space-y-4">
+      <div className={filterBar} role="search">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search the checks"
+          aria-label="Search the checks"
+          className="w-full min-w-0 sm:w-80"
+        />
+        <Select
+          aria-label="How serious"
+          value={show}
+          onChange={(e) => setParams(e.target.value === "all" ? new URLSearchParams() : new URLSearchParams({ show: e.target.value }), { replace: true })}
+          className="w-auto max-sm:w-full"
+        >
+          <option value="all">Every check</option>
+          <option value="urgent">Needs action now</option>
+          <option value="other">To look at</option>
+        </Select>
+        {narrowed && (
+          <Button kind="quiet" onClick={clearFilters}>
+            Clear filters
+          </Button>
+        )}
       </div>
-      <Details label="the whole list" count={fault.count} className="mt-1">
-        <p className="mb-2 max-w-prose text-sm text-fg-muted">{fault.detail}</p>
-        <FaultItems faultKey={fault.key} />
-      </Details>
-    </li>
+      <Table
+        rows={rows}
+        columns={columns}
+        getKey={(f) => f.key}
+        maxHeight="none"
+        caption={show === "urgent" ? "Checks that need action now" : show === "other" ? "Checks to look at" : "Checks that found something"}
+        tools={{ id: "faults", title: "Faults" }}
+        empty={{
+          icon: CheckCircle2,
+          title: "Nothing in this list",
+          message: `${count(active.length)} ${active.length === 1 ? "check has" : "checks have"} found something.`,
+          action: (
+            <Button kind="default" onClick={clearFilters}>
+              Show all {count(active.length)} checks
+            </Button>
+          ),
+        }}
+      />
+    </div>
   )
 }
 

@@ -1,33 +1,33 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
-import { BellRing, Download } from "lucide-react"
+import { BellRing, Check, Download, Users } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { homeTrack } from "@/app/home-data"
-import { useApi } from "@/lib/query"
-import { ComingUpEvents } from "@/pages/home-events"
-import { HomeHead, YourPapers } from "@/pages/home-staff"
+import { useApi, useApiMutation } from "@/lib/query"
 import {
   groupDraft,
   leadSentence,
   n,
   papersLink,
   PushEmpty,
-  PushRows,
   RemindDialog,
   SILENT_KINDS,
   useBrief,
   VERDICT,
   type Brief,
+  type PushRow,
   type Reminder,
 } from "@/pages/hod-parts"
-import { Lead } from "@/pages/principal-parts"
+import { YourPapers } from "@/pages/home-staff"
 import { days, MAIN_STAGES, type TrackPayload } from "@/pages/track-data"
-import { Answer, AnswerLine, AnswerWord } from "@/ui/answer"
+import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
-import { Celebrations } from "@/ui/celebrations"
+import { PageHeader } from "@/ui/page-header"
 import { Section } from "@/ui/section"
 import { Delayed, ErrorState, SkeletonRows } from "@/ui/state"
+import { Table, type Column } from "@/ui/table"
+import { toast } from "@/ui/toast"
 
 /**
  * A head of department's first screen. It answers the three questions a head
@@ -41,33 +41,14 @@ import { Delayed, ErrorState, SkeletonRows } from "@/ui/state"
  * amounts appear.
  */
 
-const SHOWN = 5
+const SHOWN = 10
+const DAY = 24 * 60 * 60 * 1000
 
 function tone(b: Brief): "positive" | "caution" | "critical" | "neutral" {
   const pubs = b.targets.find((t) => t.metric === "PUBLICATIONS")
   if (pubs) return VERDICT[pubs.verdict].tone
   if (b.year < new Date(b.as_of).getFullYear()) return "neutral"
   return b.totals.this_year_to_date >= b.totals.last_year_to_date ? "positive" : "caution"
-}
-
-/** This year to today against last year to the same date, with no target set. */
-function PaceAnswer({ b }: { b: Brief }) {
-  const t = b.totals
-  const d = t.this_year_to_date - t.last_year_to_date
-  const word = d > 0 ? "ahead" : d < 0 ? "behind" : "level with"
-  const wordTone = d > 0 ? "sage" : d < 0 ? "amber" : "navy"
-  return (
-    <div className="space-y-2">
-      <AnswerLine>
-        {b.department} is <AnswerWord tone={wordTone}>{word}</AnswerWord>
-        {d === 0 ? "" : " of"} last year's pace.
-      </AnswerLine>
-      <p className="text-base text-fg-muted">
-        {n(t.this_year_to_date)} {t.this_year_to_date === 1 ? "paper" : "papers"} by today against{" "}
-        {n(t.last_year_to_date)} by this date in {b.year - 1}. No target is set.
-      </p>
-    </div>
-  )
 }
 
 /** The department's claims, in one sentence: nothing here is a desk or an amount. */
@@ -91,24 +72,124 @@ function ClaimsLine() {
     done ? `${n(done.count)} ${done.count === 1 ? "is" : "are"} complete` : "",
   ].filter(Boolean)
   return (
-    <Section
-      title="Your department's claims"
-      action={
-        <Link to="/track" className="text-accent underline-offset-4 hover:underline">
-          Open Track
-        </Link>
-      }
-    >
-      <p className="text-base" role="status">
+    <p className="text-sm text-fg-muted">
+      <span role="status">
         {parts.join("; ")}.
         {late > 0 ? ` ${n(late)} ${late === 1 ? "has" : "have"} been in one place over a month.` : ""}
-      </p>
-    </Section>
+      </span>{" "}
+      <Link to="/track" className="text-accent underline-offset-4 hover:underline">
+        Open Track
+      </Link>
+    </p>
+  )
+}
+
+/** The buttons on a row: Remind, and Pair them where a writing partner is suggested. */
+function PushActions({
+  row,
+  pair,
+  onRemind,
+}: {
+  row: PushRow
+  pair?: Brief["pairs"][number]
+  onRemind: (r: Reminder) => void
+}) {
+  const p = row.person
+  const recently = !!p.last_reminded_at && Date.now() - new Date(p.last_reminded_at).getTime() < DAY
+  const [paired, setPaired] = useState(false)
+  const create = useApiMutation<
+    { kind: string; title: string; notes: string; assignee_id: string; partner_id: string },
+    unknown
+  >("/api/hod/assignments", { invalidates: [["hod", "assignments"], ["hod", "brief"]] })
+
+  async function pairThem() {
+    if (!pair) return
+    try {
+      await create.mutateAsync({
+        kind: "PAIRING",
+        title: `Write a paper together${pair.area ? ` in ${pair.area}` : ""}`,
+        notes: pair.why,
+        assignee_id: pair.mentee.id,
+        partner_id: pair.mentor.id,
+      })
+      setPaired(true)
+      toast.ok(`Paired ${pair.mentee.name} with ${pair.mentor.name}. Both see it on their home screen.`)
+    } catch (err) {
+      toast.fail(err)
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {pair && (
+        <Button
+          kind="default"
+          onClick={() => void pairThem()}
+          disabled={paired || create.isPending}
+          aria-label={`Pair ${p.name} with ${pair.mentor.name}`}
+        >
+          {paired ? <Check /> : <Users />}
+          {paired ? "Paired" : "Pair them"}
+        </Button>
+      )}
+      <Button
+        kind="default"
+        onClick={() => onRemind({ people: [{ id: p.id, name: p.name }], draft: row.draft })}
+        disabled={recently}
+        aria-label={recently ? `${p.name} was reminded in the last day` : `Remind ${p.name}`}
+      >
+        {recently ? <Check /> : <BellRing />}
+        {recently ? "Reminded" : "Remind"}
+      </Button>
+    </div>
+  )
+}
+
+function PushTable({
+  rows,
+  pairs,
+  onRemind,
+}: {
+  rows: PushRow[]
+  pairs: Brief["pairs"]
+  onRemind: (r: Reminder) => void
+}) {
+  const pairOf = new Map(pairs.map((x) => [x.mentee.id, x]))
+  const next = (r: PushRow) => {
+    const pair = pairOf.get(r.person.id)
+    return pair ? `Write with ${pair.mentor.name} (${pair.area ?? "same area"}).` : r.next_step
+  }
+  const columns: Column<PushRow>[] = [
+    {
+      key: "person",
+      header: "Colleague",
+      exportValue: (r) => r.person.name,
+      cell: (r) => (
+        <Link to={`/faculty/${r.person.id}`} className="font-medium text-accent underline-offset-4 hover:underline">
+          {r.person.name}
+        </Link>
+      ),
+    },
+    { key: "why", header: "Why", exportValue: (r) => r.reasons.join(". "), cell: (r) => r.reasons.join(". ") },
+    { key: "next", header: "Next step", exportValue: next, cell: next },
+    {
+      key: "act",
+      header: "Action",
+      label: "Remind",
+      cell: (r) => <PushActions row={r} pair={pairOf.get(r.person.id)} onRemind={onRemind} />,
+    },
+  ]
+  return (
+    <Table
+      rows={rows}
+      columns={columns}
+      getKey={(r) => r.person.id}
+      tools={{ id: "hod-home-push", title: "Who needs a push" }}
+    />
   )
 }
 
 export function HodHome() {
-  const { me } = useAuth()
   const brief = useBrief()
   const [reminding, setReminding] = useState<Reminder | null>(null)
   const b = brief.data
@@ -118,11 +199,36 @@ export function HodHome() {
   const shown = list.slice(0, SHOWN)
 
   return (
-    <div className="page space-y-10">
-      <HomeHead
-        name={me?.name}
-        picture="spot-home-hod"
-        sentence="Is the department on track, who needs a push, and what to tell the Principal."
+    <div className="page space-y-8">
+      <PageHeader
+        title="Home"
+        sub="How your department is doing and who needs a word."
+        action={
+          b && (
+            <>
+              <Button kind="quiet" asChild>
+                <a href={`/api/hod/report?fmt=pdf&year=${b.year}`} download>
+                  <Download />
+                  Download the note for the Principal
+                </a>
+              </Button>
+              {silent.length > 1 && (
+                <Button
+                  kind="primary"
+                  onClick={() =>
+                    setReminding({
+                      people: silent.map((r) => ({ id: r.person.id, name: r.person.name })),
+                      draft: groupDraft(b.year),
+                    })
+                  }
+                >
+                  <BellRing />
+                  Remind all {n(silent.length)}
+                </Button>
+              )}
+            </>
+          )
+        }
       />
 
       {brief.isError ? (
@@ -141,12 +247,6 @@ export function HodHome() {
         </Delayed>
       ) : (
         <>
-          {!b.targets.some((x) => x.metric === "PUBLICATIONS") && b.year >= new Date(b.as_of).getFullYear() ? (
-            <PaceAnswer b={b} />
-          ) : (
-            <Lead>{leadSentence(b)}</Lead>
-          )}
-
           <Answer
             items={[
               {
@@ -177,61 +277,28 @@ export function HodHome() {
             ]}
           />
 
-          <Section
-            title="Who needs a push"
-            sub="No paper on record this year, most recent history first. Each has a next step."
-            action={
-              list.length > SHOWN ? (
-                <Link to="/department#push" className="text-accent underline-offset-4 hover:underline">
-                  All {n(list.length)} on the department page
-                </Link>
-              ) : undefined
-            }
-          >
+          <p className="text-sm text-fg-muted" data-testid="report-answer">
+            {leadSentence(b)}
+          </p>
+
+          <Section title="Who needs a push">
             {shown.length === 0 ? (
               <PushEmpty year={b.year} />
             ) : (
               <>
-                <PushRows rows={shown} pairs={b.pairs} onRemind={setReminding} />
-                {silent.length > 1 && (
-                  <Button
-                    kind="quiet"
-                    size="sm"
-                    className="mt-2"
-                    onClick={() =>
-                      setReminding({
-                        people: silent.map((r) => ({ id: r.person.id, name: r.person.name })),
-                        draft: groupDraft(b.year),
-                      })
-                    }
-                  >
-                    <BellRing />
-                    Remind all {n(silent.length)} who have no paper in {b.year}
-                  </Button>
-                )}
+                <PushTable rows={shown} pairs={b.pairs} onRemind={setReminding} />
+                <p className="mt-2 text-sm">
+                  <Link to="/department#push" className="text-accent underline-offset-4 hover:underline">
+                    {list.length > shown.length ? `View all ${n(list.length)} on the department page` : "View on the department page"}
+                  </Link>
+                </p>
               </>
             )}
-          </Section>
-
-          <Section
-            title="What to tell the Principal"
-            sub="A one-page note with the same figures: the year against target or last year, who needs a push, the records to fix."
-          >
-            <Button kind="primary" asChild>
-              <a href={`/api/hod/report?fmt=pdf&year=${b.year}`} download>
-                <Download />
-                Download the note for the Principal
-              </a>
-            </Button>
           </Section>
 
           <ClaimsLine />
         </>
       )}
-
-      <Celebrations />
-
-      <ComingUpEvents />
 
       <YourPapers note="What you have filed yourself, with your own amounts. Your department's figures carry none." />
 

@@ -184,15 +184,20 @@ describe("the Principal's home", () => {
       "/api/claims/counts": () => ({ counts: {} }),
       "/api/me/payments": () => ({ results: [], total: 0 }),
     })
-    // The answer is one sentence, the biggest thing on the page.
-    expect(await screen.findByText(/2 claims, ₹52,000, are waiting for you/)).toBeInTheDocument()
-    expect(screen.getByText(/The longest has waited/)).toBeInTheDocument()
+    // The numbers come first: four figures, each a link.
+    const glance = await screen.findByRole("group", { name: "At a glance" })
+    expect(within(glance).getAllByRole("link")).toHaveLength(4)
+    expect(await within(glance).findByRole("link", { name: /2 claims waiting for you/ })).toHaveAttribute("href", "/approvals")
+    expect(within(glance).getByRole("link", { name: /₹52,000 to approve/ })).toBeInTheDocument()
+    expect(within(glance).getByRole("link", { name: /longest wait/ })).toBeInTheDocument()
     // The common action is on the page, and a ready claim approves in place.
     expect(screen.getByRole("button", { name: /Approve the 1 ready/ })).toBeInTheDocument()
-    // (one button for a phone, one for a desk; the stylesheet shows the right one)
     expect(screen.getAllByRole("button", { name: /Approve: Grain boundaries/ }).length).toBeGreaterThan(0)
-    // The year is in the margin with no click: the finding, the departments to call.
-    expect(await screen.findByText("+13.8%")).toBeInTheDocument()
+    // The table of approvals has its Export control.
+    const table = screen.getByRole("region", { name: "Waiting for you" })
+    expect(within(table).getByRole("button", { name: /export/i })).toBeInTheDocument()
+    // The year with no click: the figure, the departments to call.
+    expect(await screen.findByText("+13.8%", { selector: "[aria-hidden]" })).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Training" })).toHaveAttribute("href", "/reports/departments/TRAINING?year=2025")
   })
 })

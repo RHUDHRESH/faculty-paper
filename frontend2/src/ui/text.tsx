@@ -35,7 +35,7 @@ import { cn } from "@/lib/cn"
 export function PageTitle({ children, className }: React.ComponentProps<"h1">) {
   // `text-balance` so a two-line title breaks into two even lines rather
   // than a full line and one orphaned word.
-  return <h1 className={cn("display text-display text-balance", className)}>{children}</h1>
+  return <h1 className={cn("text-balance text-2xl font-semibold text-fg", className)}>{children}</h1>
 }
 
 /**
@@ -49,7 +49,7 @@ export function PageTitle({ children, className }: React.ComponentProps<"h1">) {
  */
 export function SectionTitle({ children, className, ...props }: React.ComponentProps<"h2">) {
   return (
-    <h2 className={cn("text-lg font-semibold", className)} {...props}>
+    <h2 className={cn("text-base font-semibold text-fg", className)} {...props}>
       {children}
     </h2>
   )
@@ -62,7 +62,7 @@ export function Sub({ children, className }: React.ComponentProps<"p">) {
 
 /** Metadata beside content — dates, counts, departments. */
 export function Meta({ children, className }: React.ComponentProps<"span">) {
-  return <span className={cn("text-sm text-fg-muted", className)}>{children}</span>
+  return <span className={cn("text-[13px] text-fg-muted", className)}>{children}</span>
 }
 
 /** A machine category: a column head, a field name in a grid. The only place
@@ -77,7 +77,7 @@ export function ColumnLabel({ children, className }: React.ComponentProps<"span"
   return (
     <span
       className={cn(
-        "text-sm font-medium text-fg-muted",
+        "text-xs font-semibold text-fg-muted",
         className
       )}
     >
@@ -125,7 +125,7 @@ export function Figure({
   } as const
 
   return (
-    <span className={cn("figure text-figure", TONE[tone], className)} {...props}>
+    <span className={cn("figure text-2xl font-semibold tabular", TONE[tone], className)} {...props}>
       {children}
     </span>
   )

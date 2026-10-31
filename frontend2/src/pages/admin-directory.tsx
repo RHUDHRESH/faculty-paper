@@ -9,10 +9,12 @@ import { formatCount } from "@/lib/count"
 import { useApi } from "@/lib/query"
 import { useStart } from "@/pages/admin-start"
 import { Button } from "@/ui/button"
-import { Input } from "@/ui/field"
+import { Input, Select } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
+import { Answer } from "@/ui/answer"
+import { Table, type Column } from "@/ui/table"
 import { PageHeader } from "@/ui/page-header"
 import { NotOpen } from "@/ui/state"
-import { SectionTitle } from "@/ui/text"
 
 /**
  * The Admin page (docs/ux/29): every admin page, grouped by the job it does,
@@ -29,38 +31,12 @@ import { SectionTitle } from "@/ui/text"
 type Count = { count: number | null; tone: "critical" | "caution" | null; note: string | null }
 type HubPayload = { counts: Record<string, Count> }
 
-function Row({ item, entry }: { item: NavItem; entry?: Count }) {
-  const Icon = item.icon
-  const waiting = entry?.count && entry.count > 0 ? entry.count : 0
-  return (
-    <li>
-      <Link
-        to={item.to}
-        title={item.purpose}
-        className="row group flex min-h-11 items-center gap-3 rounded-sm px-1 py-2"
-      >
-        <Icon className="size-4 shrink-0 text-fg-subtle" aria-hidden />
-        <span className="min-w-0 flex-1 truncate text-base">{item.label}</span>
-        {entry?.note && !waiting && <span className="shrink-0 text-sm text-fg-muted tabular">{entry.note}</span>}
-        {waiting > 0 && (
-          <span
-            className={cn(
-              "min-w-6 shrink-0 rounded-full px-2 text-center text-xs font-semibold leading-6 tabular",
-              entry?.tone === "critical" ? "bg-critical-wash text-critical" : "bg-caution-wash text-caution"
-            )}
-            aria-label={`${waiting.toLocaleString("en-IN")} need attention`}
-          >
-            {formatCount(waiting)}
-          </span>
-        )}
-      </Link>
-    </li>
-  )
-}
+type DirRow = { item: NavItem; group: string; entry?: Count }
 
 export function AdminDirectory() {
   const { me } = useAuth()
   const [find, setFind] = useState("")
+  const [group, setGroup] = useState("")
   // A role that cannot open this page never calls the hub endpoint.
   const allowed = !me || pagesFor(me.role).some((p) => p.to === "/admin")
   const counts = useApi<HubPayload>(["admin", "hub"], "/api/admin/hub", {
@@ -79,67 +55,140 @@ export function AdminDirectory() {
   }
 
   const q = find.trim().toLowerCase()
-  const sections = hubSections("admin", me?.role)
-    .map((s) => ({
-      ...s,
-      items: q
-        ? s.items.filter((i) =>
-            [i.label, i.purpose ?? "", ...(i.keywords ?? [])].some((t) => t.toLowerCase().includes(q))
-          )
-        : s.items,
-    }))
-    .filter((s) => s.items.length > 0)
-
+  const all = hubSections("admin", me?.role)
+  const rows: DirRow[] = all
+    .filter((s) => !group || s.title === group)
+    .flatMap((s) => s.items.map((item) => ({ item, group: s.title, entry: byRoute[item.to] })))
+    .filter((r) => !q || [r.item.label, r.item.purpose ?? "", ...(r.item.keywords ?? [])].some((t) => t.toLowerCase().includes(q)))
   const left = start.data ? start.data.total - start.data.done : 0
+  const waitingTotal = Object.values(byRoute).reduce((s, c) => s + (c.count && c.count > 0 ? c.count : 0), 0)
+  const pageCount = all.reduce((s, g) => s + g.items.length, 0)
+
+  const columns: Column<DirRow>[] = [
+    {
+      key: "page",
+      header: "Page",
+      exportValue: (r) => r.item.label,
+      cell: (r) => {
+        const Icon = r.item.icon
+        return (
+          <span className="flex min-w-0 items-center gap-3 text-base font-medium">
+            <Icon className="size-4 shrink-0 text-fg-subtle" aria-hidden />
+            <span className="min-w-0 truncate">{r.item.label}</span>
+          </span>
+        )
+      },
+    },
+    { key: "group", header: "Kind of work", exportValue: (r) => r.group, cell: (r) => r.group },
+    {
+      key: "purpose",
+      header: "What it is for",
+      empty: "No description",
+      exportValue: (r) => r.item.purpose ?? "",
+      cell: (r) => r.item.purpose ?? null,
+    },
+    {
+      key: "waiting",
+      header: "Waiting",
+      align: "right",
+      exportKind: "number",
+      exportValue: (r) => (r.entry?.count && r.entry.count > 0 ? r.entry.count : 0),
+      cell: (r) => {
+        const waiting = r.entry?.count && r.entry.count > 0 ? r.entry.count : 0
+        if (r.entry?.note && !waiting) return <span className="font-normal text-fg-muted">{r.entry.note}</span>
+        return waiting > 0 ? (
+          <span
+            className={cn("font-semibold", r.entry?.tone === "critical" ? "text-critical" : "text-caution")}
+            aria-label={`${waiting.toLocaleString("en-IN")} need attention`}
+          >
+            {formatCount(waiting)}
+          </span>
+        ) : (
+          <span className="font-normal text-fg-muted">Nothing</span>
+        )
+      },
+    },
+  ]
 
   return (
-    <div className="page space-y-10">
-      <PageHeader title="Admin" spot="spot-settings" />
+    <div className="page space-y-6">
+      <PageHeader
+        title="Admin"
+        sub="Every admin page, by the job it does. Open one from the table."
+        action={
+          start.data && !start.data.complete ? (
+            <Button asChild kind="primary">
+              <Link to="/admin/start">{left === 1 ? "Do the last step" : "Continue"}</Link>
+            </Button>
+          ) : undefined
+        }
+      />
 
-      {start.data && !start.data.complete && (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-y border-line py-4">
-          <div>
-            <p className="text-base font-medium">Get the college running</p>
-            <p className="text-sm text-fg-muted tabular">
-              {start.data.done} of {start.data.total} steps done
-            </p>
-          </div>
-          <Button asChild kind="primary">
-            <Link to="/admin/start">{left === 1 ? "Do the last step" : "Continue"}</Link>
-          </Button>
-        </div>
-      )}
+      <Answer
+        items={[
+          { value: pageCount, label: "Admin pages" },
+          { value: counts.data ? waitingTotal : null, label: "Things waiting on these pages", tone: "caution", zero: "Nothing is waiting" },
+          ...(start.data
+            ? [{ value: left, label: "Steps left to get the college running", to: "/admin/start", zero: "The college is running" }]
+            : []),
+        ]}
+      />
 
-      <div className="relative max-w-md">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" aria-hidden />
+      <div className={filterBar} role="search">
         <Input
           type="search"
           value={find}
           onChange={(e) => setFind(e.target.value)}
           placeholder="Find a page"
           aria-label="Find an admin page"
-          className="pl-9"
+          className="w-full min-w-0 sm:w-80"
         />
+        <Select aria-label="Kind of work" value={group} onChange={(e) => setGroup(e.target.value)} className="w-auto max-sm:w-full">
+          <option value="">Every kind of work</option>
+          {all.map((s) => (
+            <option key={s.title} value={s.title}>
+              {s.title}
+            </option>
+          ))}
+        </Select>
+        {(find || group) && (
+          <Button
+            kind="quiet"
+            onClick={() => {
+              setFind("")
+              setGroup("")
+            }}
+          >
+            Clear filters
+          </Button>
+        )}
       </div>
 
-      {sections.length === 0 ? (
-        <p className="text-base text-fg-muted">No admin page matches &ldquo;{find.trim()}&rdquo;.</p>
-      ) : (
-        <div className="lg:columns-2 lg:gap-x-12">
-          {sections.map((s) => (
-            <section key={s.title} aria-labelledby={`dir-${s.title}`} className="mb-8 min-w-0 break-inside-avoid">
-              <SectionTitle>
-                <span id={`dir-${s.title}`}>{s.title}</span>
-              </SectionTitle>
-              <ul className="mt-1 divide-y divide-line border-y border-line">
-                {s.items.map((item) => (
-                  <Row key={item.to} item={item} entry={byRoute[item.to]} />
-                ))}
-              </ul>
-            </section>
-          ))}
-        </div>
-      )}
+      <Table
+        rows={rows}
+        columns={columns}
+        getKey={(r) => r.item.to}
+        rowLink={(r) => r.item.to}
+        maxHeight="none"
+        caption="Admin pages"
+        tools={{ id: "admin-pages", title: "Admin pages" }}
+        empty={{
+          icon: Search,
+          title: "No admin page matches",
+          message: find.trim() ? `Nothing matches \u201C${find.trim()}\u201D.` : "No page in this kind of work.",
+          action: (
+            <Button
+              kind="default"
+              onClick={() => {
+                setFind("")
+                setGroup("")
+              }}
+            >
+              Clear filters
+            </Button>
+          ),
+        }}
+      />
     </div>
   )
 }

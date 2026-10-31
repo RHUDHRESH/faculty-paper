@@ -21,6 +21,7 @@ import io
 from typing import Optional
 
 from django.http import HttpRequest, HttpResponse
+from django.utils import timezone
 
 from core.api.common import _csv_row, api, require_user, session_auth
 from core.api.deps import _format_payout_month
@@ -36,7 +37,7 @@ def academic_year_start(today: date | None = None) -> date:
     """
     from core.services import research_threshold
 
-    return research_threshold.year_bounds(today or date.today())[0]
+    return research_threshold.year_bounds(today or timezone.localdate())[0]
 
 
 def ledger_for(user) -> "PaidLedger.objects":

@@ -33,4 +33,4 @@ class SyncPasswordTests(TestCase):
         call_command("sync_faculty_users", verbosity=0)
         hashes = set(User.objects.filter(email__startswith="p").values_list("password", flat=True))
         self.assertEqual(len(hashes), 3)
-        self.assertTrue(all(u.must_change_password for u in User.objects.filter(email__startswith="p")))
+        self.assertFalse(any(u.must_change_password for u in User.objects.filter(email__startswith="p")))

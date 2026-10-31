@@ -41,34 +41,7 @@ export type IllustrationName =
   | "network-bridge"
   | "scopus-pull"
 
-/**
- * A house illustration on its plate (docs/ux/00 §4): a rounded-3xl area-wash
- * rectangle that keeps the fixed-colour SVG legible in dark mode. Width is
- * the caller's: ≤200px for empty states, 120px in the method picker, 480px
- * on the landing hero. Decorative — the heading beside it says the thing.
- */
-export function Illustration({
-  name,
-  area = "record",
-  className,
-  plate = true,
-}: {
-  name: IllustrationName
-  area?: Area
-  className?: string
-  plate?: boolean
-}) {
-  return (
-    <div data-area={area} className={cn(plate && "rounded-3xl bg-(--area-wash) p-3", "w-full max-w-[200px]", className)}>
-      <img
-        src={`/illustrations/${name}.svg`}
-        alt=""
-        aria-hidden
-        width={320}
-        height={200}
-        draggable={false}
-        className="h-auto w-full select-none"
-      />
-    </div>
-  )
+/** Decorative: renders nothing in the minimalist skin. */
+export function Illustration(_props: { name: IllustrationName; area?: Area; className?: string; plate?: boolean }) {
+  return null
 }

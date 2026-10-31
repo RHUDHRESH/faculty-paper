@@ -10,7 +10,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 import type { Me } from "@/app/auth"
 import { api } from "@/lib/api"
 import { Audit, collapseRuns } from "@/pages/audit"
-import { fakeApi, renderWithProviders } from "@/test/harness"
+import { FACULTY, fakeApi, renderWithProviders } from "@/test/harness"
 
 /**
  * The log's first screen was fifty-three identical "claim flag raise" rows and
@@ -113,5 +113,13 @@ describe("Audit — the first screen", () => {
     expect(screen.getByRole("link", { name: "Claim ERP-PROCESSED-9" }).getAttribute("href")).toBe("/papers/c1")
     // No raw code is shown on the row.
     expect(screen.queryByText("CLAIM_DATA_FIX")).toBeNull()
+  })
+
+  it("is closed to a faculty member without asking for the log, its origins or its actions", async () => {
+    vi.mocked(api).mockImplementation(fakeApi({ "/api/auth/me": () => FACULTY, "/api/admin/audit": () => ({ total: 0, results: [] }) }))
+    renderWithProviders(<Audit />)
+    expect(await screen.findByText("Not open to this account")).toBeInTheDocument()
+    const paths = vi.mocked(api).mock.calls.map(([path]) => String(path))
+    expect(paths.some((p) => p.startsWith("/api/admin/audit"))).toBe(false)
   })
 })

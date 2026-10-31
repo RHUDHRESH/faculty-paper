@@ -1,14 +1,16 @@
 import { paperTitle } from "@/lib/names"
 import { useState } from "react"
 import { Link, useParams, useSearchParams } from "react-router-dom"
-import { Download, Play, Upload } from "lucide-react"
+import { Play, Upload } from "lucide-react"
 
 import { useCrumbLabel } from "@/app/crumbs"
 import { api } from "@/lib/api"
 import { useApi, useApiMutation } from "@/lib/query"
 import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
-import { Field, Input } from "@/ui/field"
+import { Field, Input, Select } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
+import { MoreMenu } from "@/pages/more-menu"
 import { PageHeader } from "@/ui/page-header"
 import { Avatar, initialsOf } from "@/ui/person"
 import { Details, Section } from "@/ui/section"
@@ -58,11 +60,14 @@ const day = (iso: string) => new Date(iso).toLocaleDateString("en-IN", { day: "n
 export function Batches() {
   const { data, isLoading, error, refetch } = useApi<Batch[]>(["monthly"], "/api/monthly")
   const [uploading, setUploading] = useState(false)
+  const [search, setSearch] = useState("")
+  const [state, setState] = useState("")
 
   const columns: Column<Batch>[] = [
     {
       key: "name",
       header: "Run",
+      exportValue: (b) => b.name,
       cell: (b) => (
         <Link to={`/batches/${b.id}`} className="block underline-offset-2 hover:underline">
           <span className="block truncate text-base">{b.name}</span>
@@ -75,10 +80,25 @@ export function Batches() {
         </Link>
       ),
     },
-    { key: "rows", header: "Rows", align: "right", cell: (b) => b.row_count.toLocaleString("en-IN") },
+    { key: "rows", header: "Rows", align: "right", exportValue: (b) => b.row_count, cell: (b) => b.row_count.toLocaleString("en-IN") },
+    {
+      key: "by",
+      header: "Uploaded by",
+      defaultHidden: true,
+      exportValue: (b) => b.created_by,
+      cell: (b) => b.created_by,
+    },
+    {
+      key: "day",
+      header: "Uploaded on",
+      defaultHidden: true,
+      exportValue: (b) => day(b.created_at),
+      cell: (b) => day(b.created_at),
+    },
     {
       key: "status",
       header: "Where it stands",
+      exportValue: (b) => statusLabel(b.status) + (b.error_message ? `. ${b.error_message}` : ""),
       cell: (b) => (
         <span>
           <span className={b.status === "FAILED" ? "block text-sm text-critical" : "block text-sm"}>{statusLabel(b.status)}</span>
@@ -90,13 +110,16 @@ export function Batches() {
 
   const failed = (data ?? []).filter((b) => b.status === "FAILED").length
   const latest = data?.[0]
+  const needle = search.trim().toLowerCase()
+  const shownRuns = (data ?? []).filter(
+    (b) => (!state || b.status === state) && (!needle || [b.name, b.created_by].some((v) => v.toLowerCase().includes(needle)))
+  )
 
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-6">
       <PageHeader
         title="Monthly runs"
         sub="Each month's Scopus sheet, looked up and matched."
-        spot="spot-imports"
         action={
           <Button kind={uploading ? "default" : "primary"} size="md" onClick={() => setUploading(true)}>
             <Upload aria-hidden />
@@ -129,7 +152,7 @@ export function Batches() {
         />
       ) : (
         <>
-          <section aria-label="The answer" className="space-y-3">
+          <div className="space-y-3">
             <Answer
               items={[
                 { value: latest ? latest.name : null, label: latest ? `Latest run, ${day(latest.created_at)}` : "Latest run", to: latest ? `/batches/${latest.id}` : undefined },
@@ -137,10 +160,44 @@ export function Batches() {
                 { value: failed, label: "Failed runs", tone: "critical", zero: "None failed" },
               ]}
             />
-          </section>
-          <Section title="All runs">
-            <Table rows={data} columns={columns} getKey={(b) => b.id} caption="Monthly runs, newest first" maxHeight="none" />
-          </Section>
+          </div>
+          <div className={filterBar} role="search">
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by run name or who uploaded it"
+              aria-label="Search the runs"
+              className="w-full min-w-0 sm:w-80"
+            />
+            <Select aria-label="Where it stands" value={state} onChange={(e) => setState(e.target.value)} className="w-auto max-sm:w-full">
+              <option value="">Every run</option>
+              {Object.entries(STATUS_LABEL).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </Select>
+            {(search || state) && (
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  setSearch("")
+                  setState("")
+                }}
+              >
+                Clear filters
+              </Button>
+            )}
+          </div>
+          <Table
+            rows={shownRuns}
+            columns={columns}
+            getKey={(b) => b.id}
+            caption="Monthly runs, newest first"
+            maxHeight="none"
+            tools={{ id: "monthly-runs", title: "Monthly runs" }}
+            empty={{ title: "No run matches", message: "Nothing fits the search or the choice above." }}
+          />
         </>
       )}
     </div>
@@ -250,6 +307,8 @@ export function Batch() {
   const { id } = useParams<{ id: string }>()
   const [params] = useSearchParams()
   const unmatchedOnly = params.get("show") === "unmatched"
+  const [, setParams] = useSearchParams()
+  const [find, setFind] = useState("")
   const { data, isLoading, error, refetch } = useApi<BatchDetail>(["monthly", id], `/api/monthly/${id}`, {
     enabled: !!id,
   })
@@ -285,14 +344,18 @@ export function Batch() {
   const matched = data.rows.filter((r) => r.linkage === "MATCHED").length
   const unmatched = data.rows.length - matched
   const running = data.status === "RUNNING"
-  const shown = unmatchedOnly ? data.rows.filter((r) => r.linkage !== "MATCHED") : data.rows
+  const findNeedle = find.trim().toLowerCase()
+  const shown = (unmatchedOnly ? data.rows.filter((r) => r.linkage !== "MATCHED") : data.rows).filter(
+    (r) => !findNeedle || [r.paper_title, r.matched_title, r.journal, r.author_id_raw].some((v) => String(v ?? "").toLowerCase().includes(findNeedle))
+  )
 
   const columns: Column<BatchRow>[] = [
-    { key: "n", header: "Row", align: "right", cell: (r) => r.row_number },
+    { key: "n", header: "Row", align: "right", exportValue: (r) => r.row_number, cell: (r) => r.row_number },
     {
       key: "paper",
       header: "Paper",
       className: "max-w-[20rem]",
+      exportValue: (r) => r.matched_title || paperTitle(r.paper_title),
       cell: (r) => (
         <span className="block">
           <span className="block truncate text-sm">{r.matched_title || paperTitle(r.paper_title)}</span>
@@ -304,6 +367,7 @@ export function Batch() {
       key: "journal",
       header: "Journal",
       className: "max-w-[14rem]",
+      exportValue: (r) => r.journal,
       cell: (r) =>
         r.journal ? (
           <span className="block">
@@ -312,21 +376,25 @@ export function Batch() {
           </span>
         ) : null,
     },
-    { key: "q", header: "Quartile", cell: (r) => r.sjr_quartile },
-    { key: "snip", header: "SNIP", align: "right", cell: (r) => (r.snip == null || Number.isNaN(Number(r.snip)) ? null : Number(r.snip).toFixed(3)) },
+    { key: "q", header: "Quartile", exportValue: (r) => r.sjr_quartile, cell: (r) => r.sjr_quartile },
+    { key: "snip", header: "SNIP", align: "right", exportValue: (r) => (r.snip == null ? null : Number(r.snip)), cell: (r) => (r.snip == null || Number.isNaN(Number(r.snip)) ? null : Number(r.snip).toFixed(3)) },
     {
       key: "linkage",
       header: "Matched to a journal",
+      exportValue: (r) => (r.linkage === "MATCHED" ? "Yes" : r.linkage ? "No" : "Not yet"),
       cell: (r) =>
         r.linkage === "MATCHED" ? "Yes" : <span className="text-fg-muted">{r.linkage ? "No" : "Not yet"}</span>,
     },
   ]
 
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-6">
       <PageHeader
         title={data.name}
+        sub="Each row of the sheet, looked up and matched to a journal."
         action={
+          <>
+          <MoreMenu items={[{ label: "Export this run as a spreadsheet", onSelect: () => { window.location.href = `/api/monthly/${data.id}/export` } }]} />
           <Button
             kind="primary"
             size="md"
@@ -344,10 +412,11 @@ export function Batch() {
             <Play aria-hidden />
             {running ? "In progress" : data.status === "DONE" ? "Run again" : "Start the run"}
           </Button>
+          </>
         }
       />
 
-      <section aria-label="The answer" className="space-y-3">
+      <div className="space-y-3">
         <Answer
           items={[
             { value: data.rows.length, label: "Rows in the sheet", to: "?", zero: "The sheet had no rows" },
@@ -356,13 +425,7 @@ export function Batch() {
             { value: statusLabel(data.status), label: "Where the run stands", tone: data.status === "FAILED" ? "critical" : "neutral" },
           ]}
         />
-        <Button kind="default" size="sm" asChild>
-          <a href={`/api/monthly/${data.id}/export`}>
-            <Download aria-hidden />
-            Export this run as a spreadsheet
-          </a>
-        </Button>
-      </section>
+      </div>
 
       {data.error_message ? (
         <Callout tone="critical" title="This run stopped">
@@ -377,22 +440,52 @@ export function Batch() {
         </Callout>
       ) : null}
 
-      <Section
-        title={unmatchedOnly ? `Rows not matched (${unmatched.toLocaleString("en-IN")})` : "Rows"}
-        action={
-          unmatchedOnly ? (
-            <Button kind="default" size="sm" asChild>
-              <Link to="?">Show all {data.rows.length.toLocaleString("en-IN")} rows</Link>
-            </Button>
-          ) : undefined
-        }
-      >
+      <div className="space-y-4">
+        {data.rows.length > 0 && (
+          <div className={filterBar} role="search">
+            <Input
+              value={find}
+              onChange={(e) => setFind(e.target.value)}
+              placeholder="Search paper, journal or author ID"
+              aria-label="Search the rows"
+              className="w-full min-w-0 sm:w-80"
+            />
+            <Select
+              aria-label="Which rows"
+              value={unmatchedOnly ? "unmatched" : ""}
+              onChange={(e) => setParams(e.target.value ? { show: e.target.value } : {}, { replace: true })}
+              className="w-auto max-sm:w-full"
+            >
+              <option value="">All {data.rows.length.toLocaleString("en-IN")} rows</option>
+              <option value="unmatched">Not matched ({unmatched.toLocaleString("en-IN")})</option>
+            </Select>
+            {(find || unmatchedOnly) && (
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  setFind("")
+                  setParams({}, { replace: true })
+                }}
+              >
+                Clear filters
+              </Button>
+            )}
+          </div>
+        )}
         {data.rows.length === 0 ? (
           <EmptyState art="empty-queue" title="No rows" message="Nothing was read from the file. Check the column names and upload it again." />
         ) : (
-          <Table rows={shown} columns={columns} getKey={(r) => r.id} caption="Rows of this run" empty={{ title: "Every row matched", message: "Nothing to look at." }} />
+          <Table
+            rows={shown}
+            columns={columns}
+            getKey={(r) => r.id}
+            caption="Rows of this run"
+            maxHeight="none"
+            tools={{ id: "monthly-run-rows", title: data.name }}
+            empty={{ title: unmatchedOnly && !find ? "Every row matched" : "No row matches", message: unmatchedOnly && !find ? "Nothing to look at." : "Nothing fits the search or the choice above." }}
+          />
         )}
-      </Section>
+      </div>
     </div>
   )
 }

@@ -84,9 +84,9 @@ class Command(BaseCommand):
             role=Role.DIRECTOR,
             department=options.get("department"),
             designation=options.get("designation"),
-            # Forces the choose-a-password dialog the moment they first sign
-            # in, on whatever screen they land on.
-            must_change_password=True,
+            # Never forces a password dialog: changing it is voluntary (Profile
+            # settings).
+            must_change_password=False,
             active=True,
         )
         # No password is chosen here, by anybody. Until a super admin sets one

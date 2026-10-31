@@ -140,7 +140,7 @@ class RealRun(Base):
             user = authenticate(username=row["Email"], password=row["Password"])
             self.assertIsNotNone(user, row["Email"])
             user.refresh_from_db()
-            self.assertTrue(user.must_change_password)
+            self.assertFalse(user.must_change_password)
             self.assertFalse(user.check_password("old-pass-1"))
         self.assertEqual(len({x["Password"] for x in rows}), 3, "one each, none shared")
 

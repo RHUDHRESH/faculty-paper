@@ -128,11 +128,18 @@ def earlier_payment(claim: Claim) -> dict[str, Any] | None:
             "paid_month": month, "amount": other.remuneration, "reference": other.ticket_number,
         }
     staff = (claim.owner.staff_id or "").strip()
-    if not staff:
-        return None
+    if staff:
+        prior = PriorPayment.objects.filter(employee_id__iexact=staff)
+    else:
+        # No staff id to join on is not a reason to skip the check: the old
+        # workbook was keyed by name too. Same DOI or long exact title still
+        # has to match, so a namesake's different paper is not caught.
+        name = (claim.owner.name or "").strip()
+        if not name:
+            return None
+        prior = PriorPayment.objects.filter(faculty_name__iexact=name)
     # A claim imported from the workbook has its own payment-history row
     # (claim_ref is its ticket number); that row is this claim, not an earlier one.
-    prior = PriorPayment.objects.filter(employee_id__iexact=staff)
     if claim.ticket_number:
         prior = prior.exclude(claim_ref=claim.ticket_number)
     hit = None
@@ -154,8 +161,19 @@ def earlier_payment(claim: Claim) -> dict[str, Any] | None:
 
 def history_match_is_settled(claim: Claim) -> bool:
     """Somebody decided this earlier payment is not the same money, and a
-    second person agreed. Only then may the claim be paid despite it."""
+    second person agreed. Only then may the claim be paid despite it.
+
+    Both are staff, named, and neither is the claimant: the claimant
+    contesting the warning is not the decision (`override_by` is set only by
+    the office), and the Principal's or Director's routine approval is not
+    the second sign-off (`second_approved_by` is set on a duplicate-flagged
+    claim only by the explicit second-approve). The two are different people,
+    and the second is not whoever cleared it.
+    """
+    decided, second = claim.override_by_id, claim.second_approved_by_id
     return bool(
         claim.duplicate_warning and claim.override_duplicate
-        and claim.second_approved_by_id and claim.second_approved_by_id != claim.cleared_by_id
+        and decided and second and decided != second
+        and second != claim.cleared_by_id
+        and claim.owner_id not in (decided, second)
     )

@@ -25,10 +25,11 @@ import { Journey, claimStatus, facultyStage } from "@/ui/journey"
 import { CopyButton } from "@/ui/copy"
 import { When } from "@/ui/when"
 import { Avatar } from "@/ui/person"
-import { Picture, topicPicture } from "@/ui/picture"
+import { Answer } from "@/ui/answer"
+import { PageHeader } from "@/ui/page-header"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonText } from "@/ui/state"
 import { ClaimThresholdNote } from "@/ui/research-threshold"
-import { Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { Meta, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { PrintStamp } from "@/pages/reports-print"
 import { FixView } from "@/pages/fix/fix-view"
@@ -246,7 +247,7 @@ export function PaperDetail() {
 
   if (isLoading) {
     return (
-      <div className="page space-y-8 py-8">
+      <div className="page space-y-8">
         <Skeleton className="h-4 w-24" />
         <div className="space-y-2">
           <Skeleton className="h-7 w-2/3 max-w-md" />
@@ -260,7 +261,7 @@ export function PaperDetail() {
   if (error) {
     if (error.status === 403) {
       return (
-        <div className="page py-8">
+        <div className="page">
           {/* The server's own sentence when it sent one. The only 403 this
               endpoint returns is the head-of-department refusal, which
               explains where their answer actually lives — and a page that
@@ -278,7 +279,7 @@ export function PaperDetail() {
     }
     if (error.status === 404) {
       return (
-        <div className="page py-8">
+        <div className="page">
           <ErrorState
             title="This paper does not exist"
             message="It may have been withdrawn, or the link is wrong."
@@ -287,7 +288,7 @@ export function PaperDetail() {
       )
     }
     return (
-      <div className="page py-8">
+      <div className="page">
         <ErrorState onRetry={() => void refetch()} />
       </div>
     )
@@ -295,7 +296,7 @@ export function PaperDetail() {
 
   if (!claim) {
     return (
-      <div className="page py-8">
+      <div className="page">
         <EmptyState title="Nothing here" message="This paper has no record to show." />
       </div>
     )
@@ -353,10 +354,15 @@ export function PaperDetail() {
   const dates = ticketDates(claim)
   const waiting = waitingLine(claim)
   const provenance = provenanceLines(claim)
-  const topic = topicPicture(claim.paper_title, claim.journal_title)
+
+  const primaryAction = canEdit ? (
+    <Button kind="primary" asChild>
+      <Link to={`/papers/${claim.id}/edit`}>{claimStatus(claim) === "REJECTED" ? "Fix and resend" : "Continue this draft"}</Link>
+    </Button>
+  ) : null
 
   return (
-    <div className="page space-y-10 py-8 print:space-y-6 print:py-0">
+    <div className="page space-y-8 print:space-y-6">
       <PrintStamp title={`Incentive claim receipt${claim.ticket_number ? `, claim no. ${claim.ticket_number}` : ""}`} scope={`stage: ${(claim.faculty_stage || facultyStage(claimStatus(claim))).toLowerCase()}`} />
       {/* The one sentence a sent-back paper's owner came here for, before
           anything else — including the back link. */}
@@ -385,7 +391,7 @@ export function PaperDetail() {
       {isOwner || window.history.length <= 1 ? (
         <Link
           to={isOwner ? "/papers" : "/"}
-          className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg print:hidden"
+          className="inline-flex items-center gap-1 text-base text-fg-muted hover:text-fg print:hidden"
         >
           <ArrowLeft className="size-3.5" aria-hidden />
           {isOwner ? "My papers" : "Home"}
@@ -394,23 +400,21 @@ export function PaperDetail() {
         <button
           type="button"
           onClick={() => navigate(-1)}
-          className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg print:hidden"
+          className="inline-flex items-center gap-1 text-base text-fg-muted hover:text-fg print:hidden"
         >
           <ArrowLeft className="size-3.5" aria-hidden />
           Back
         </button>
       )}
 
-      <header className="space-y-6">
-        <div className="flex items-start justify-between gap-6">
-          <div className="min-w-0">
-            <PageTitle className="break-words">{paperTitle(claim.paper_title)}</PageTitle>
-            <Sub className="mt-2">
-              {unshout(claim.journal_title) || "Journal not given"}
-              {claim.quartile ? ` · ${claim.quartile}` : ""}
-              {claim.publication_year ? ` · ${claim.publication_year}` : ""}
-            </Sub>
-            <p className="mt-1 flex items-center gap-1 text-sm text-fg-muted">
+      <PageHeader
+        title={<span className="break-words">{paperTitle(claim.paper_title)}</span>}
+        sub={
+          <>
+            {unshout(claim.journal_title) || "Journal not given"}
+            {claim.quartile ? `, ${claim.quartile}` : ""}
+            {claim.publication_year ? `, ${claim.publication_year}` : ""}
+            <span className="mt-1 flex items-center gap-1">
               {claim.ticket_number ? (
                 <>
                   Claim no. {claim.ticket_number}
@@ -419,58 +423,51 @@ export function PaperDetail() {
               ) : (
                 "Not filed yet"
               )}
-            </p>
-          </div>
-          {topic && <Picture name={topic} className="hidden size-28 shrink-0 sm:block" />}
-        </div>
+            </span>
+          </>
+        }
+        action={primaryAction}
+        className="print:pb-0"
+      />
 
-        {/* The journey: the one bold element on the page. */}
-        <div className="panel-lead space-y-3 p-4 sm:p-5">
-          {isOwner ? (
-            // The claimant sees how far it has come and how long it has
-            // waited -- never whose desk it is on (the college's rule).
-            <>
-              <Journey
-                stage={claim.faculty_stage || facultyStage(claimStatus(claim))}
-                daysWaiting={claim.days_waiting ?? claim.waiting_days ?? null}
-              />
-              <div className="space-y-1 border-t border-line pt-3 text-sm">
+      <section aria-label="Where this claim is" className="space-y-3 border-y border-line py-5">
+        {isOwner ? (
+          // The claimant sees how far it has come and how long it has
+          // waited -- never whose desk it is on (the college's rule).
+          <>
+            <Journey
+              stage={claim.faculty_stage || facultyStage(claimStatus(claim))}
+              daysWaiting={claim.days_waiting ?? claim.waiting_days ?? null}
+            />
+            <div className="space-y-1 text-base">
+              <p>
+                <span className="text-fg-muted">Needed from you: </span>
+                <span className={needFromYou(claim).action ? "font-medium" : undefined}>{needFromYou(claim).text}</span>
+              </p>
+              {payoutLine(claim, outlook) && <p className="text-fg-muted">{payoutLine(claim, outlook)}</p>}
+              {settled && (
                 <p>
-                  <span className="text-fg-muted">Needed from you: </span>
-                  <span className={needFromYou(claim).action ? "font-medium" : undefined}>{needFromYou(claim).text}</span>
+                  <Link
+                    to={statementLink(claim)}
+                    className="inline-flex items-center gap-1 font-medium text-accent underline-offset-4 hover:underline"
+                  >
+                    <Receipt className="size-4" aria-hidden />
+                    See it in your payment statement{monthPaid(claim) ? ` for ${monthPaid(claim)}` : ""}
+                  </Link>
                 </p>
-                {payoutLine(claim, outlook) && <p className="text-fg-muted">{payoutLine(claim, outlook)}</p>}
-                {settled && (
-                  <p>
-                    <Link
-                      to={statementLink(claim)}
-                      className="inline-flex items-center gap-1 font-medium text-accent underline-offset-4 hover:underline"
-                    >
-                      <Receipt className="size-3.5" aria-hidden />
-                      See it in your payment statement{monthPaid(claim) ? ` for ${monthPaid(claim)}` : ""}
-                    </Link>
-                  </p>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <p className="text-lg font-medium">{stage.label}</p>
-              <StageTrack stage={stage} />
-              <p className="text-sm text-fg-muted">{stage.who}</p>
-            </>
-          )}
-          {waiting && (!isOwner || settled) && <Meta className="block">{waiting}</Meta>}
-        </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-lg font-medium">{stage.label}</p>
+            <StageTrack stage={stage} />
+            <p className="text-base text-fg-muted">{stage.who}</p>
+          </>
+        )}
+        {waiting && (!isOwner || settled) && <Meta className="block text-base">{waiting}</Meta>}
 
-        <div className="flex flex-wrap items-center gap-2 print:hidden">
-          {canEdit && (
-            <Button kind="primary" asChild>
-              <Link to={`/papers/${claim.id}/edit`}>
-                {claimStatus(claim) === "REJECTED" ? "Fix and resend" : "Continue this draft"}
-              </Link>
-            </Button>
-          )}
+        <div className="flex flex-wrap items-center gap-2 pt-1 print:hidden">
           {!isOwner && !!me && claim.owner_id && (
             // Lands in the one-to-one chat with the paper attached as context.
             <Button kind="default" asChild>
@@ -504,7 +501,7 @@ export function PaperDetail() {
             </Button>
           )}
         </div>
-      </header>
+      </section>
 
       {fixable && (
         <FixView
@@ -547,67 +544,45 @@ export function PaperDetail() {
               : "What this pays"}
         </SectionTitle>
 
-        {/* The page's one lead surface. Of the four questions this screen
-            answers, this is the one nobody scrolls past, and until it had a
-            ground of its own the amount sat on the same white as the ISSN. */}
-        <div className="panel-lead space-y-4 p-4 sm:p-5">
-          {settled && isOwner && (
-            <div className="flex items-center gap-4 border-b border-line pb-4">
-              <Picture
-                name={claim.quartile === "Q1" ? "celebrate-top-quartile" : "celebrate-first-publication"}
-                className="size-20 shrink-0"
-              />
-              <div>
-                <p className="display text-display text-positive">Paid. Well done.</p>
-                <p className="text-sm text-fg-muted">
-                  The college has settled this paper. Thank you for publishing it.
-                </p>
-              </div>
-            </div>
-          )}
-          <div>
-            {/* A figure this size with no caption reads as a promise, and it
-                is not one until the Director has authorised it. */}
-            {!claim.calc_error && (
-              <p className="text-sm text-fg-muted">{amountCaption(claim, settled)}</p>
-            )}
-            {claim.calc_error ? (
-              <p className="text-lg font-medium text-critical">
-                No amount could be worked out for this paper
-              </p>
-            ) : (
-              <Figure className="mt-0.5 block text-3xl">{money(claim.remuneration)}</Figure>
-            )}
-            {categoryLabel(claim.remuneration_category) && (
-              <p className="mt-1 text-sm text-fg-muted">
-                {categoryLabel(claim.remuneration_category)}
+        {/* A figure with no caption reads as a promise, and it is not one
+            until the Director has authorised it: the label says which it is. */}
+        {claim.calc_error ? (
+          <p className="text-lg font-medium text-critical">No amount could be worked out for this paper</p>
+        ) : (
+          <Answer
+            items={[
+              {
+                value: money(claim.remuneration),
+                label: [amountCaption(claim, settled), categoryLabel(claim.remuneration_category)].filter(Boolean).join(". "),
+                tone: settled ? "positive" : "neutral",
+              },
+            ]}
+            className="sm:grid-cols-1 md:max-w-md"
+          />
+        )}
+        {settled && isOwner && (
+          <p className="text-base text-fg-muted">The college has settled this paper. Thank you for publishing it.</p>
+        )}
+        {claim.calc_error ? null : working.length > 0 ? (
+          <div className="space-y-2">
+            <p className="text-base font-medium">How that is worked out</p>
+            <PayoutWorking facts={claim} />
+            {claim.remuneration_category === "I" && (
+              // The old page printed `[(SNIP × 55,000) + QFA] × APP` and
+              // expanded neither initialism anywhere on the screen. The sum
+              // above is now the explanation; this stays only so an approver
+              // holding the policy document can see the two match, and it
+              // names both symbols where it uses them.
+              <p className="pt-1 text-sm text-fg-muted">
+                The policy writes this as [(SNIP × rate per point) + QFA] × APP,
+                where QFA is the quartile incentive and APP the author-position
+                share.
               </p>
             )}
           </div>
-
-          {claim.calc_error ? null : working.length > 0 ? (
-            <div className="space-y-2 border-t border-line pt-4">
-              <p className="text-sm font-medium">How that is worked out</p>
-              <PayoutWorking facts={claim} />
-              {claim.remuneration_category === "I" && (
-                // The old page printed `[(SNIP × 55,000) + QFA] × APP` and
-                // expanded neither initialism anywhere on the screen. The sum
-                // above is now the explanation; this stays only so an approver
-                // holding the policy document can see the two match, and it
-                // names both symbols where it uses them.
-                <p className="pt-1 text-xs text-fg-subtle">
-                  The policy writes this as [(SNIP × rate per point) + QFA] × APP,
-                  where QFA is the quartile incentive and APP the author-position
-                  share.
-                </p>
-              )}
-            </div>
-          ) : (
-            <p className="border-t border-line pt-4 text-sm text-fg-muted">
-              {noWorkingReason(claim, settled)}
-            </p>
-          )}
-        </div>
+        ) : (
+          <p className="text-base text-fg-muted">{noWorkingReason(claim, settled)}</p>
+        )}
 
         {claim.calc_error && (
           <Callout tone="critical" title="This amount could not be worked out">
@@ -648,7 +623,7 @@ export function PaperDetail() {
 
         <div className="space-y-1.5">
           {provenance.map((line) => (
-            <p key={line} className="text-sm text-fg-muted">
+            <p key={line} className="text-base text-fg-muted">
               {line}
             </p>
           ))}
@@ -668,7 +643,7 @@ export function PaperDetail() {
       <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-8 sm:grid-cols-2 [&>*]:min-w-0">
         <div className="space-y-3">
           <SectionTitle>The paper</SectionTitle>
-          <dl className="space-y-2 text-sm">
+          <dl className="space-y-2 text-base">
             <DetailRow label="Journal" value={unshout(claim.journal_title)} />
             <DetailRow
               label="DOI"
@@ -761,7 +736,7 @@ export function PaperDetail() {
         ) : claim.actions && claim.actions.length > 0 ? (
           <ul className="space-y-3 border-l border-line pl-4">
             {[...claim.actions].reverse().map((a) => (
-              <li key={a.id} className="text-sm">
+              <li key={a.id} className="text-base">
                 <p>{actionSentence(a)}</p>
                 <Meta>
                   {a.actor_name} · {formatDateTime(a.created_at)}
@@ -784,7 +759,7 @@ export function PaperDetail() {
             </p>
             <ul className="space-y-3 border-l border-line pl-4">
               {dates.map((d) => (
-                <li key={d.label} className="text-sm">
+                <li key={d.label} className="text-base">
                   <p>{d.label}</p>
                   {!d.month && (
                     <Meta>{[d.who, formatDateTime(d.at)].filter(Boolean).join(" · ")}</Meta>
@@ -1126,13 +1101,13 @@ function AuthorList({ claim }: { claim: Claim }) {
                 person={{ name: r.name, initials: r.initials || initialsOf(r.name), photo_url: r.photo_url }}
               />
             ) : (
-              <span aria-hidden className="inline-flex size-8 shrink-0 items-center justify-center text-xs text-fg-subtle">
+              <span aria-hidden className="inline-flex size-8 shrink-0 items-center justify-center text-sm text-fg-subtle">
                 {i + 1}
               </span>
             )}
             <span className="min-w-0">
               <span className="block truncate">{r.name}</span>
-              <span className="block text-xs text-fg-muted">
+              <span className="block text-sm text-fg-muted">
                 {i === 0 ? "First author" : `Author ${i + 1}`}
                 {r.college ? " · this college" : ""}
               </span>
@@ -1164,7 +1139,7 @@ function Confirmations({ rows, isOwner }: { rows: ClaimConfirmation[]; isOwner: 
             <Check className="mt-0.5 size-4 shrink-0 text-positive" aria-hidden />
             <div>
             <p className="text-sm">{r.text}</p>
-            <p className="text-xs text-fg-muted">
+            <p className="text-sm text-fg-muted">
               Confirmed {formatDateTime(r.ticked_at)}
               {r.user_name && !isOwner ? ` by ${r.user_name}` : ""} · wording version {r.text_version}
             </p>
@@ -1172,7 +1147,7 @@ function Confirmations({ rows, isOwner }: { rows: ClaimConfirmation[]; isOwner: 
           </li>
         ))}
       </ul>
-      <p className="text-xs text-fg-muted">
+      <p className="text-sm text-fg-muted">
         Stored with the claim{who && !isOwner ? ` for ${who}` : ""}
         {recorded ? ` on ${formatDateTime(recorded)}` : ""}.
       </p>

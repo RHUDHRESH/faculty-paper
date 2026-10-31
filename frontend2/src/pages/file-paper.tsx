@@ -1393,7 +1393,7 @@ export function FilePaper() {
           title="This paper can no longer be edited"
           message={`It is ${(stageName(existing.faculty_stage) || "in progress").toLowerCase()}. Only a draft, or a paper sent back to you for changes, can be edited.`}
           action={
-            <Button kind="default" size="sm" asChild>
+            <Button kind="default" asChild>
               <Link to={`/papers/${existing.id}`}>Open the paper</Link>
             </Button>
           }
@@ -1453,7 +1453,7 @@ export function FilePaper() {
         if (dirtyRef.current) setConfirmLeave(true)
         else navigate("/papers")
       }}
-      className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
+      className="inline-flex items-center gap-1 text-base text-fg-muted hover:text-fg"
     >
       <ArrowLeft className="size-3.5" aria-hidden />
       My papers
@@ -1647,7 +1647,7 @@ export function FilePaper() {
                 authors={form.authors.map((a) => ({ name: a.name, you: a.position === form.authorPosition }))}
                 sources={eid ? ["Scopus"] : undefined}
               />
-              <Button kind="default" size="sm" type="button" onClick={changePaper} className="self-start">
+              <Button kind="default" type="button" onClick={changePaper} className="self-start">
                 Change
               </Button>
             </div>
@@ -1732,7 +1732,7 @@ export function FilePaper() {
             {saveError || "The server did not answer."} Nothing typed here has been lost yet, but it only
             exists in this browser tab, so keep it open until this saves.
           </p>
-          <Button kind="default" size="sm" className="mt-2" onClick={() => void save()}>
+          <Button kind="default" className="mt-2" onClick={() => void save()}>
             Try saving again
           </Button>
         </Callout>
@@ -1752,7 +1752,7 @@ export function FilePaper() {
         <ClaimRulesDialog
           minReferences={rules.min_sec_references}
           trigger={
-            <Button kind="quiet" size="sm" type="button">
+            <Button kind="quiet" type="button">
               <AlertTriangle aria-hidden className="text-caution" />
               Filing conditions
             </Button>
@@ -1933,7 +1933,7 @@ function SectionList({ current, furthest, onJump }: { current: number; furthest:
   const sections = STEPS.slice(0, STEPS.length - 1)
   return (
     <nav aria-label="Details sections" className="mt-3">
-      <ol className="flex flex-wrap items-center gap-x-1 gap-y-1 text-[13px]">
+      <ol className="flex flex-wrap items-center gap-x-1 gap-y-1 text-sm">
         {sections.map((s, i) => {
           const here = i === current
           const reachable = i <= Math.max(furthest, current) && !here
@@ -1977,7 +1977,7 @@ function PhaseTrack({ current }: { current: number }) {
               <span
                 aria-hidden
                 className={cn(
-                  "grid size-5 shrink-0 place-items-center rounded-full border text-xs font-medium tabular",
+                  "grid size-5 shrink-0 place-items-center rounded-full border text-sm font-medium tabular",
                   here
                     ? "border-accent text-accent"
                     : done
@@ -1991,7 +1991,7 @@ function PhaseTrack({ current }: { current: number }) {
                 <span aria-hidden className={cn("mx-1.5 h-px flex-1", done ? "bg-accent/40" : "bg-line")} />
               )}
             </div>
-            <span className={cn("mt-1 text-xs", here ? "font-medium text-accent" : "text-fg-muted")}>
+            <span className={cn("mt-1 text-sm", here ? "font-medium text-accent" : "text-fg-muted")}>
               {label}
               <span className="sr-only">{done ? " (done)" : here ? " (current)" : ""}</span>
             </span>
@@ -2310,12 +2310,12 @@ function JournalStep({
           ))}
         </div>
         {err("indexing") && (
-          <p role="alert" className="text-xs text-critical">
+          <p role="alert" className="text-sm text-critical">
             {err("indexing")}
           </p>
         )}
         {form.indexing.includes("Scopus") && metrics?.snip != null && (
-          <p className="text-xs text-fg-muted">Scopus is ticked because the journal carries a Scopus SNIP.</p>
+          <p className="text-sm text-fg-muted">Scopus is ticked because the journal carries a Scopus SNIP.</p>
         )}
         <div className="grid gap-4 sm:grid-cols-2">
           {form.indexing.includes("AU Annexure") && (
@@ -2533,7 +2533,7 @@ function ClaimStep({
           aria-invalid={err("affiliation") ? true : undefined}
         />
         {err("affiliation") && (
-          <p role="alert" className="text-xs text-critical">
+          <p role="alert" className="text-sm text-critical">
             {err("affiliation")}
           </p>
         )}

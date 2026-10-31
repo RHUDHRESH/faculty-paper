@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass, field
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 #: Author Position Points. Row = total authors, column = position (1-indexed).
@@ -143,7 +144,19 @@ class CalcResult:
 
 
 def round2(n: float) -> float:
-    return round(n * 100) / 100
+    """Round to paise, a half going up (away from zero), on the decimal figure.
+
+    `round(n * 100) / 100` rounded on the binary float, so 0.125 gave 0.12
+    (banker's rounding of 12.5) and 2.675 gave 2.67 (the float is 2.67499...).
+    The shortest decimal form of the float is what a person wrote down, so
+    that is what is rounded. Returns a float, as before; the database columns
+    are still floats.
+    """
+    value = float(n)
+    if not math.isfinite(value):
+        raise ValueError(f"cannot round {n!r} to paise")
+    rounded = Decimal(repr(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return float(rounded) + 0.0  # + 0.0: never "-0.0"
 
 
 def _author_point_row(
@@ -198,7 +211,8 @@ def allocate_shares(base: float, row: list[float]) -> list[float]:
     floors = [math.floor(v) for v in exact]
     # The paper's own priced total, in paisa, computed the same way the shares
     # are so the two cannot disagree by a float artefact.
-    target = round(math.fsum(exact))
+    # Half-up, like round2, so a half-paisa total is not rounded the other way.
+    target = int(Decimal(repr(math.fsum(exact))).to_integral_value(rounding=ROUND_HALF_UP))
     short = max(0, target - sum(floors))
     order = sorted(range(len(row)), key=lambda i: (-(exact[i] - floors[i]), i))
     out = list(floors)
@@ -580,6 +594,11 @@ def calculate_remuneration(
     )
 
 
+def _rate(obj, name: str, default: float) -> float:
+    value = getattr(obj, name, None)
+    return float(default if value is None else value)
+
+
 def formula_from_model(obj) -> FormulaConfigInput:
     try:
         points = json.loads(obj.author_point_json)
@@ -602,9 +621,11 @@ def formula_from_model(obj) -> FormulaConfigInput:
         qf_no_snip=obj.qf_no_snip,
         qf_snip_only=obj.qf_snip_only,
         qf_others=float(getattr(obj, "qf_others", 0) or 0),
-        fixed_journal_no_snip=float(getattr(obj, "fixed_journal_no_snip", 5000) or 5000),
-        fixed_other_no_snip=float(getattr(obj, "fixed_other_no_snip", 4000) or 4000),
-        fixed_web_of_science=float(getattr(obj, "fixed_web_of_science", 5000) or 5000),
+        # Zero is a real rate (a category suspended), so only a missing or
+        # null one takes the default. `x or 5000` paid 5000 for a rate of 0.
+        fixed_journal_no_snip=_rate(obj, "fixed_journal_no_snip", 5000),
+        fixed_other_no_snip=_rate(obj, "fixed_other_no_snip", 4000),
+        fixed_web_of_science=_rate(obj, "fixed_web_of_science", 5000),
         max_authors=int(getattr(obj, "max_authors", MAX_ELIGIBLE_AUTHORS) or MAX_ELIGIBLE_AUTHORS),
         min_sec_references=int(
             getattr(obj, "min_sec_references", MIN_SEC_REFERENCES)

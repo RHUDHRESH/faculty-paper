@@ -1,9 +1,8 @@
 import { useEffect, useState, type CSSProperties } from "react"
-import { AlertTriangle, HelpCircle } from "lucide-react"
+import { AlertTriangle, HelpCircle, Inbox, Lock } from "lucide-react"
 
 import type { ArtName } from "@/ui/art"
 import type { IllustrationName } from "@/ui/illustration"
-import { Plate } from "@/ui/plate"
 import { Button } from "@/ui/button"
 import { cn } from "@/lib/cn"
 import { Link } from "react-router-dom"
@@ -216,49 +215,25 @@ export function EmptyState({
   className,
 }: EmptyStateProps) {
   const g = guide ? guideById(guide) : undefined
-  const drawing = illustration ?? (art ? ART_ILLUSTRATION[art] : undefined)
+  void art
+  void illustration
+  void caption
+  const Glyph = Icon ?? Inbox
   const compact = size === "compact"
   return (
     <div
       className={cn(
         "flex flex-col items-center gap-1.5 px-6 text-center",
-        // A compact empty state is a shelf inside a page and keeps its ground;
-        // a region or a page stands on the paper, and the mount gives the
-        // picture its own object-ness (DESIGN.md, "Empty, error and loading").
-        compact ? "rounded-panel bg-sunken py-10" : size === "page" ? "py-16" : "py-12",
+        compact ? "rounded-xl bg-sunken py-10" : size === "page" ? "py-16" : "py-12",
         className
       )}
     >
-      {drawing ? (
-        <Plate
-          name={drawing}
-          width={compact ? 96 : size === "page" ? 260 : 180}
-          caption={compact ? undefined : caption}
-          className="mb-4"
-        />
-      ) : (
-        Icon && (
-          // A well, so the glyph is an object on the shelf rather than a grey
-          // smudge floating on a grey ground.
-          <span
-            aria-hidden="true"
-            className="mb-3 flex size-11 items-center justify-center rounded-control bg-hover"
-          >
-            <Icon className="size-5 text-fg-muted" />
-          </span>
-        )
-      )}
-      {compact ? (
-        <p className="text-lg font-semibold text-fg">{title}</p>
-      ) : (
-        <p className="display text-display max-w-[20ch] text-balance text-fg">{title}</p>
-      )}
-      {message && (
-        <p className={cn("text-pretty text-fg-muted", compact ? "max-w-sm text-base" : "mt-1 max-w-md text-lead")}>
-          {message}
-        </p>
-      )}
-      {action && <div className="mt-5">{action}</div>}
+      <span aria-hidden="true" className="mb-2 flex size-10 items-center justify-center rounded-full bg-sunken">
+        <Glyph className="size-5 text-fg-muted" />
+      </span>
+      <p className="text-balance text-base font-semibold text-fg">{title}</p>
+      {message && <p className="max-w-md text-pretty text-sm text-fg-muted">{message}</p>}
+      {action && <div className="mt-4">{action}</div>}
       {g && (
         <Button asChild kind="quiet" size="sm" className="mt-2">
           <Link to={`/help#${g.id}`} aria-label={`How to: ${g.title.charAt(0).toLowerCase() + g.title.slice(1)}`}>
@@ -282,9 +257,11 @@ export function EmptyState({
 export function NotOpen({ message, className }: { message: string; className?: string }) {
   return (
     <div className={cn("flex flex-col items-center gap-1.5 px-6 py-12 text-center", className)}>
-      <Plate name={ART_ILLUSTRATION["closed-gate"]} width={132} className="mb-3" />
-      <h1 className="text-lg font-semibold text-fg">Not open to this account</h1>
-      <p className="max-w-sm text-pretty text-base text-fg-muted">{message}</p>
+      <span aria-hidden="true" className="mb-2 flex size-10 items-center justify-center rounded-full bg-sunken">
+        <Lock className="size-5 text-fg-muted" />
+      </span>
+      <h1 className="text-base font-semibold text-fg">Not open to this account</h1>
+      <p className="max-w-sm text-pretty text-sm text-fg-muted">{message}</p>
     </div>
   )
 }
@@ -313,7 +290,7 @@ export function ErrorState({
   // reader that the heading carries no information and to stop reading it.
   title = what ? `Could not load ${what}` : "Could not load this",
   message = "The server did not answer. Nothing was lost.",
-  art = "could-not-load",
+  art: _art,
   onRetry,
   className,
 }: {
@@ -337,13 +314,15 @@ export function ErrorState({
     <div
       role="alert"
       className={cn(
-        "flex flex-col items-center gap-1.5 rounded-panel bg-critical-wash px-6 py-12 text-center",
+        "flex flex-col items-center gap-1.5 rounded-xl border border-edge bg-surface px-6 py-12 text-center",
         className
       )}
     >
-      <Plate name={ART_ILLUSTRATION[art]} width={132} className="mb-3" />
-      <p className="text-lg font-semibold text-fg">{title}</p>
-      <p className="max-w-sm text-pretty text-base text-fg-muted">{message}</p>
+      <span aria-hidden="true" className="mb-2 flex size-10 items-center justify-center rounded-full bg-sunken">
+        <AlertTriangle className="size-5 text-critical" />
+      </span>
+      <p className="text-base font-semibold text-fg">{title}</p>
+      <p className="max-w-sm text-pretty text-sm text-fg-muted">{message}</p>
       {onRetry !== false && (
         <Button kind="default" size="sm" onClick={onRetry ?? (() => window.location.reload())} className="mt-4">
           Try again

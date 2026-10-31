@@ -72,32 +72,44 @@ function mount(me: Me, today: unknown = TODAY) {
 }
 
 describe("the first desk's home", () => {
-  it("answers first: what is given to me, what is late, what came back", async () => {
+  it("shows four figures, each a link, and a table with its Export control", async () => {
     mount(CELL)
-    await waitFor(() => expect(screen.getAllByRole("status").map((e) => e.textContent).join(" ")).toMatch(/2 claims are.past 14 days/))
-    const given = screen.getByRole("link", { name: /1 is given to you/ })
+    // The account loads first; wait for this desk's own figures.
+    await screen.findByText("Sent back to the desk")
+    const group = screen.getByRole("group", { name: "At a glance" })
+    await waitFor(() => expect(group).toHaveTextContent("3 Waiting to clear"))
+    expect(within(group).getAllByRole("link")).toHaveLength(4)
+    expect(group).toHaveTextContent("3 Waiting to clear")
+    expect(group).toHaveTextContent("2 Sent back to the desk")
+    expect(group).toHaveTextContent("2 Late, past 14 days")
+    const table = (await screen.findByRole("heading", { name: "What needs your attention" })).closest("section")!
+    expect(within(table).getByRole("button", { name: /Export/ })).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Open the queue (3)" })).toHaveAttribute("href", "/clearing")
+  })
+
+  it("keeps the given-to-you link, and the coordinator's own figure off the cell's home", async () => {
+    mount(CELL)
+    const given = await screen.findByRole("link", { name: /1 claim is given to you/ })
     expect(given).toHaveAttribute("href", "/clearing?assigned=me")
-    expect(screen.getAllByRole("link", { name: "Open the queue (3)" }).length).toBeGreaterThan(0)
-    // The coordinator's own figure is not on the cell's home.
     expect(screen.queryByText(/not given to anyone/)).toBeNull()
   })
 
-  it("puts my claims before the oldest and opens the review page", async () => {
+  it("lists my claims and the oldest in one table and opens the review page", async () => {
     mount(CELL)
     const mine = await screen.findByRole("link", { name: /Review: Mine first/ })
     expect(mine).toHaveAttribute("href", "/review/m1?queue=clearing")
-    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)
-    expect(headings.indexOf("Given to you")).toBeLessThan(headings.indexOf("Oldest waiting, not given to you"))
+    expect(screen.getByRole("link", { name: /Review: Older one/ })).toBeInTheDocument()
+    expect(screen.getByText("Given to you")).toBeInTheDocument()
   })
 
   it("says what today's target is and how much is done", async () => {
     mount(CELL)
     const status = (await screen.findByText(/Today.s target/)).closest("p")!
-    expect(status).toHaveTextContent("decide 2 claims that are past 14 days or reach it today")
+    expect(status).toHaveTextContent("decide 2 claims past 14 days or reaching it today")
     expect(status).toHaveTextContent("You have decided 1 today, the desk 4. Target met.")
   })
 
-  it("separates what came back, saying who and why", async () => {
+  it("lists what came back in the table, saying who and why", async () => {
     mount(CELL)
     const fixed = await screen.findByText("Fixed by the claimant")
     const region = fixed.closest("section")!
@@ -116,7 +128,7 @@ describe("the first desk's home", () => {
 
   it("gives the coordinator the un-given count and who holds what", async () => {
     mount(COORD)
-    expect(await screen.findByRole("link", { name: /2 are not given to anyone/ })).toHaveAttribute("href", "/coordination")
+    expect(await screen.findByRole("link", { name: /2 claims are not given to anyone/ })).toHaveAttribute("href", "/coordination")
     expect(await screen.findByText("Who holds what")).toBeInTheDocument()
   })
 
@@ -137,6 +149,6 @@ describe("the first desk's home", () => {
   it("says so when nothing is waiting", async () => {
     mount(CELL, { ...TODAY, desk_open: 0, mine_count: 0, past_sla: 0, mine: [], rest: [], came_back: [], came_back_count: 0 })
     expect(await screen.findByText(/Nothing is waiting. The desk is clear./)).toBeInTheDocument()
-    expect(screen.getByText(/Nothing has come back/)).toBeInTheDocument()
+    expect(screen.getByText("Nothing came back")).toBeInTheDocument()
   })
 })

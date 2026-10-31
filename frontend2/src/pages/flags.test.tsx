@@ -140,7 +140,7 @@ describe("the flagged queue", () => {
       fakeApi({ "/api/auth/me": () => ADMIN, "/api/flags": () => page([FLAG]) })
     )
     renderWithProviders(<Flags />)
-    const groups = (await screen.findByText("What the open flags are about")).closest("section")!
+    const groups = await screen.findByLabelText("What the open flags are about")
     expect(groups).toHaveTextContent("The file does not match the claim")
     expect(screen.getByRole("link", { name: "1 Open on claims already paid" })).toHaveAttribute("href", "/flags?paid=yes")
     expect(screen.getByText(/were brought across from the old ERP workbook/)).toBeInTheDocument()
@@ -200,5 +200,17 @@ describe("the flagged queue", () => {
     await screen.findByText("Crop yield prediction in coastal districts")
     await user.keyboard("r")
     expect(await screen.findByRole("button", { name: "Resolve this flag" })).toBeInTheDocument()
+  })
+
+  it("lets a flag's text wrap on a phone, so one long unbroken name cannot widen the page", async () => {
+    const unbroken = "E".repeat(90)
+    const longName = { ...FLAG, note: unbroken }
+    vi.mocked(api).mockImplementation(
+      fakeApi({ "/api/auth/me": () => ADMIN, "/api/flags": () => page([longName]) })
+    )
+    renderWithProviders(<Flags />)
+    const paragraph = await screen.findByText(unbroken)
+    expect(paragraph.tagName).toBe("P")
+    expect(paragraph).toHaveClass("break-words", "[overflow-wrap:anywhere]")
   })
 })

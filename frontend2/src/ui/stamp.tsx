@@ -1,22 +1,9 @@
 import { cn } from "@/lib/cn"
 
 /**
- * The Stamp (DESIGN.md, "The Stamp"): the one authored motion in the app, and
- * the way a decision is confirmed. In an Indian college office a file is
- * decided by a rubber stamp and a date, so when somebody Clears, Approves,
- * Authorises or Pays, the answer is a stamp.
- *
- * A clay double ring around the verb in the display face's italic and the date
- * beneath in the interface face, turned three degrees, multiplied into the
- * paper. It lands in 360ms (scale 1.14 to 1, a 1px blur to sharp). With
- * reduced motion it appears without moving.
- *
- *   `verb`   what was decided, in the vocabulary (docs/ux/19): "Cleared",
- *            "Approved", "Authorised", "Paid". One word.
- *   `date`   a short date ("1 Oct"); defaults to today.
- *
- * Use it once, where the decision was made, or through `toast.stamp()`. It is
- * never decoration and never used for anything but a decision.
+ * A small success badge for a decision ("Cleared", "Approved", "Paid"), with
+ * the date available to assistive technology. `verb` is one word; `date`
+ * defaults to today.
  */
 export function Stamp({
   verb,
@@ -34,18 +21,11 @@ export function Stamp({
       role="img"
       aria-label={`${verb}, ${when}`}
       className={cn(
-        "stamp inline-flex select-none flex-col items-center justify-center rounded-lg px-4 py-1.5 text-accent",
-        // Two thin rings, the outer one a gap away: a stamp, not a badge.
-        "ring-2 ring-inset ring-accent shadow-[0_0_0_3px_var(--color-surface),0_0_0_4px_var(--color-accent)]",
+        "inline-flex select-none items-center rounded-md bg-positive-wash px-2 py-0.5 text-xs font-medium text-positive",
         className
       )}
     >
-      <span aria-hidden className="font-display text-display italic leading-none tracking-tight">
-        {verb}
-      </span>
-      <span aria-hidden className="mt-1 text-xs font-medium leading-none tabular">
-        {when}
-      </span>
+      <span aria-hidden>{verb}</span>
     </span>
   )
 }

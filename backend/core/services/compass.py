@@ -323,10 +323,15 @@ def _journals(user: User, college: picture._College, my_pubs: list[dict[str, Any
         key=lambda v: (on_topic[v] < 2, _QRANK.get(quartile.get(v, ""), 4), -on_topic[v], v),
     )[:4]
     year = helper._latest_year()
+    wanted = [*others, *own]
+    # Our own record of each journal, all asked for together: one at a time
+    # this was a scan of the year's Scimago rows per journal.
+    rows = discover.find_journals([names[v] for v in wanted], year=year)
+    described_all = discover.describe_journals([r for r in rows.values() if r])
     out = []
-    for v in [*others, *own]:
-        row = discover.find_journal(names[v], year=year)
-        described = discover.describe_journal(row) if row else {}
+    for v in wanted:
+        row = rows[names[v]]
+        described = described_all[row.id] if row else {}
         snip = described.get("snip")
         out.append({
             "id": _sid("j", v),

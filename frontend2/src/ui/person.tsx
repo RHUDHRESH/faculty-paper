@@ -32,7 +32,7 @@ export function initialsOf(name: string | null | undefined): string {
 /** Five sizes, and no others: 24, 32, 40, 64, 96 px. Initials are never below
  *  12px, so a fallback at 24px is still readable (DESIGN.md, "Avatar"). */
 const SIZE = {
-  xs: "size-6 text-xs tracking-tight",
+  xs: "size-6 text-xs",
   sm: "size-8 text-xs",
   md: "size-10 text-sm",
   lg: "size-16 text-lg",
@@ -171,7 +171,7 @@ export function Portrait({
   return (
     <span
       aria-hidden
-      className={cn(base, "grid place-items-center bg-navy-wash font-display text-5xl text-navy", className)}
+      className={cn(base, "grid place-items-center bg-accent-wash text-5xl font-semibold text-accent", className)}
     >
       {person?.initials || initialsOf(person?.name)}
     </span>

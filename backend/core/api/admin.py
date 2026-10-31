@@ -299,9 +299,8 @@ def admin_create_user(request: HttpRequest, payload: UserCreateIn):
             designation=payload.designation,
             scopus_author_url=payload.scopus_author_url,
             scopus_author_id=payload.scopus_author_id,
-            # An account with no usable password must be made to set one; the
-            # flag is not the caller's to turn off in that case.
-            must_change_password=payload.must_change_password or not payload.password,
+            # Password changes are voluntary only; the flag is never set.
+            must_change_password=False,
         )
         if u.role == Role.HOD:
             # A refusal here unwinds the account created just above.
@@ -405,7 +404,7 @@ def admin_reset_password(request: HttpRequest, user_id: str, payload: ResetPassw
     u = get_object_or_404(User, pk=user_id)
     _refuse_protected(actor, u, doing="reset the password of")
     u.set_password(payload.password)
-    u.must_change_password = True
+    u.must_change_password = False
     u.save()
     # A reset is how a locked-out person recovers — clear the lockout with it.
     clear_login_lockout(u.email)
@@ -427,7 +426,7 @@ def admin_reset_password_by_email(request: HttpRequest, payload: ResetPasswordBy
     u = get_object_or_404(User, email=payload.email.strip().lower())
     _refuse_protected(actor, u, doing="reset the password of")
     u.set_password(payload.password)
-    u.must_change_password = True
+    u.must_change_password = False
     u.save()
     # A reset is how a locked-out person recovers — clear the lockout with it.
     clear_login_lockout(u.email)
@@ -727,7 +726,7 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
         cfg = FormulaConfig.objects.create(
             name=payload.name or f"Policy v{next_version}",
             version=next_version,
-            effective_from=eff_from or timezone.now().date(),
+            effective_from=eff_from or timezone.localdate(),
             effective_to=eff_to,
             snip_multiplier=payload.snip_multiplier,
             snip_cap=payload.snip_cap,

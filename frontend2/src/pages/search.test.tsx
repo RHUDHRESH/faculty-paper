@@ -114,7 +114,7 @@ describe("/search", () => {
 
   it("People with no query is the directory, a hairline list with the department filter", async () => {
     renderWithProviders(<Search />, { route: "/search?scope=people" })
-    expect(await screen.findByText(/2 people at the college/)).toBeInTheDocument()
+    expect(await screen.findByText(/2 people at the college/i)).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Message Anu Person" })).toHaveAttribute("href", expect.stringContaining("/messages?to="))
     expect(screen.getByRole("link", { name: "Message Zed Person" })).toBeInTheDocument()
     expect(screen.getByRole("combobox", { name: /Department/ })).toBeInTheDocument()

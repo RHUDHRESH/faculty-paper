@@ -461,7 +461,11 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
         if not contest_note or len(contest_note.strip()) < 10:
             raise HttpError(400, "Add a short note (10+ characters) to send anyway")
         claim.contest_note = contest_note.strip()
-        if claim.duplicate_warning:
+        # The claimant contesting the warning is a note for the office, not a
+        # decision: a person does not set aside the warning on their own
+        # paper. Only staff filing for them record the override, and only the
+        # office can do it afterwards (`set_aside_duplicate`).
+        if claim.duplicate_warning and user.id != claim.owner_id:
             claim.override_duplicate = True
             claim.override_reason = claim.override_reason or contest_note.strip()
             # Against a name and a time: the person who releases the money has
@@ -722,6 +726,23 @@ def _require_own_desk(user: User, claim: Claim) -> None:
         raise HttpError(403, f"This paper is at {_DESK_NAMES[desk]}, which is not yours.")
 
 
+def _withdraw_second_signature(claim: Claim) -> None:
+    """Take off the second signature, and the decision it seconded.
+
+    A claim that goes back, is rejected or has its payment voided re-enters
+    the chain unsigned. Left on the row, a second signature (and a set-aside
+    payment-history warning) would let the resubmitted or repaid claim arrive
+    already "seconded", by somebody who never saw what it became. The warning
+    itself (`duplicate_warning`) stays, so a fresh decision is needed.
+    """
+    claim.second_approved_by = None
+    claim.second_approved_at = None
+    claim.override_duplicate = False
+    claim.override_by = None
+    claim.override_at = None
+    claim.override_reason = None
+
+
 def _withdraw_approvals(claim: Claim) -> None:
     """Take the desk signatures off a paper that is going back to the claimant.
 
@@ -736,6 +757,7 @@ def _withdraw_approvals(claim: Claim) -> None:
     claim.director_approved_by = None
     claim.director_approved_at = None
     claim.authorised_amount = None
+    _withdraw_second_signature(claim)
 
 
 def _transition(claim: Claim, user: User, to_status: str, action: str, note: str | None = None):
@@ -809,6 +831,23 @@ def _transition(claim: Claim, user: User, to_status: str, action: str, note: str
 #: fresh; put_formula invalidates. It also expires on its own, because only
 #: the process that served the edit sees that invalidation — another instance
 #: would otherwise show a stale badge indefinitely.
+def _routine_second_signature(claim: Claim, user: User) -> None:
+    """Let a Principal's or Director's approval double as the second signature.
+
+    On a high-value claim they are, by definition, a different pair of eyes
+    from the desk that cleared it, so their approval satisfies the
+    second-signature rule where one is outstanding. Not on a claim carrying a
+    payment-history warning: there the second signature is a decision about
+    whether the college already paid for this paper, and a routine approval
+    that never looked at the warning must not stand in for it. That one is
+    given only by the explicit second-approve.
+    """
+    if claim.duplicate_warning or claim.second_approved_by_id or claim.cleared_by_id == user.id:
+        return
+    claim.second_approved_by = user
+    claim.second_approved_at = timezone.now()
+
+
 def _guard_self_cleared_override(claim: Claim, actor: User) -> None:
     """The person who set the warning aside cannot also clear the ticket.
 
@@ -827,6 +866,22 @@ def _guard_self_cleared_override(claim: Claim, actor: User) -> None:
         )
 
 
+def _unpriced_reason(claim: Claim) -> str | None:
+    """Why the calculator could not price `claim`, or None when it did.
+
+    A claim it could not price has no amount, and `remuneration or 0` reads
+    that as nought, which a caller confirming "0" then clears, approves and
+    pays: a paid row at 0.00 for a paper nobody priced.
+    """
+    if not claim.calc_error and claim.remuneration is not None:
+        return None
+    return (
+        f"{claim.ticket_number or 'This claim'}: the calculator could not price this claim "
+        f"({claim.calc_error or 'no amount was worked out'}). Fix the calculation "
+        "(authors, position, indexing, journal details) before it is cleared, approved or paid."
+    )
+
+
 def _guard_recomputed_amount(claim: Claim, expected: float | None) -> None:
     """Recompute the money columns from the stored verified values and refuse
     to move money unless the actor confirmed exactly this amount.
@@ -836,6 +891,9 @@ def _guard_recomputed_amount(claim: Claim, expected: float | None) -> None:
     recalculation back too.
     """
     _apply_calc(claim)
+    unpriced = _unpriced_reason(claim)
+    if unpriced:
+        raise HttpError(409, unpriced)
     amount = round(claim.remuneration or 0, 2)
     if expected is None or abs(amount - round(float(expected), 2)) > 0.01:
         raise HttpError(
@@ -843,6 +901,39 @@ def _guard_recomputed_amount(claim: Claim, expected: float | None) -> None:
             f"The recomputed amount is ₹{amount:,.2f}. Review it and confirm again — "
             "money only moves at a confirmed amount.",
         )
+
+
+def _claim_columns(claim: Claim) -> dict[str, Any]:
+    """Every stored column of `claim` as it stands now, by attribute name."""
+    return {f.attname: getattr(claim, f.attname) for f in claim._meta.concrete_fields}
+
+
+def _persist_checked(claim: Claim, before: dict[str, Any]) -> Claim:
+    """Save what an outside check changed on `claim`, onto the claim as it is *now*.
+
+    A Scopus lookup takes seconds and the claim was read before it started.
+    Saving that copy whole would write every column back as it was, so a
+    payment made meanwhile was undone: DIRECTOR_APPROVED over PAID, `paid_at`
+    back to null, with the ledger row left behind. Instead the row is locked
+    and read again; if it has moved to another status the findings are
+    dropped (409), and otherwise only the columns the check changed are
+    written. `before` is `_claim_columns(claim)` taken before the check.
+    Returns the saved row.
+    """
+    changed = {k: v for k, v in _claim_columns(claim).items() if v != before[k]}
+    with transaction.atomic():
+        fresh = get_object_or_404(Claim.objects.select_for_update(), pk=claim.pk)
+        if fresh.status != claim.status:
+            raise HttpError(
+                409,
+                f"This claim moved on to {fresh.status} while it was being checked, so nothing was "
+                "saved. Open it again and re-run the check.",
+            )
+        for attname, value in changed.items():
+            setattr(fresh, attname, value)
+        if changed:
+            fresh.save(update_fields=[*changed, "updated_at"])
+    return fresh
 
 
 def _reverify_or_recalc(claim: Claim, user, *, skip_external: bool) -> None:
@@ -924,8 +1015,9 @@ def recalculate_claim(request: HttpRequest, claim_id: str, payload: Optional[Rec
     if claim.status == ClaimStatus.PAID:
         raise HttpError(400, "Claim is already paid. Re-verifying would change a settled amount")
     previous = claim.remuneration
+    before = _claim_columns(claim)
     _reverify_or_recalc(claim, user, skip_external=bool(payload and payload.skip_external))
-    claim.save()
+    claim = _persist_checked(claim, before)
     changed = round(previous or 0, 2) != round(claim.remuneration or 0, 2)
     return {
         "remuneration": claim.remuneration,
@@ -969,6 +1061,57 @@ def clear_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
         f"Cleared — waiting on your approval · {claim.ticket_number}",
         f"₹{amount:,.0f} for {claim.owner.name}: {claim.paper_title}",
     )
+    return claim_to_dict(claim)
+
+
+@api.post("/claims/{claim_id}/set-aside-duplicate", auth=session_auth)
+def set_aside_duplicate(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """The office's decision that an earlier payment is not this paper.
+
+    The only way, besides filing the claim on a claimant's behalf, to record
+    the override that lets a payment-history match be paid past. The claimant
+    contesting the warning is a note, not this. It is the first of two
+    signatures: whoever sets it aside cannot clear the ticket
+    (`_guard_self_cleared_override`) or give the second approval, which comes
+    from the explicit second-approve and from nothing else.
+    """
+    user = require_user(request)
+    if not rbac.can_clear_claims(user.role):
+        raise HttpError(403, "Forbidden")
+    note = (payload.note or "").strip()
+    if len(note) < 10:
+        raise HttpError(400, "Say why this is not the paper already paid for (10+ characters). It goes to the audit trail")
+    with transaction.atomic():
+        claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        _refuse_own_claim(user, claim)
+        if not claim.duplicate_warning:
+            raise HttpError(400, "There is no payment-history warning on this ticket to set aside")
+        if claim.status not in (ClaimStatus.SUBMITTED, ClaimStatus.CLEARED):
+            raise HttpError(400, "The warning can be set aside only before the Principal approves the ticket")
+        if claim.cleared_by_id == user.id:
+            raise HttpError(400, "You cleared this ticket, so somebody else has to decide the payment-history warning.")
+        if claim.override_duplicate and claim.override_by_id not in (None, claim.owner_id):
+            raise HttpError(400, "The warning has already been set aside. Ask for the second approval.")
+        claim.override_duplicate = True
+        claim.override_by = user
+        claim.override_at = timezone.now()
+        claim.override_reason = note
+        # A fresh decision needs a fresh second reader. One left by the old
+        # routine approval never read the warning.
+        claim.second_approved_by = None
+        claim.second_approved_at = None
+        claim.save(update_fields=[
+            "override_duplicate", "override_by", "override_at", "override_reason",
+            "second_approved_by", "second_approved_at", "updated_at",
+        ])
+        ClaimAction.objects.create(
+            claim=claim, actor=user, from_status=claim.status, to_status=claim.status,
+            action="SET_ASIDE_DUPLICATE", note=note,
+        )
+        AuditLog.objects.create(
+            actor=user, action="CLAIM_DUPLICATE_SET_ASIDE", entity="Claim", entity_id=claim.id,
+            detail_json=json.dumps({"ticket": claim.ticket_number, "note": note}),
+        )
     return claim_to_dict(claim)
 
 
@@ -1064,6 +1207,10 @@ def bulk_clear(request: HttpRequest, payload: BulkClearIn):
                 # at a different figure.
                 shown = claim.remuneration
                 _apply_calc(claim)
+                if _unpriced_reason(claim):
+                    skipped.append({"id": claim_id, "reason": _unpriced_reason(claim)})
+                    transaction.set_rollback(True)
+                    continue
                 if round(shown or 0, 2) != round(claim.remuneration or 0, 2):
                     skipped.append(
                         {
@@ -1143,12 +1290,7 @@ def principal_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
 
         claim.principal_approved_by = user
         claim.principal_approved_at = timezone.now()
-        # The principal is, by definition, a different pair of eyes from the
-        # desk that cleared it, so their approval also satisfies the
-        # second-signature rule where one is outstanding.
-        if not claim.second_approved_by_id and claim.cleared_by_id != user.id:
-            claim.second_approved_by = user
-            claim.second_approved_at = timezone.now()
+        _routine_second_signature(claim, user)
         _transition(claim, user, ClaimStatus.PRINCIPAL_APPROVED, "PRINCIPAL_APPROVE", payload.note)
         amount = claim.remuneration or 0
 
@@ -1307,6 +1449,10 @@ def principal_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
                 continue
             shown = claim.remuneration
             _apply_calc(claim)
+            if _unpriced_reason(claim):
+                skipped.append({"id": claim_id, "reason": _unpriced_reason(claim)})
+                transaction.set_rollback(True)
+                continue
             if round(shown or 0, 2) != round(claim.remuneration or 0, 2):
                 skipped.append({
                     "id": claim_id,
@@ -1320,9 +1466,7 @@ def principal_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
                 continue
             claim.principal_approved_by = user
             claim.principal_approved_at = timezone.now()
-            if not claim.second_approved_by_id and claim.cleared_by_id != user.id:
-                claim.second_approved_by = user
-                claim.second_approved_at = timezone.now()
+            _routine_second_signature(claim, user)
             _transition(
                 claim, user, ClaimStatus.PRINCIPAL_APPROVED, "PRINCIPAL_APPROVE", payload.note
             )
@@ -1345,6 +1489,8 @@ __all__ = [
     '_DESK_NAMES',
     '_RETIRED_STEP',
     '_check_mandatory_fields',
+    '_claim_columns',
+    '_persist_checked',
     '_refuse_student_project',
     '_faculty_status_copy',
     '_flatten_title',
@@ -1359,9 +1505,12 @@ __all__ = [
     '_refuse_if_held',
     '_require_own_desk',
     '_reverify_or_recalc',
+    '_routine_second_signature',
     '_submit_claim',
     '_transition',
+    '_unpriced_reason',
     '_withdraw_approvals',
+    '_withdraw_second_signature',
     'bulk_clear',
     'clear_claim',
     'create_claim',
@@ -1372,4 +1521,5 @@ __all__ = [
     'principal_bulk_approve',
     'principal_queue',
     'recalculate_claim',
+    'set_aside_duplicate',
 ]

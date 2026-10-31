@@ -224,7 +224,8 @@ describe("grouping and faces", () => {
     renderWithProviders(<NotificationsPage />, { route: "/notifications" })
     expect(await screen.findByText(ROWS[0].title)).toBeInTheDocument()
     expect(screen.getByRole("img", { name: "Unread" })).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "Today" })).toBeInTheDocument()
+    expect(screen.getByRole("columnheader", { name: "When" })).toBeInTheDocument()
+    expect(screen.getByText("just now")).toBeInTheDocument()
   })
 
   it("shows the empty picture and a next step when there is nothing", async () => {
@@ -241,7 +242,11 @@ describe("grouping and faces", () => {
 describe("the bell", () => {
   it("shows the unread count, filters by tab, and says how many a grouped line holds", async () => {
     stub({
-      "/api/notifications/unread-count": () => ({ unread: 3 }),
+      "/api/shell/badges": () => ({
+        stage_counts: { counts: {} },
+        notifications: { unread: 3 },
+        dm: { unread: 0, conversations: 0 },
+      }),
       "/api/notifications": () => ROWS,
     })
     renderWithProviders(<NotificationBell />)
@@ -253,5 +258,26 @@ describe("the bell", () => {
     await userEvent.click(within(panel).getByRole("tab", { name: "Papers" }))
     await waitFor(() => expect(calls("/api/notifications?section=papers").length).toBeGreaterThan(0))
     expect(within(panel).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings/notifications")
+  })
+
+  it("reads the badge again once everything is marked read, and takes no count request of its own", async () => {
+    stub({
+      "/api/shell/badges": () => ({
+        stage_counts: { counts: {} },
+        notifications: { unread: 3 },
+        dm: { unread: 0, conversations: 0 },
+      }),
+      "/api/notifications/read-all": () => ({ ok: true }),
+      "/api/notifications": () => ROWS,
+    })
+    renderWithProviders(<NotificationBell />)
+    await userEvent.click(await screen.findByRole("button", { name: "Notifications, 3 unread" }))
+    const panel = await screen.findByRole("dialog", { name: "Notifications" })
+    await within(panel).findByText(ROWS[0].title)
+    expect(calls("/api/shell/badges")).toHaveLength(1)
+    expect(calls("/api/notifications/unread-count")).toHaveLength(0)
+
+    await userEvent.click(within(panel).getByRole("button", { name: /Mark all read/ }))
+    await waitFor(() => expect(calls("/api/shell/badges")).toHaveLength(2))
   })
 })

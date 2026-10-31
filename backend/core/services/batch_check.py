@@ -384,7 +384,7 @@ def large_amounts(claims: list[Claim]) -> list[dict[str, Any]]:
 def budget_risks(claims: list[Claim], user) -> list[dict[str, Any]]:
     from core.api.budget import _budget_status, financial_year_of
 
-    status = _budget_status(financial_year_of(date.today()), user)
+    status = _budget_status(financial_year_of(timezone.localdate()), user)
     batch = sum(_amount_of(c) for c in claims)
     out = []
     college = status["college"]

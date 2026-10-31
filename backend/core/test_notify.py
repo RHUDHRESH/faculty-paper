@@ -65,7 +65,8 @@ class NotifyServiceTests(TestCase):
 
     @override_settings(**EMAIL_ON)
     def test_email_level_sends_one_html_email_with_an_unsubscribe_link_for_that_kind(self):
-        notify(self.me, "claim_paid", "FP-1 · Paid", "Rs 12,000 for your paper has been paid.", "/papers/p1")
+        with self.captureOnCommitCallbacks(execute=True):
+            notify(self.me, "claim_paid", "FP-1 · Paid", "Rs 12,000 for your paper has been paid.", "/papers/p1")
         self.assertEqual(len(mail.outbox), 1)
         msg = mail.outbox[0]
         self.assertEqual(msg.to, ["me@test.edu"])
@@ -89,15 +90,18 @@ class NotifyServiceTests(TestCase):
     @override_settings(**EMAIL_ON, EMAIL_DAILY_CAP=1)
     def test_the_daily_email_cap_stops_email_but_not_the_alert(self):
         other = _person("other@test.edu", "Ravi Kumar")
-        notify(self.me, "claim_paid", "Paid", "Paid.")
-        notify(other, "claim_paid", "Paid", "Paid.")
+        with self.captureOnCommitCallbacks(execute=True):
+            notify(self.me, "claim_paid", "Paid", "Paid.")
+        with self.captureOnCommitCallbacks(execute=True):
+            notify(other, "claim_paid", "Paid", "Paid.")
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(Notification.objects.count(), 2)
 
     @override_settings(**EMAIL_ON)
     def test_a_failing_mail_server_does_not_lose_the_alert(self):
         with patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("down")):
-            notify(self.me, "claim_paid", "Paid", "Paid.")
+            with self.captureOnCommitCallbacks(execute=True):
+                notify(self.me, "claim_paid", "Paid", "Paid.")
         row = Notification.objects.get()
         self.assertIsNone(row.emailed_at)
 
@@ -141,8 +145,10 @@ class NotifyServiceTests(TestCase):
     def test_joining_a_group_does_not_send_another_email(self):
         NotificationPreference.objects.create(user=self.me, kind="reaction", level="email")
         a, b = _person("a@test.edu", "Asha"), _person("b@test.edu", "Ravi")
-        notify(self.me, "reaction", verb="liked your post", actor=a, group_key="like:p")
-        notify(self.me, "reaction", verb="liked your post", actor=b, group_key="like:p")
+        with self.captureOnCommitCallbacks(execute=True):
+            notify(self.me, "reaction", verb="liked your post", actor=a, group_key="like:p")
+        with self.captureOnCommitCallbacks(execute=True):
+            notify(self.me, "reaction", verb="liked your post", actor=b, group_key="like:p")
         self.assertEqual(len(mail.outbox), 1)
 
 
@@ -375,7 +381,8 @@ class OnePreferenceStoreTests(TestCase):
         from core import social_notify
 
         notify_service.set_preferences(self.me, {"message": "email"})
-        social_notify.notify(self.me.id, "message", "Asha sent you a message", "Hello", "/messages/1")
+        with self.captureOnCommitCallbacks(execute=True):
+            social_notify.notify(self.me.id, "message", "Asha sent you a message", "Hello", "/messages/1")
         self.assertEqual(len(mail.outbox), 1)
 
     def test_social_coalescing_still_holds_back_a_second_unread_message(self):

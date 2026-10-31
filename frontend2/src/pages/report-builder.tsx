@@ -20,9 +20,11 @@ import {
   Skeleton,
   SkeletonRows,
 } from "@/ui/state"
-import { stickyHeadCell, TableScroller } from "@/ui/table"
+import { Table, type Column } from "@/ui/table"
 import { ColumnLabel, Meta, SectionTitle } from "@/ui/text"
-import { Answer, PrintButton, PrintStamp } from "./reports-print"
+import { Answer, PrintStamp } from "./reports-print"
+import { Answer as AnswerFigures } from "@/ui/answer"
+import { MoreMenu } from "@/pages/more-menu"
 import { PageHeader } from "@/ui/page-header"
 
 /**
@@ -400,17 +402,32 @@ export function ReportBuilder() {
       />
       <PageHeader
         title="Build a report"
+        sub="Choose what to count, how to group it and which slice. Download it or print it."
         action={
-          <span className="flex flex-wrap items-center gap-1 print:hidden">
-            {FORMATS.filter((f) => f.key !== "csv" || chosen.length === 1).map((fmt, i) => (
-              <Button key={fmt.key} kind={i === 0 ? "primary" : "default"} asChild>
-                <a href={`/api/reports/build?${downloadQuery.toString()}&fmt=${fmt.key}`} download>
-                  {i === 0 && <Download />}
-                  {i === 0 ? `Download as ${fmt.label}` : fmt.label}
-                </a>
-              </Button>
-            ))}
-            <PrintButton />
+          <span className="flex flex-wrap items-center gap-2 print:hidden">
+            <MoreMenu
+              items={[
+                ...FORMATS.filter((f) => f.key !== "csv" || chosen.length === 1)
+                  .slice(1)
+                  .map((fmt) => ({
+                    label: `Download as ${fmt.label}`,
+                    onSelect: () => {
+                      window.location.href = `/api/reports/build?${downloadQuery.toString()}&fmt=${fmt.key}`
+                    },
+                  })),
+                { label: "Print this report", onSelect: () => window.print() },
+              ]}
+            />
+            {FORMATS.filter((f) => f.key !== "csv" || chosen.length === 1)
+              .slice(0, 1)
+              .map((fmt) => (
+                <Button key={fmt.key} kind="primary" asChild>
+                  <a href={`/api/reports/build?${downloadQuery.toString()}&fmt=${fmt.key}`} download>
+                    <Download />
+                    Download as {fmt.label}
+                  </a>
+                </Button>
+              ))}
           </span>
         }
       />
@@ -506,28 +523,22 @@ export function ReportBuilder() {
       {data && scope.data && !nothingMatches && (
         <Answer>{builderAnswer(data.tables[0], scope.data.total, measure, year, department)}</Answer>
       )}
-      <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-2">
-        <Headline
-          label="Papers in scope"
-          value={scope.data ? scope.data.total.toLocaleString("en-IN") : "Loading"}
-          hint={
-            filtered
-              ? "Every paper matching the filters above"
-              : "Every paper on record, all years, every department"
-          }
-          loading={scope.isLoading && !scope.data}
-        />
-        <Headline
-          label="Paid"
-          value={scope.data ? money(Math.round(scope.data.paid)) : "Loading"}
-          hint={
-            scope.data && scope.data.committed > 0
-              ? `Every payment in scope. ${money(Math.round(scope.data.committed))} more is awaiting payment.`
-              : "Every payment in scope. Nothing is awaiting payment."
-          }
-          loading={scope.isLoading && !scope.data}
-        />
-      </section>
+      <AnswerFigures
+        items={[
+          {
+            label: filtered ? "Papers matching the filters above" : "Papers on record, all years, every department",
+            value: scope.data ? scope.data.total : null,
+            zero: "No paper in scope",
+          },
+          {
+            label:
+              scope.data && scope.data.committed > 0
+                ? `Paid in scope. ${money(Math.round(scope.data.committed))} more is awaiting payment`
+                : "Paid in scope. Nothing is awaiting payment",
+            value: scope.data ? money(Math.round(scope.data.paid)) : null,
+          },
+        ]}
+      />
 
       {scope.isError && (
         <InlineError
@@ -842,56 +853,42 @@ function Breakdown({
 
 /** Every chart is also a table, because a bar cannot be read to the rupee. */
 function Rows({ table }: { table: BuiltTable }) {
+  type R = BuiltTable["rows"][number]
+  const columns: Column<R>[] = [
+    { key: "key", header: table.label, exportValue: (r) => r.key, cell: (r) => r.key },
+    {
+      key: "count",
+      header: "Papers",
+      align: "right",
+      exportKind: "number",
+      exportValue: (r) => r.count,
+      cell: (r) => r.count.toLocaleString("en-IN"),
+    },
+    { key: "amount", header: "Amount", align: "right", exportKind: "money", exportValue: (r) => r.amount, cell: (r) => money(r.amount) },
+  ]
   return (
-    <TableScroller minWidth="34rem" maxHeight="min(32rem, 60vh)">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr>
-            <th scope="col" className={stickyHeadCell}>
-              <ColumnLabel>{table.label}</ColumnLabel>
-            </th>
-            <th scope="col" className={cn(stickyHeadCell, "w-32 text-right")}>
-              <ColumnLabel>Papers</ColumnLabel>
-            </th>
-            <th scope="col" className={cn(stickyHeadCell, "w-40 text-right")}>
-              <ColumnLabel>Amount</ColumnLabel>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {table.rows.map((r) => (
-            <tr key={r.key} className="row border-b border-line last:border-b-0">
-              <td className="px-3 py-2 align-middle">{r.key}</td>
-              <td className="px-3 py-2 text-right align-middle tabular">
-                {r.count.toLocaleString("en-IN")}
-              </td>
-              <td className="px-3 py-2 text-right align-middle tabular">{money(r.amount)}</td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="border-t border-edge font-medium">
-            <td className="px-3 py-2 align-middle">
-              {table.overlapping ? "Total appearances" : "Total"}
-            </td>
-            <td className="px-3 py-2 text-right align-middle tabular">
-              {table.totals.count.toLocaleString("en-IN")}
-            </td>
-            {/* Never an empty cell here: a blank reads as a bug, and a number
-                would be a lie. The sentence is the honest third option. */}
-            <td className="px-3 py-2 text-right align-middle">
-              {table.overlapping || table.totals.amount == null ? (
-                <span className="text-sm font-normal text-fg-muted">
-                  Not summable — a paper counts under every row it belongs to
-                </span>
-              ) : (
-                <span className="tabular">{money(table.totals.amount)}</span>
-              )}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-    </TableScroller>
+    <Table
+      rows={table.rows}
+      columns={columns}
+      getKey={(r) => r.key}
+      maxHeight="min(32rem, 60vh)"
+      caption={table.label}
+      tools={{ id: `report-builder-${table.key}`, title: table.label }}
+      footer={{
+        key: table.overlapping ? "Total appearances" : "Total",
+        count: table.totals.count.toLocaleString("en-IN"),
+        // Never an empty cell here: a blank reads as a bug, and a number
+        // would be a lie. The sentence is the honest third option.
+        amount:
+          table.overlapping || table.totals.amount == null ? (
+            <span className="text-sm font-normal text-fg-muted">
+              Not summable, a paper counts under every row it belongs to
+            </span>
+          ) : (
+            money(table.totals.amount)
+          ),
+      }}
+    />
   )
 }
 
@@ -930,33 +927,6 @@ function ClaimRow({ claim: c }: { claim: SearchClaim }) {
         <Stage stage={stageOf(c.status)} className="mt-2 w-[8rem]" />
       </a>
     </li>
-  )
-}
-
-/** The figure a reader's eye should land on first, with the sentence that
- *  says what it counts — a bare number at this size gets quoted, and a
- *  quoted number with no scope on it is how a meeting goes wrong. */
-function Headline({
-  label,
-  value,
-  hint,
-  loading,
-}: {
-  label: string
-  value: string
-  hint: string
-  loading?: boolean
-}) {
-  return (
-    <div>
-      <p className="text-sm text-fg-muted">{label}</p>
-      {loading ? (
-        <Skeleton className="mt-1 h-9 w-32" />
-      ) : (
-        <p className="mt-1 text-3xl font-semibold tabular">{value}</p>
-      )}
-      <p className="mt-1 text-sm text-fg-muted">{hint}</p>
-    </div>
   )
 }
 

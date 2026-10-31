@@ -169,11 +169,10 @@ export function Policy() {
   }
 
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-8">
       <PageHeader
         title="Policy"
         sub="What a paper is worth, and the rules behind it."
-        spot="spot-policy"
         action={
           mayEdit && data ? (
             <Button kind="primary" size="md" onClick={() => setEditing(true)}>

@@ -71,12 +71,9 @@ describe("Stamp", () => {
 })
 
 describe("Plate", () => {
-  it("mounts the picture and puts its caption under it, on the page", () => {
+  it("renders nothing: no picture is mounted", () => {
     const { container } = render(<Plate name="spot-home-faculty" width={160} caption="A desk, as it should be." />)
-    expect(container.querySelector(".plate")).not.toBeNull()
-    const caption = screen.getByText("A desk, as it should be.")
-    expect(caption.tagName).toBe("FIGCAPTION")
-    expect(container.querySelector(".plate")?.contains(caption)).toBe(false)
+    expect(container.firstChild).toBeNull()
   })
 })
 
@@ -151,14 +148,14 @@ describe("Tabs", () => {
 })
 
 describe("AnswerLine", () => {
-  it("is a status line in the display face, with a word that can be a pill", () => {
+  it("is a status heading in plain sans, with a coloured word", () => {
     render(
       <AnswerLine>
         Nothing needs you. One claim is <AnswerWord tone="sage">being checked</AnswerWord>.
       </AnswerLine>
     )
     const line = screen.getByRole("status")
-    expect(line).toHaveClass("display-xl")
+    expect(line).toHaveClass("text-xl", "font-semibold")
     expect(line).toHaveTextContent("Nothing needs you. One claim is being checked.")
   })
 })

@@ -21,22 +21,25 @@ export const AREA_DOT: Record<Area, string> = {
   time: "bg-area-time",
 }
 
-export type ChipTone = "neutral" | "area" | "gold" | "caution" | "positive" | "critical" | "navy" | "clay"
+export type ChipTone =
+  | "neutral" | "area" | "gold" | "caution" | "positive" | "critical" | "info" | "accent" | "navy" | "clay"
 
 const TONE: Record<ChipTone, string> = {
-  neutral: "bg-hover text-fg-muted",
-  area: "bg-(--area-wash) text-(--area)",
-  gold: "bg-area-honours-wash text-area-honours shadow-[inset_0_0_0_1px_var(--color-area-honours-line)]",
+  neutral: "bg-sunken text-fg-muted",
+  area: "bg-accent-wash text-accent",
+  gold: "bg-sunken text-fg-muted",
   caution: "bg-caution-wash text-caution",
   positive: "bg-positive-wash text-positive",
   critical: "bg-critical-wash text-critical",
-  navy: "bg-navy-wash text-navy",
+  info: "bg-accent-wash text-accent",
+  accent: "bg-accent-wash text-accent",
+  navy: "bg-accent-wash text-accent",
   clay: "bg-accent-wash text-accent",
 }
 
 /**
- * A 24px label. `area` tone takes the colour of the nearest `data-area`, or
- * of the `area` prop when given. Gold is for honours only.
+ * A badge: 12px/500, 2px 8px, radius 6px, a light wash with coloured text.
+ * `gold` maps to neutral and `area` to accent.
  */
 export function Chip({
   children,
@@ -58,12 +61,12 @@ export function Chip({
       data-area={area}
       title={title}
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2.5 text-xs font-medium",
+        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium",
         TONE[tone],
         className
       )}
     >
-      {Icon && <Icon aria-hidden className="size-4" strokeWidth={1.75} />}
+      {Icon && <Icon aria-hidden className="size-3.5" strokeWidth={1.75} />}
       {children}
     </span>
   )

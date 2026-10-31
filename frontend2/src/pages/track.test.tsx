@@ -1,4 +1,6 @@
 import { screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
+import { useLocation } from "react-router-dom"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -12,6 +14,10 @@ import { claimHref } from "@/pages/track-data"
 import { AdminHub, MoneyHub } from "@/pages/hub"
 import { Track } from "@/pages/track"
 import { fakeApi, failing, HOD, FINANCE, renderWithProviders } from "@/test/harness"
+
+function Where() {
+  return <output data-testid="where">{useLocation().search}</output>
+}
 
 const CELL: Me = { id: "u-cell", email: "c@example.edu", name: "Research Office", role: "RESEARCH_CELL", department: null }
 const SUPER: Me = { id: "u-admin", email: "a@example.edu", name: "Admin", role: "SUPER_ADMIN", department: null }
@@ -109,23 +115,20 @@ function mount(me: Me, ui: React.ReactElement, payload: Record<string, unknown> 
 }
 
 describe("Track", () => {
-  it("answers in a sentence and draws the journey as the Thread for a reviewer", async () => {
+  it("shows the stages as four figures that filter, with the sums where money may be seen", async () => {
     mount(CELL, <Track />)
-    const line = await screen.findByText(/claims are on their way/)
-    expect(line.closest("p")).toHaveTextContent("3 claims are on their way, one waited over two weeks.")
-    const threads = screen.getAllByRole("list", { name: "Where every claim is" })
-    expect(threads.length).toBeGreaterThan(0)
-    expect(within(threads[0]).getByRole("link", { name: /Checked/ })).toBeInTheDocument()
-    // The side stages sit off the main path.
-    expect(screen.getByRole("button", { name: /Sent back/ })).toBeInTheDocument()
+    const glance = await screen.findByRole("group", { name: "At a glance" })
+    expect(within(glance).getByRole("link", { name: /^2 Submitted, / })).toBeInTheDocument()
+    expect(within(glance).getByRole("link", { name: "1 Being checked, ₹30,000" })).toBeInTheDocument()
+    expect(screen.queryByText(/Also look at/)).toBeNull()
+    expect(screen.queryByText(/on their way/)).toBeNull()
   })
 
-  it("links each station to its stage, keeping the filters and dropping the page", async () => {
+  it("links each figure to its stage, keeping the filters and dropping the page", async () => {
     mount(CELL, <Track />, {}, "/track?q=copper&page=2")
-    const threads = await screen.findAllByRole("list", { name: "Where every claim is" })
-    const approved = within(threads[0]).getByRole("link", { name: /Approved/ })
-    const href = approved.getAttribute("href") ?? ""
-    expect(href).toContain("stage=approved")
+    const glance = await screen.findByRole("group", { name: "At a glance" })
+    const href = within(glance).getByRole("link", { name: /^1 Being checked/ }).getAttribute("href") ?? ""
+    expect(href).toContain("stage=checked")
     expect(href).toContain("q=copper")
     expect(href).not.toContain("page=")
   })
@@ -140,12 +143,20 @@ describe("Track", () => {
     expect(screen.getByText("Flag")).toBeInTheDocument()
   })
 
-  it("asks the server for a stage when its column is chosen", async () => {
+  it("asks the server for a stage when a figure is chosen", async () => {
     mount(CELL, <Track />)
-    const threads = await screen.findAllByRole("list", { name: "Where every claim is" })
-    within(threads[0]).getByRole("link", { name: /Checked/ }).click()
-    await screen.findByText(/Showing the 1 claim at Being checked/)
-    expect(requested.some((p) => p.includes("stage=checked"))).toBe(true)
+    const glance = await screen.findByRole("group", { name: "At a glance" })
+    within(glance).getByRole("link", { name: /^1 Being checked/ }).click()
+    await screen.findByRole("combobox", { name: "Stage" })
+    await vi.waitFor(() => expect(requested.some((p) => p.includes("stage=checked"))).toBe(true))
+  })
+
+  it("has an Export menu and a header sort that changes the URL", async () => {
+    mount(CELL, <><Track /><Where /></>)
+    await screen.findByRole("link", { name: /Grain boundaries/ })
+    expect(screen.getByRole("button", { name: /export/i })).toBeInTheDocument()
+    await userEvent.click(within(screen.getByRole("columnheader", { name: /Time in stage/ })).getByRole("button"))
+    await vi.waitFor(() => expect(screen.getByTestId("where").textContent).toContain("sort=newest"))
   })
 
   it("shows a head no money and no flags, and says days since filing", async () => {
@@ -173,7 +184,7 @@ describe("Track", () => {
     expect(screen.getByRole("link", { name: /Grain boundaries/ })).toHaveAttribute("href", "/department/papers/c1")
   })
 
-  it("says in one sentence where the department's claims are, in words a head may have", async () => {
+  it("shows a head the department's stages as figures, in words a head may have", async () => {
     mount(
       HOD,
       <Track />,
@@ -189,16 +200,13 @@ describe("Track", () => {
         ],
       }
     )
-    const line = await screen.findByTestId("track-head-line")
-    expect(line).toHaveTextContent("CSE has 20 claims:")
-    expect(line).toHaveTextContent("3 claims are being checked by the college, the longest for 91 days")
-    expect(line).toHaveTextContent("1 is approved and being paid; 16 are complete")
-    expect(line).toHaveTextContent("You are not in the chain")
-    expect(line.textContent).not.toMatch(/principal|director|finance|research office|₹/i)
+    const glance = await screen.findByRole("group", { name: "At a glance" })
+    expect(within(glance).getByRole("link", { name: "3 Under review" })).toBeInTheDocument()
+    expect(within(glance).getByRole("link", { name: "16 Completed" })).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/principal|director|finance|research office|₹/i)
     // A finished claim reads "Complete", not the days since an import.
     expect(screen.queryByText("7 days")).toBeNull()
     expect(screen.getByText("Complete", { selector: "span" })).toBeInTheDocument()
-    expect(screen.getByTestId("erp-legend")).toHaveTextContent("earlier system")
   })
 
   it("does not pass a failed request off as an empty college", async () => {
@@ -246,13 +254,12 @@ describe("Track, for the office", () => {
     expect(screen.queryByText("6 days")).toBeNull()
   })
 
-  it("names every column and explains an ERP- claim number once", async () => {
+  it("names every column", async () => {
     mount(CELL, <Track />, { results: [PAID_NO_AMOUNT] })
     await screen.findByText("Title not recorded")
     for (const h of ["Claim no.", "Claimant", "Paper", "Where it stands", "Time in stage", "Amount"]) {
       expect(screen.getAllByText(h).length).toBeGreaterThan(0)
     }
-    expect(screen.getAllByTestId("erp-legend")).toHaveLength(1)
     expect(screen.getByText("Needs fixing")).toBeInTheDocument()
   })
 
@@ -295,16 +302,19 @@ describe("where a claim opens", () => {
 })
 
 describe("the Admin hub", () => {
-  it("groups the pages in four sections, each with a purpose and what needs attention", async () => {
+  it("lists every page in one table, grouped by kind of work, with what needs attention", async () => {
     mount(SUPER, <AdminHub />)
+    // The four groups are the "Kind of work" filter's choices, and a column of the table.
+    const kind = await screen.findByRole("combobox", { name: "Kind of work" })
     for (const title of ["People and roles", "Data", "Money", "System"]) {
-      expect(await screen.findByRole("heading", { name: title })).toBeInTheDocument()
+      expect(within(kind).getByRole("option", { name: title })).toBeInTheDocument()
     }
     const faults = screen.getByRole("link", { name: /Faults/ })
-    // The purpose is the row's hover note, not a line of text on the page.
-    expect(faults).toHaveAttribute("title", expect.stringMatching(/cannot reconcile/))
-    expect(within(faults).getByLabelText("5 need attention")).toBeInTheDocument()
-    expect(within(screen.getByRole("link", { name: /^People/ })).getByText("420 active accounts")).toBeInTheDocument()
+    // The purpose is now its own column in the table, beside the page it describes.
+    expect(faults).toBeInTheDocument()
+    expect(screen.getAllByText(/cannot reconcile/).length).toBeGreaterThan(0)
+    expect(await screen.findByLabelText("5 need attention")).toBeInTheDocument()
+    expect(screen.getAllByText(/420 active accounts/).length).toBeGreaterThan(0)
   })
 
   it("is not open to a Finance officer", async () => {

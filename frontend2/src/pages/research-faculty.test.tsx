@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { api } from "@/lib/api"
 import { ResearchFaculty } from "@/pages/research-faculty"
 import { claimThresholdSentence, thresholdFlag } from "@/ui/research-threshold"
-import { fakeApi, renderWithProviders } from "@/test/harness"
+import { FINANCE, fakeApi, renderWithProviders } from "@/test/harness"
 
 vi.mock("@/lib/api", async (orig) => {
   const real = await orig<typeof import("@/lib/api")>()
@@ -151,5 +151,13 @@ describe("how a claim says what the threshold did", () => {
       "This claim crosses the research threshold. ₹60,000 of its ₹1,00,000 counts against it, and ₹40,000 above it is paid."
     )
     expect(thresholdFlag({ threshold_absorbed: 0, threshold_full_amount: 100000, remuneration: 100000 })).toBeNull()
+  })
+
+  it("is the coordinator's page: anyone else gets the calm gate, no request and no add button", async () => {
+    vi.mocked(api).mockImplementation(fakeApi({ "/api/auth/me": () => FINANCE, "/api/research-faculty": () => ({}) }))
+    renderWithProviders(<ResearchFaculty />)
+    expect(await screen.findByText("This page is for the research coordinator.")).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Mark someone as research faculty" })).toBeNull()
+    expect(vi.mocked(api).mock.calls.some(([path]) => String(path).startsWith("/api/research-faculty"))).toBe(false)
   })
 })

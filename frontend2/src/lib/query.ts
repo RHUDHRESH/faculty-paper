@@ -54,6 +54,13 @@ export function useApiMutation<TBody, TResult = unknown>(
 }
 
 /**
+ * The one query behind the sidebar's desk counts, the bell and the Messages
+ * badge (`app/badges.ts`). Named here so anything that changes what they count
+ * can ask for it to be read again.
+ */
+export const BADGES_KEY: unknown[] = ["shell", "badges"]
+
+/**
  * Every list a claim appears in on its way through the chain. A claim moved
  * at one desk leaves one queue and joins the next, so an action at any desk
  * refreshes all of them: authorising at the Director's desk used to leave
@@ -69,4 +76,5 @@ export const CHAIN: unknown[][] = [
   ["my-claims"],
   // The per-stage counts behind the sidebar badges and the homes.
   ["claims", "counts"],
+  BADGES_KEY,
 ]

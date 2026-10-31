@@ -278,7 +278,7 @@ def _missing(u: User) -> list[str]:
 _SCOPUS_LINKED = Q(publication__scopus_indexed=True) | (Q(publication__eid__isnull=False) & ~Q(publication__eid=""))
 
 #: The values of the `scopus` filter; anything else is ignored.
-SCOPUS_FILTERS = ("linked", "no_id", "never_synced", "gap")
+SCOPUS_FILTERS = ("linked", "no_id", "never_synced", "gap", "disputed")
 
 
 def _scopus_papers(users: list[User]) -> dict[str, int]:
@@ -308,6 +308,8 @@ def _scopus_match(r: dict[str, Any], which: str) -> bool:
         return not _has_scopus_id(r)
     if which == "never_synced":
         return _has_scopus_id(r) and r["scopus_synced_at"] is None
+    if which == "disputed":
+        return r["scopus_profile_status"] == "wrong"
     # "gap": has an id, and some of their papers are not Scopus-linked.
     return _has_scopus_id(r) and r["papers"] > r["scopus_papers"]
 
@@ -320,6 +322,7 @@ def _scopus_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "with_id": len(with_id),
         "without_id": len(rows) - len(with_id),
         "never_synced": sum(1 for r in with_id if r["scopus_synced_at"] is None),
+        "disputed": sum(1 for r in rows if r["scopus_profile_status"] == "wrong"),
         "papers": sum(r["papers"] for r in rows),
         "scopus_papers": sum(r["scopus_papers"] for r in rows),
         "last_synced_at": max(synced).isoformat() if synced else None,
@@ -344,6 +347,7 @@ def _row(u: User, base: dict[str, Any], viewer: User, scopus_papers: int) -> dic
         "scopus_url": _scopus_link(u),
         "scopus_papers": scopus_papers,
         "scopus_synced_at": u.scopus_synced_at.isoformat() if u.scopus_synced_at else None,
+        "scopus_profile_status": u.scopus_profile_status or "",
         "orcid_id": u.orcid_id or None,
         "orcid_url": f"https://orcid.org/{u.orcid_id}" if u.orcid_id else None,
         "papers": base["papers"],
@@ -459,7 +463,8 @@ def faculty_directory(
 ):
     """Every faculty member as a row: identifiers, papers, citations, claims, money where
     allowed. People who have left are left out unless `include_left`. `scopus` narrows
-    the rows to linked, no_id, never_synced or gap; `scopus_summary` is the whole scope."""
+    the rows to linked, no_id, never_synced, gap or disputed (their own answer was "not
+    theirs"); `scopus_summary` is the whole scope."""
     viewer = _require_directory(request)
     rows, counts, summary = _select(
         viewer, q, department, faculty_type, missing, no_papers_year, sort, dir, include_left, scopus,

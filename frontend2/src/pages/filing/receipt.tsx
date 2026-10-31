@@ -209,7 +209,7 @@ export function PreFlight({
           <li key={row.key} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2">
             <span className="min-w-0 text-sm">
               {row.label}
-              {problem && <span className="block text-xs text-fg-muted">{problem.label}</span>}
+              {problem && <span className="block text-sm text-fg-muted">{problem.label}</span>}
             </span>
             {problem ? (
               <button
@@ -437,7 +437,7 @@ export function ContestNote({
             placeholder="For example: Published online 20 May 2026; the DOI resolves and the paper names the college."
             rows={2}
           />
-          <p className="text-xs text-fg-muted">
+          <p className="text-sm text-fg-muted">
             {expected && !contestable
               ? "Scopus is not connected here, so the college confirms indexing by hand and filing asks for a line saying why it should go through. Write it now and it is sent with the paper."
               : short > 0

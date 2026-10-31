@@ -37,8 +37,8 @@ describe("Payment statement", () => {
     const years = await screen.findByRole("group", { name: "Financial year" })
     expect(within(years).getByRole("button", { name: /2025-26.*₹6,000/ })).toBeTruthy()
     expect(within(years).getByRole("button", { name: /2024-25.*₹1,600/ })).toBeTruthy()
-    expect(screen.getByText(/Financial year 2025-26/)).toBeTruthy()
-    expect(screen.getByText(/Financial year 2024-25/)).toBeTruthy()
+    expect(screen.getAllByRole("cell", { name: "2025-26" }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole("cell", { name: "2024-25" }).length).toBeGreaterThan(0)
     // Whole rupees, no paise.
     expect(screen.getAllByText("₹7,600").length).toBeGreaterThan(0)
   })

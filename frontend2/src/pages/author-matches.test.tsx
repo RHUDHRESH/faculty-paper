@@ -123,7 +123,8 @@ describe("Author matches, the answer first", () => {
 
   it("sets every name that matches nobody aside, after asking with the count", async () => {
     const user = mount({ ...BIG, counts: { ...BIG.counts, open_suggested: 0, open_unsuggested: 2829 } })
-    await user.click(await screen.findByRole("button", { name: /Set all 2,829 aside/ }))
+    await user.click(await screen.findByRole("button", { name: "More" }))
+    await user.click(await screen.findByRole("menuitem", { name: /Set all 2,829 aside/ }))
     const dialog = await screen.findByRole("dialog")
     expect(dialog).toHaveTextContent("2,829 names match nobody on the roster")
     await user.click(within(dialog).getByRole("button", { name: "Set 2,829 aside" }))

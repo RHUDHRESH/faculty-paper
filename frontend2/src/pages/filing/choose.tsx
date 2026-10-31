@@ -358,10 +358,10 @@ function Picker({
               <li key={p.publication_id} className="flex items-start gap-3 py-2">
                 <span className="min-w-0 flex-1 text-fg-muted">
                   <span className="line-clamp-1 text-sm">{unshout(p.title)}</span>
-                  <span className="text-xs">{[p.venue, p.year].filter(Boolean).join(" · ")}</span>
+                  <span className="text-sm">{[p.venue, p.year].filter(Boolean).join(" · ")}</span>
                 </span>
                 {p.on_paid_ledger && !p.claim_id && (
-                  <span className="shrink-0 text-xs text-fg-muted">
+                  <span className="shrink-0 text-sm text-fg-muted">
                     Paid{p.paid_month ? ` ${p.paid_month}` : ""} · on the ledger
                   </span>
                 )}
@@ -370,7 +370,7 @@ function Picker({
                     View claim
                   </Link>
                 ) : (
-                  <span className="shrink-0 text-xs text-fg-subtle">Filed</span>
+                  <span className="shrink-0 text-sm text-fg-subtle">Filed</span>
                 )}
               </li>
             ))}

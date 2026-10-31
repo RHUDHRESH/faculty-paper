@@ -114,6 +114,17 @@ describe("an officer's home", () => {
     }
   })
 
+  it("gives the office desk four figures and a table with its Export control", async () => {
+    mount(SUPER_ADMIN, <OfficeHome />, {
+      "/api/admin/clearing-queue": () => [{ ...claim({ id: "q1", owner_id: "u-someone", waiting_days: 3, owner_name: "Dr Anand" }) }],
+    })
+    const group = await screen.findByRole("group", { name: "At a glance" })
+    expect(within(group).getAllByRole("link")).toHaveLength(4)
+    const section = (await screen.findByRole("heading", { name: "Waiting on you to clear" })).closest("section")!
+    expect(await within(section).findByRole("button", { name: /Export/ })).toBeInTheDocument()
+    expect(await within(section).findByRole("link", { name: "Check: Grain boundaries in thin copper films" })).toBeInTheDocument()
+  })
+
   it("gives the super admin, who files nothing of their own, no such section", async () => {
     mount(SUPER_ADMIN, <OfficeHome />)
     await screen.findByText(/Whether everything is healthy/)

@@ -120,8 +120,8 @@ export function EmptyCell({ text = NOT_RECORDED, className }: { text?: string; c
  *  a pinned head otherwise hides completely. `TableScroller` sets the
  *  `data-scrolled` flag this reads. */
 export const stickyHeadCell = cn(
-  "sticky top-0 z-10 whitespace-nowrap bg-surface px-4 py-3 text-left",
-  "border-b border-edge",
+  "sticky top-0 z-10 whitespace-nowrap bg-bg px-4 py-3 text-left",
+  "border-b border-line",
   "transition-shadow duration-[var(--dur-2)] ease-out",
   "group-data-[scrolled]/scroll:shadow-under"
 )
@@ -202,7 +202,7 @@ export function TableScroller({
         // apply to it. The tone step and the `edge` hairline are the whole
         // treatment.
         tabIndex={0}
-        className="group/scroll relative overflow-auto rounded-panel bg-surface ring-1 ring-inset ring-edge"
+        className="group/scroll relative overflow-auto rounded-xl border border-edge bg-surface"
         data-scrolled={scrolled ? "" : undefined}
         style={{ maxHeight: maxHeight ?? "max(20rem, calc(100vh - 19rem))" }}
       >
@@ -217,8 +217,8 @@ export function TableScroller({
       <div
         aria-hidden
         className={cn(
-          "pointer-events-none absolute inset-y-0 left-0 w-8 rounded-l-panel",
-          "bg-gradient-to-r from-fg/10 to-transparent",
+          "pointer-events-none absolute inset-y-0 left-0 w-px rounded-l-xl",
+          "bg-fg/20",
           "opacity-0 transition-opacity duration-[var(--dur-2)] ease-out",
           showLeft && "opacity-100"
         )}
@@ -226,8 +226,8 @@ export function TableScroller({
       <div
         aria-hidden
         className={cn(
-          "pointer-events-none absolute inset-y-0 right-0 w-8 rounded-r-panel",
-          "bg-gradient-to-l from-fg/10 to-transparent",
+          "pointer-events-none absolute inset-y-0 right-0 w-px rounded-r-xl",
+          "bg-fg/20",
           "opacity-0 transition-opacity duration-[var(--dur-2)] ease-out",
           showRight && "opacity-100"
         )}
@@ -326,7 +326,7 @@ function PlainTable<T>({
         ) : (
           // A node the page composed itself: keep the tray, so it is never
           // mistaken for an error banner.
-          <div className="rounded-panel bg-sunken px-6 py-16 text-center text-sm text-fg-muted shadow-well ring-1 ring-inset ring-edge">
+          <div className="rounded-xl border border-edge bg-surface px-6 py-16 text-center text-sm text-fg-muted">
             {empty as React.ReactNode}
           </div>
         )}
@@ -393,7 +393,7 @@ function PlainTable<T>({
               <tr
                 key={getKey(row)}
                 aria-current={current ? "true" : undefined}
-                className={cn("row border-b border-line last:border-b-0", current && "bg-accent-wash")}
+                className={cn("row border-b border-line last:border-b-0 hover:bg-bg", current && "bg-accent-wash hover:bg-accent-wash")}
               >
                 {columns.map((col, ci) => {
                   const raw = col.cell(row, i)
@@ -450,7 +450,7 @@ function PlainTable<T>({
           <tfoot>
             {/* The same tone as the head, so the total reads as chrome the
                 figures sit above rather than as one more record. */}
-            <tr className="border-t border-edge bg-sunken">
+            <tr className="border-t border-line bg-bg">
               {columns.map((col) => (
                 <td
                   key={col.key}

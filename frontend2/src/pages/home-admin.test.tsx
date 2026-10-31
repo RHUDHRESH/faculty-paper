@@ -89,9 +89,14 @@ describe("the super admin's home", () => {
         ],
       }),
     })
-    // The answer is the one sentence; the count is not repeated as a heading.
-    expect(await screen.findByRole("status")).toHaveTextContent(/2 things need you, 1 of them urgent/)
-    const rows = screen.getAllByTestId(/^attention-/)
+    // Three figures answer it, each a link; the table lists the items.
+    const group = await screen.findByRole("group", { name: "At a glance" })
+    expect(within(group).getAllByRole("link")).toHaveLength(3)
+    expect(group).toHaveTextContent("2 Things need you")
+    expect(group).toHaveTextContent("1 Urgent")
+    const section = screen.getByRole("heading", { name: "What needs you" }).closest("section")!
+    expect(within(section).getByRole("button", { name: /Export/ })).toBeInTheDocument()
+    const rows = screen.getAllByTestId(/^attention-/).map((e) => e.closest("tr")!)
     expect(rows).toHaveLength(2)
     // The real number, not "99+"; the unit agrees with the count.
     expect(within(rows[0]).getByText("2,841")).toBeInTheDocument()
@@ -104,18 +109,18 @@ describe("the super admin's home", () => {
     expect(within(rows[0]).getByRole("link", { name: /Match names/ })).toHaveAttribute("href", "/people/matches")
   })
 
-  it("shows five and lets the admin open the rest without leaving", async () => {
-    const many = Array.from({ length: 8 }, (_, i) => item({ key: `k${i}`, title: `Thing ${i}` }))
+  it("shows ten and lets the admin open the rest without leaving", async () => {
+    const many = Array.from({ length: 13 }, (_, i) => item({ key: `k${i}`, title: `Thing ${i}` }))
     mount(<AdminHome />, { "/api/admin/attention": () => ({ checked_at: "", ok: [], items: many }) })
-    expect(await screen.findByText(/8 things need you/)).toBeInTheDocument()
-    expect(screen.getAllByTestId(/^attention-/)).toHaveLength(5)
+    expect(await screen.findByText("13")).toBeInTheDocument()
+    expect(await screen.findAllByTestId(/^attention-/)).toHaveLength(10)
     await userEvent.click(screen.getByRole("button", { name: /Show 3 more/ }))
-    expect(screen.getAllByTestId(/^attention-/)).toHaveLength(8)
+    expect(screen.getAllByTestId(/^attention-/)).toHaveLength(13)
   })
 
   it("says so when nothing needs attention", async () => {
     mount(<AdminHome />, { "/api/admin/attention": () => ({ checked_at: "", ok: ["A policy version is active"], items: [] }) })
-    expect(await screen.findByText("Nothing is broken or stuck.")).toBeInTheDocument()
+    expect(await screen.findByText(/Nothing is broken or stuck/, { selector: "p" })).toBeInTheDocument()
   })
 
   it("has a Find button that opens the same finder as Ctrl K", async () => {
@@ -128,12 +133,12 @@ describe("the super admin's home", () => {
     expect(seen.mock.calls[0][0]).toMatchObject({ key: "k", ctrlKey: true })
   })
 
-  it("on a college that is not running yet, the sentence is the setup and the next step is the one primary button", async () => {
+  it("on a college that is not running yet, the page is the setup steps and the next step is the one primary button", async () => {
     mount(<AdminHome />, {
       "/api/admin/start": () => FRESH,
       "/api/admin/attention": () => ({ checked_at: "", ok: [], items: [] }),
     })
-    expect(await screen.findByRole("status")).toHaveTextContent(/steps are left. Next, load the college.s record/)
+    expect(await screen.findByText(/steps are left. Next: load the college.s record/)).toBeInTheDocument()
     const next = screen.getByTestId("start-record")
     expect(within(next).getByRole("link", { name: /Load the record/ })).toHaveAttribute("href", "/imports")
     // The daily list is not shown over an empty college.
@@ -198,7 +203,7 @@ describe("the Admin page", () => {
       "/api/admin/hub": () => ({ counts: { "/people/matches": { count: 2841, tone: "caution", note: null } } }),
       "/api/admin/start": () => FRESH,
     })
-    expect(await screen.findByText("2,841")).toBeInTheDocument()
+    expect((await screen.findAllByText("2,841")).length).toBeGreaterThan(0)
     expect(screen.queryByText("99+")).toBeNull()
     expect(screen.queryByText("Is the system ready?")).toBeNull()
     expect(await screen.findByRole("link", { name: "Continue" })).toHaveAttribute("href", "/admin/start")

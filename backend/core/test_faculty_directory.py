@@ -445,6 +445,7 @@ class ScopusTests(TestCase):
         s, last = self.summary(body)
         self.assertEqual(s, {
             "faculty": 7, "with_id": 4, "without_id": 3, "never_synced": 1, "papers": 8, "scopus_papers": 5,
+            "disputed": 0,
         })
         self.assertEqual(last, SYNC_LATE)
 
@@ -460,8 +461,22 @@ class ScopusTests(TestCase):
         s, last = self.summary(body)
         self.assertEqual(s, {
             "faculty": 5, "with_id": 3, "without_id": 2, "never_synced": 1, "papers": 6, "scopus_papers": 4,
+            "disputed": 0,
         })
         self.assertEqual(last, SYNC_LATE)
+
+    def test_the_disputed_filter_and_summary_count_those_who_say_their_profile_is_not_theirs(self):
+        User.objects.filter(pk=self.bravo.pk).update(scopus_profile_status="wrong")
+        User.objects.filter(pk=self.alpha.pk).update(scopus_profile_status="confirmed")
+        self.assertEqual(self.names(self.office, "scopus=disputed"), {"Dr Bravo Cse"})
+        self.assertEqual(self.names(self.head, "scopus=disputed"), {"Dr Bravo Cse"})
+        body = self.get(self.office, "/api/directory/faculty?limit=100")
+        s, _ = self.summary(body)
+        self.assertEqual(s["disputed"], 1)
+        rows = {r["name"]: r for r in body["results"]}
+        self.assertEqual(rows["Dr Bravo Cse"]["scopus_profile_status"], "wrong")
+        self.assertEqual(rows["Dr Alpha Cse"]["scopus_profile_status"], "confirmed")
+        self.assertEqual(rows["Dr Charlie Cse"]["scopus_profile_status"], "")
 
 
 class ScopusQueryCountTests(TestCase):

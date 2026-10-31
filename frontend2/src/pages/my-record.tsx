@@ -7,6 +7,7 @@ import { useApi } from "@/lib/query"
 import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { Select } from "@/ui/field"
+import { Table, type Column } from "@/ui/table"
 import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
 import { ThresholdCard, type ThresholdSummary } from "@/ui/research-threshold"
@@ -137,6 +138,84 @@ export function AppraisalList() {
     setParams(n, { replace: true })
   }
   const name = q.data?.user.name ?? ""
+  const myId = q.data?.user.id
+  const columns: Column<RecordPaper>[] = [
+    {
+      key: "no",
+      header: "No.",
+      label: "Number",
+      exportKind: "number",
+      exportValue: (p) => rows.indexOf(p) + 1,
+      cell: (p) => <span className="tabular text-fg-muted">{rows.indexOf(p) + 1}</span>,
+    },
+    {
+      key: "paper",
+      header: "Paper",
+      exportValue: (p) => p.title,
+      cell: (p) => (
+        <span className="block min-w-0 break-words">
+          <span className="block text-sm text-fg-muted">
+            {p.authors.map((a, j) => (
+              <span key={j} className={a.user_id === myId ? "font-semibold text-fg" : undefined}>
+                {j > 0 && ", "}
+                {a.name}
+              </span>
+            ))}
+            {p.authors.length === 0 && name}
+          </span>
+          <span className="block text-base font-medium leading-snug text-fg">{unshout(p.title)}</span>
+        </span>
+      ),
+    },
+    { key: "year", header: "Year", exportKind: "number", exportValue: (p) => p.year, cell: (p) => p.year },
+    {
+      key: "venue",
+      header: "Journal or conference",
+      empty: "Venue not recorded",
+      exportValue: (p) => unshout(p.venue) || null,
+      cell: (p) => (p.venue ? <em>{unshout(p.venue)}</em> : null),
+    },
+    { key: "type", header: "Type", exportValue: (p) => typeLabel(p.type) || null, cell: (p) => typeLabel(p.type) || null },
+    {
+      key: "indexed",
+      header: "Indexed in",
+      empty: "Not indexed",
+      exportValue: (p) => (p.scopus_indexed ? "Scopus" : null),
+      cell: (p) => (p.scopus_indexed ? "Scopus" : null),
+    },
+    { key: "quartile", header: "Quartile", exportValue: (p) => p.quartile ?? null, cell: (p) => p.quartile },
+    {
+      key: "role",
+      header: "Your role",
+      exportValue: (p) => authorRole(p) + (p.corresponding_author ? ", corresponding author" : ""),
+      cell: (p) => (
+        <span className="block">
+          {authorRole(p)}
+          {p.corresponding_author ? <span className="block text-sm text-fg-muted">Corresponding author</span> : null}
+        </span>
+      ),
+    },
+    {
+      key: "citations",
+      header: "Citations",
+      align: "right",
+      exportKind: "number",
+      exportValue: (p) => p.citations ?? null,
+      empty: "Not recorded",
+      cell: (p) => p.citations,
+    },
+    {
+      key: "doi",
+      header: "DOI",
+      exportValue: (p) => (p.doi ? "https://doi.org/" + p.doi : null),
+      cell: (p) =>
+        p.doi ? (
+          <a href={"https://doi.org/" + p.doi} target="_blank" rel="noopener noreferrer" className="break-all text-accent hover:underline">
+            {p.doi}
+          </a>
+        ) : null,
+    },
+  ]
   const scope = appraisalScope(from, to)
   const tally = tallyOf(rows)
   const paragraph = appraisalParagraph(name, scope, tally)
@@ -175,19 +254,19 @@ export function AppraisalList() {
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-3 print:hidden">
-            <label className="flex items-center gap-2 text-sm text-fg-muted">
+            <label className="flex items-center gap-2 text-base text-fg-muted">
               From
               <Select aria-label="From year" className="w-auto" value={from} onChange={(e) => set("from", e.target.value)}>
                 {years.map((y) => <option key={y} value={y}>{y}</option>)}
               </Select>
             </label>
-            <label className="flex items-center gap-2 text-sm text-fg-muted">
+            <label className="flex items-center gap-2 text-base text-fg-muted">
               to
               <Select aria-label="To year" className="w-auto" value={to} onChange={(e) => set("to", e.target.value)}>
                 {years.map((y) => <option key={y} value={y}>{y}</option>)}
               </Select>
             </label>
-            <label className="flex min-h-9 items-center gap-2 text-sm text-fg">
+            <label className="flex min-h-10 items-center gap-2 text-base text-fg">
               <input type="checkbox" checked={journalsOnly} onChange={(e) => set("journals", e.target.checked ? "1" : "")} />
               Journal papers only
             </label>
@@ -214,10 +293,9 @@ export function AppraisalList() {
           {paragraph && (
             <section aria-label="Paragraph for your form" className="well space-y-2 p-4 print:hidden">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold text-fg">For your form</h2>
+                <h2 className="text-base font-semibold text-fg">For your form</h2>
                 <Button
                   kind="quiet"
-                  size="sm"
                   onClick={() => {
                     void navigator.clipboard?.writeText(paragraph)
                     toast.ok("Paragraph copied.")
@@ -240,39 +318,16 @@ export function AppraisalList() {
               action={<Button onClick={() => setParams(new URLSearchParams(), { replace: true })}>Show all years</Button>}
             />
           ) : (
-            <ol aria-label="Publications" className="divide-y divide-line">
-              {rows.map((p, i) => (
-                <li key={p.id} className="grid grid-cols-[2.25rem_minmax(0,1fr)] gap-2 py-3.5 text-sm break-inside-avoid">
-                  <span className="tabular text-fg-muted">{i + 1}.</span>
-                  <div className="min-w-0 space-y-0.5">
-                    <p>
-                      {p.authors.map((a, j) => (
-                        <span key={j} className={a.user_id === q.data?.user.id ? "font-semibold" : undefined}>
-                          {j > 0 && ", "}
-                          {a.name}
-                        </span>
-                      ))}
-                      {p.authors.length === 0 && name}. ({p.year}).
-                    </p>
-                    <p className="text-base font-medium text-fg break-words">{unshout(p.title)}</p>
-                    <p className="text-fg-muted break-words">
-                      <em>{unshout(p.venue) || "Venue not recorded"}</em>
-                      {typeLabel(p.type) ? ` · ${typeLabel(p.type)}` : ""}
-                      {p.scopus_indexed ? " · Scopus indexed" : ""}
-                      {p.quartile ? ` · ${p.quartile}` : ""}
-                    </p>
-                    <p className="text-fg-muted break-all">
-                      {authorRole(p)}
-                      {p.corresponding_author ? " · Corresponding author" : ""}
-                      {p.citations != null ? ` · ${p.citations} citation${p.citations === 1 ? "" : "s"}` : ""}
-                      {p.doi ? ` · doi.org/${p.doi}` : ""}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ol>
+            <Table
+              rows={rows}
+              columns={columns}
+              getKey={(p) => p.id}
+              maxHeight="none"
+              caption="Publications"
+              tools={{ id: "appraisal-list", title: `Publication list of ${name}`, subtitle: scope }}
+            />
           )}
-          <p className="text-xs text-fg-subtle">
+          <p className="text-sm text-fg-muted">
             Your name is in bold. Points per paper differ between colleges and between the UGC and AICTE
             rules, so this list gives the facts and leaves the scoring to your appraisal form.
           </p>
@@ -319,13 +374,67 @@ export function PaymentStatement() {
   const d = q.data
   const scope = d?.fy_label ? `Financial year ${d.fy_label} (April to March)` : "All years"
   const hasVoucher = d?.rows.some((r) => r.voucher_number) ?? false
-  const groups = useMemo(() => {
-    const g = new Map<string, NonNullable<typeof d>["rows"]>()
-    for (const r of d?.rows ?? []) g.set(r.financial_year, [...(g.get(r.financial_year) ?? []), r])
-    return [...g]
-  }, [d])
   const latest = d?.rows.reduce((m, r) => (r.payout_month > m ? r.payout_month : m), "") ?? ""
   const csv = `/api/me/payments/statement?format=csv${fy ? `&fy=${fy}` : ""}`
+  type PayRow = NonNullable<typeof d>["rows"][number]
+  const statementColumns: Column<PayRow>[] = [
+    {
+      key: "month",
+      header: "Month paid",
+      exportValue: (r) => monthName(r.payout_month),
+      cell: (r) => <span className="whitespace-nowrap">{monthName(r.payout_month)}</span>,
+    },
+    ...(d?.fy_label
+      ? []
+      : [
+          {
+            key: "fy",
+            header: "Financial year",
+            exportValue: (r: PayRow) => r.financial_year,
+            cell: (r: PayRow) => r.financial_year,
+          },
+        ]),
+    {
+      key: "paper",
+      header: "Paper",
+      exportValue: (r) => r.paper_title,
+      cell: (r) => (
+        <span className="block break-words">
+          {r.claim_id ? (
+            <Link className="text-base font-medium hover:text-accent" to={"/papers/" + r.claim_id}>
+              {unshout(r.paper_title) || "Paper title not recorded"}
+            </Link>
+          ) : (
+            (r.paper_title ?? "Paper title not recorded")
+          )}
+          {r.journal_title && /[\p{L}\p{N}]/u.test(r.journal_title) && (
+            <span className="block text-sm text-fg-muted">{unshout(r.journal_title)}</span>
+          )}
+          {(r.held_back ?? 0) > 0 && (
+            <span className="block text-sm text-fg-muted">{money(r.held_back)} of this claim was inside your research threshold.</span>
+          )}
+        </span>
+      ),
+    },
+    ...(hasVoucher
+      ? [
+          {
+            key: "voucher",
+            header: "Voucher",
+            exportValue: (r: PayRow) => r.voucher_number,
+            cell: (r: PayRow) => r.voucher_number,
+          },
+        ]
+      : []),
+    {
+      key: "amount",
+      header: "Amount",
+      align: "right",
+      exportKind: "money",
+      exportValue: (r) => r.amount,
+      cell: (r) => <span className="whitespace-nowrap">{money(r.amount)}</span>,
+    },
+  ]
 
   return (
     <div className="page space-y-8 print:space-y-4">
@@ -409,76 +518,19 @@ export function PaymentStatement() {
             </p>
           )}
 
-          <table className="w-full text-sm">
-            <caption className="sr-only">{scope}: payments by month</caption>
-            <thead className="max-sm:sr-only">
-              <tr className="border-b border-edge text-left text-fg-muted">
-                <th scope="col" className="py-2 pr-3 font-medium">Month paid</th>
-                <th scope="col" className="py-2 pr-3 font-medium">Paper</th>
-                {hasVoucher && <th scope="col" className="hidden py-2 pr-3 font-medium sm:table-cell">Voucher</th>}
-                <th scope="col" className="py-2 text-right font-medium">Amount</th>
-              </tr>
-            </thead>
-            {groups.map(([label, list]) => (
-              <tbody key={label} className="divide-y divide-line">
-                {!d.fy_label && (
-                  <tr>
-                    <th
-                      scope="colgroup"
-                      colSpan={hasVoucher ? 4 : 3}
-                      className="pt-6 pb-2 text-left text-base font-semibold text-fg"
-                    >
-                      Financial year {label}
-                      <span className="ml-2 font-normal tabular text-fg-muted">
-                        {money(list.reduce((s, r) => s + r.amount, 0))}, {formatCount(list.length)}{" "}
-                        {list.length === 1 ? "payment" : "payments"}
-                      </span>
-                    </th>
-                  </tr>
-                )}
-                {list.map((r, i) => (
-                  <tr key={i} className="align-top max-sm:grid max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:gap-x-3 max-sm:py-2.5">
-                    <td className="py-2.5 pr-3 whitespace-nowrap text-fg-muted max-sm:col-span-2 max-sm:py-0 max-sm:text-xs">
-                      {monthName(r.payout_month)}
-                    </td>
-                    <td className="py-2.5 pr-3 break-words max-sm:py-0">
-                      {r.claim_id ? (
-                        <Link className="hover:underline" to={`/papers/${r.claim_id}`}>
-                          {unshout(r.paper_title) || "Paper title not recorded"}
-                        </Link>
-                      ) : (
-                        (r.paper_title ?? "Paper title not recorded")
-                      )}
-                      {r.journal_title && /[p{L}p{N}]/u.test(r.journal_title) && (
-                        <div className="text-fg-muted">{unshout(r.journal_title)}</div>
-                      )}
-                      {(r.held_back ?? 0) > 0 && (
-                        <div className="text-fg-muted">{money(r.held_back)} of this claim was inside your research threshold.</div>
-                      )}
-                    </td>
-                    {hasVoucher && (
-                      <td className="hidden py-2.5 pr-3 sm:table-cell">
-                        {r.voucher_number ?? <span className="text-fg-subtle">Not recorded</span>}
-                      </td>
-                    )}
-                    <td className="py-2.5 text-right font-medium tabular whitespace-nowrap max-sm:py-0">{money(r.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            ))}
-            <tfoot>
-              <tr className="border-t border-edge">
-                <th scope="row" colSpan={hasVoucher ? 3 : 2} className="hidden py-3 text-left font-semibold sm:table-cell">
-                  Total, {d.fy_label ? d.fy_label : "all years"}
-                </th>
-                <td className="py-3 text-right text-base font-semibold tabular max-sm:text-left" colSpan={1}>
-                  <span className="sm:hidden">Total </span>
-                  {money(d.total)}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-          <p className="text-xs text-fg-subtle">
+          <Table
+            rows={d.rows}
+            columns={statementColumns}
+            getKey={(r) => String(d.rows.indexOf(r))}
+            maxHeight="none"
+            caption={`${scope}: payments by month`}
+            tools={{ id: "payment-statement", title: `Payment statement of ${d.name}`, subtitle: scope }}
+            footer={{
+              month: `Total, ${d.fy_label ? d.fy_label : "all years"}`,
+              amount: money(d.total),
+            }}
+          />
+          <p className="text-sm text-fg-muted">
             From the college accounts ledger. Tax deducted, if any, is on your Form 16, not here.
             {!hasVoucher && " The college did not record voucher numbers for these payments."}
           </p>
@@ -487,4 +539,3 @@ export function PaymentStatement() {
     </div>
   )
 }
-

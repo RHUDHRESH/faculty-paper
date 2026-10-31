@@ -11,17 +11,20 @@ import { BudgetStrip, budgetLine } from "@/pages/budget-strip"
 import { BulkPayDialog, SinglePayDialog } from "@/pages/pay-dialogs"
 import { Button } from "@/ui/button"
 import { ComingUp } from "@/ui/coming-up"
-import { Checkbox } from "@/ui/field"
+import { Checkbox, Input, Select } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
+import { paperTitle } from "@/lib/names"
 import { OwnPapersNote } from "@/ui/own-papers"
 import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
-import { Details, Rows, Section } from "@/ui/section"
-import { EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
+import { Details } from "@/ui/section"
+import { ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Table, type Column, type SortDir } from "@/ui/table"
 import {
   AmountCell,
   Claimant,
+  ClaimNo,
   ErpLegend,
   isPayable,
   isPayableTotals,
@@ -112,6 +115,8 @@ export function Payments() {
   const [payId, setPayId] = useState<string | null>(null)
   const [bulk, setBulk] = useState<PayoutClaim[] | null>(null)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "waiting", dir: "desc" })
+  const [search, setSearch] = useState("")
+  const [show, setShow] = useState<"all" | "ready" | "held">("all")
 
   const sorted = useMemo(() => {
     const dir = sort.dir === "asc" ? 1 : -1
@@ -153,6 +158,16 @@ export function Payments() {
     )
   }
 
+  // One table: the claims that can be paid first, then the few held up with
+  // their reason. A search and a "show" choice narrow what is on the page.
+  const needle = search.trim().toLowerCase()
+  const matches = (c: PayoutClaim) =>
+    !needle || [c.ticket_number, c.paper_title, c.owner_name, c.owner_department, c.staff_id].some((v) => String(v ?? "").toLowerCase().includes(needle))
+  const shownReady = show === "held" ? [] : sorted.filter(matches)
+  const shownHeld = show === "ready" ? [] : held.filter(matches)
+  const tableRows = [...shownReady, ...shownHeld]
+  const narrowed = Boolean(needle) || show !== "all"
+
   const columns: Column<PayoutClaim>[] = [
     {
       key: "select",
@@ -173,20 +188,39 @@ export function Payments() {
       ),
       label: "Select",
       className: "w-10",
-      cell: (c) => (
-        <Checkbox
-          checked={selected.has(c.id)}
-          onCheckedChange={() => toggleSelected(c)}
-          aria-label={`Select ${c.paper_title || "this claim"}`}
-        />
-      ),
+      cell: (c) =>
+        isPayable(c) ? (
+          <Checkbox
+            checked={selected.has(c.id)}
+            onCheckedChange={() => toggleSelected(c)}
+            aria-label={`Select ${c.paper_title || "this claim"}`}
+          />
+        ) : null,
     },
-    { key: "claimant", header: "Paid to", className: "w-52", cell: (c) => <Claimant c={c} /> },
-    { key: "paper", header: "Paper", cell: (c) => <PaperCell c={c} /> },
+    {
+      key: "claimant",
+      header: "Paid to",
+      exportValue: (c) => [c.owner_name, c.staff_id ? `Staff id ${c.staff_id}` : null].filter(Boolean).join(", "),
+      cell: (c) => <Claimant c={c} size="md" />,
+    },
+    {
+      key: "paper",
+      header: "Paper",
+      exportValue: (c) => paperTitle(c.paper_title),
+      cell: (c) => <PaperCell c={c} />,
+    },
+    {
+      key: "claim_no",
+      header: "Claim no.",
+      defaultHidden: true,
+      exportValue: (c) => c.ticket_number,
+      cell: (c) => <ClaimNo no={c.ticket_number} />,
+    },
     {
       key: "month",
       header: "Month paid",
-      className: "w-28 whitespace-nowrap",
+      className: "whitespace-nowrap",
+      exportValue: (c) => monthLabel(monthKey(c), true),
       cell: (c) => monthLabel(monthKey(c), true),
     },
     {
@@ -194,7 +228,7 @@ export function Payments() {
       header: "Waiting",
       align: "right",
       sortable: true,
-      className: "w-24",
+      exportValue: (c) => c.waiting_days,
       cell: (c) => (
         <span className={(c.waiting_days ?? 0) > 7 ? "text-caution" : undefined}>{waitingLabel(c.waiting_days)}</span>
       ),
@@ -204,19 +238,26 @@ export function Payments() {
       header: "Amount",
       align: "right",
       sortable: true,
-      className: "w-52",
+      exportKind: "money",
+      exportValue: (c) => (c.calc_error ? null : c.remuneration),
       cell: (c) => <AmountCell c={c} />,
     },
     {
+      key: "status",
+      header: "Status",
+      exportValue: (c) => (isPayable(c) ? "Ready to pay" : heldReason(c)),
+      cell: (c) => (isPayable(c) ? <span className="text-positive">Ready to pay</span> : <span className="text-caution">{heldReason(c)}</span>),
+    },
+    {
       key: "pay",
-      header: "Action",
+      header: <span className="sr-only">Pay</span>,
       label: "Pay",
-      className: "w-20",
-      cell: (c) => (
-        <Button kind="default" size="sm" onClick={() => setPayId(c.id)}>
-          Pay
-        </Button>
-      ),
+      cell: (c) =>
+        isPayable(c) ? (
+          <Button kind="primary" size="sm" onClick={() => setPayId(c.id)}>
+            Pay
+          </Button>
+        ) : null,
     },
   ]
 
@@ -224,10 +265,14 @@ export function Payments() {
   const everyReady = ready
 
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-6">
       <PageHeader
         title="Payments"
-        sub="Claims the Director has authorised."
+        sub={
+          totals.ready_count > 0
+            ? `${formatCount(totals.ready_count)} ${totals.ready_count === 1 ? "claim" : "claims"} the Director has authorised ${totals.ready_count === 1 ? "is" : "are"} ready to pay.`
+            : "Claims the Director has authorised."
+        }
         actions={
           <>
             <Button kind="default" asChild>
@@ -240,7 +285,6 @@ export function Payments() {
             )}
           </>
         }
-        spot="spot-payouts"
       />
 
       {isLoading ? (
@@ -251,63 +295,95 @@ export function Payments() {
           message="The server did not answer. Nothing has been paid or lost."
           onRetry={() => refetch()}
         />
-      ) : rows.length === 0 ? (
-        <EmptyState
-          guide="pay-claims"
-          icon={Banknote}
-          title="Nothing waiting on Finance"
-          message="Every claim the Director has authorised has been paid. The next one appears here the moment it is authorised."
-          action={<ComingUp desk="finance" />}
-        />
       ) : (
         <>
-          <div className="space-y-5">
-            <Answer
-              items={[
-                {
-                  label: "Ready to pay",
-                  value: totals.ready_count,
-                  zero: "Nothing is ready to pay",
-                  to: "/payments#ready",
-                },
-                { label: "Comes to", value: money(totals.ready_amount) },
-                {
-                  label: "Held up",
-                  value: totals.held_count,
-                  zero: "Nothing is held up",
-                  tone: "caution",
-                  to: totals.held_count ? "/payments#held" : undefined,
-                },
-              ]}
-            />
-            {totals.ready_count > 0 && (
-              <div className="max-w-2xl space-y-3">
-                <p className="text-lead text-fg">{budgetLine(budget.data, "paying", totals.ready_count !== 1) ?? " "}</p>
-                <BudgetStrip budget={budget.data?.college} batch={totals.ready_amount} batchLabel="This run" labels="wide" />
-                {totals.held_back_count > 0 && (
-                  <p className="text-sm text-fg-muted">
-                    The research threshold holds back {money(totals.held_back)} on {formatCount(totals.held_back_count)}{" "}
-                    {totals.held_back_count === 1 ? "claim" : "claims"}; each is marked in the list.
-                  </p>
-                )}
-              </div>
-            )}
-            {totals.count > 0 && <BatchCheck stage="pay" />}
-          </div>
+          {rows.length > 0 && <Answer
+            items={[
+              {
+                label: "Ready to pay",
+                value: totals.ready_count,
+                zero: "Nothing is ready to pay",
+                to: "/payments#ready",
+              },
+              { label: "Comes to", value: money(totals.ready_amount) },
+              {
+                label: "Held up",
+                value: totals.held_count,
+                zero: "Nothing is held up",
+                tone: "caution",
+                to: totals.held_count ? "/payments#held" : undefined,
+              },
+            ]}
+          />}
+          {totals.ready_count > 0 && (
+            <div className="max-w-2xl space-y-3">
+              <p className="text-base text-fg">{budgetLine(budget.data, "paying", totals.ready_count !== 1) ?? " "}</p>
+              <BudgetStrip budget={budget.data?.college} batch={totals.ready_amount} batchLabel="This run" labels="wide" />
+              {totals.held_back_count > 0 && (
+                <p className="text-sm text-fg-muted">
+                  The research threshold holds back {money(totals.held_back)} on {formatCount(totals.held_back_count)}{" "}
+                  {totals.held_back_count === 1 ? "claim" : "claims"}; each is marked in the list.
+                </p>
+              )}
+            </div>
+          )}
+          {totals.count > 0 && <BatchCheck stage="pay" />}
+
+          {rows.length > 0 && (
+            <div className={filterBar} role="search">
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search claimant, paper or claim no."
+                aria-label="Search the claims on this page"
+                className="w-full min-w-0 sm:w-80"
+              />
+              <Select aria-label="Show" value={show} onChange={(e) => setShow(e.target.value as "all" | "ready" | "held")} className="w-auto max-sm:w-full">
+                <option value="all">All claims</option>
+                <option value="ready">Ready to pay</option>
+                <option value="held">Held up</option>
+              </Select>
+              {ready.length > 1 && !allVisibleSelected && (
+                <Button
+                  kind="default"
+                  onClick={() =>
+                    setSelected((prev) => {
+                      const next = new Map(prev)
+                      for (const c of ready) next.set(c.id, c)
+                      return next
+                    })
+                  }
+                >
+                  Select all {formatCount(ready.length)}
+                </Button>
+              )}
+              {narrowed && (
+                <Button
+                  kind="quiet"
+                  onClick={() => {
+                    setSearch("")
+                    setShow("all")
+                  }}
+                >
+                  Clear filters
+                </Button>
+              )}
+            </div>
+          )}
 
           {anySelected && (
             <div
               role="region"
               aria-label="Selected claims"
-              className="sticky top-14 z-20 flex flex-wrap items-center justify-between gap-3 rounded-panel bg-accent-wash px-4 py-3 shadow-under md:top-2"
+              className="sticky top-14 z-20 flex flex-wrap items-center justify-between gap-3 rounded-panel bg-surface px-4 py-3 shadow-pop ring-1 ring-edge md:top-2"
             >
               <p className="text-sm">
-                <span className="font-semibold">{formatCount(selected.size)}</span> selected ·{" "}
+                <span className="font-semibold">{formatCount(selected.size)}</span> selected,{" "}
                 <span className="font-semibold tabular">{money(selectedTotal)}</span>
                 {selectedOffPage > 0 ? (
                   <span className="text-fg-muted">
                     {" "}
-                    · {formatCount(selectedOffPage)} on {selectedOffPage === 1 ? "another page" : "other pages"}
+                    and {formatCount(selectedOffPage)} on {selectedOffPage === 1 ? "another page" : "other pages"}
                   </span>
                 ) : null}
               </p>
@@ -322,88 +398,74 @@ export function Payments() {
             </div>
           )}
 
-          <Section
-            id="ready"
-            title={`Ready to pay (${formatCount(ready.length)})`}
-            action={
-              ready.length > 1 && !allVisibleSelected ? (
-                <Button
-                  kind="default"
-                  size="sm"
-                  onClick={() =>
-                    setSelected((prev) => {
-                      const next = new Map(prev)
-                      for (const c of ready) next.set(c.id, c)
-                      return next
-                    })
-                  }
-                >
-                  Select all {formatCount(ready.length)}
-                </Button>
-              ) : undefined
-            }
-            className="scroll-mt-4"
-          >
+          <div id="ready" className="scroll-mt-4 space-y-2">
+            <span id="held" className="scroll-mt-4" />
             <Table
-              rows={sorted}
+              rows={tableRows}
               columns={columns}
               getKey={(c) => c.id}
-              minWidth="60rem"
-              caption="Claims ready to pay"
+              maxHeight="none"
+              caption="Authorised claims, ready ones first"
               sortKey={sort.key}
               sortDir={sort.dir}
               onSort={(k) =>
                 setSort((s) => ({ key: k as SortKey, dir: s.key === k && s.dir === "desc" ? "asc" : "desc" }))
               }
-              empty={{
-                icon: Banknote,
-                title: "Nothing is ready to pay",
-                message: "Every authorised claim is waiting on something, listed below.",
-              }}
+              tools={{ id: "payments", title: "Payments" }}
+              empty={
+                rows.length === 0
+                  ? {
+                      guide: "pay-claims",
+                      icon: Banknote,
+                      title: "Nothing waiting on Finance",
+                      message: "Every claim the Director has authorised has been paid.",
+                      action: (
+                        <Button kind="default" asChild>
+                          <Link to="/payments/done">See what has been paid</Link>
+                        </Button>
+                      ),
+                    }
+                  : {
+                      icon: Banknote,
+                      title: "No claim matches",
+                      message: "Nothing on this page fits the search.",
+                      action: (
+                        <Button
+                          kind="default"
+                          onClick={() => {
+                            setSearch("")
+                            setShow("all")
+                          }}
+                        >
+                          Clear filters
+                        </Button>
+                      ),
+                    }
+              }
             />
-            <div className="mt-2">
-              <ErpLegend rows={rows} />
-            </div>
-          </Section>
-
-          {held.length > 0 && (
-            <Section id="held" title={`Held up (${formatCount(held.length)})`} className="scroll-mt-4">
-              <Rows>
-                {held.map((c) => (
-                  <li key={c.id} className="flex flex-wrap items-start gap-x-6 gap-y-2 py-3">
-                    <div className="min-w-0 flex-1 basis-72">
-                      <PaperCell c={c} />
-                      <p className="mt-1 text-sm text-caution">{heldReason(c)}</p>
-                    </div>
-                    <div className="w-56 shrink-0">
-                      <Claimant c={c} />
-                    </div>
-                    <div className="w-32 shrink-0">
-                      <AmountCell c={c} />
-                    </div>
-                  </li>
-                ))}
-              </Rows>
-            </Section>
-          )}
+            <ErpLegend rows={rows} />
+          </div>
+          {rows.length === 0 && <ComingUp desk="finance" />}
 
           <Pagination page={page} pageSize={PAYABLE_LIMIT} total={total} onChange={goToPage} />
 
-          <Details label="how a payment is checked" className="text-sm">
-            <ul className="max-w-prose list-disc space-y-1 pl-5 text-fg-muted">
-              <li>A claim is paid once. If it already has a payment on the ledger, the server refuses a second.</li>
-              <li>
-                The amount is worked out again from the checked figures at the moment you pay. If it moved, nothing is
-                paid and you see both figures.
-              </li>
-              <li>Nobody pays their own paper, and the person who authorised a claim does not pay it.</li>
-              <li>
-                If a payment goes out in error, a super admin undoes it. That writes a balancing row on the ledger and
-                nothing is deleted.
-              </li>
-            </ul>
-            <OwnPapersNote className="mt-2" />
-          </Details>
+          {rows.length > 0 && (
+            <Details label="how a payment is checked" className="text-sm">
+              <ul className="max-w-prose list-disc space-y-1 pl-5 text-fg-muted">
+                <li>A claim is paid once. If it already has a payment on the ledger, the server refuses a second.</li>
+                <li>
+                  The amount is worked out again from the checked figures at the moment you pay. If it moved, nothing is
+                  paid and you see both figures.
+                </li>
+                <li>Nobody pays their own paper, and the person who authorised a claim does not pay it.</li>
+                <li>
+                  If a payment goes out in error, a super admin undoes it. That writes a balancing row on the ledger and
+                  nothing is deleted.
+                </li>
+              </ul>
+              <OwnPapersNote className="mt-2" />
+            </Details>
+          )}
         </>
       )}
 

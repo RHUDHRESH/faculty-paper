@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { CircleCheck, Download, RefreshCw, Wrench } from "lucide-react"
 
+import { useAuth } from "@/app/auth"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
@@ -9,6 +10,9 @@ import { queryClient } from "@/lib/query"
 import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { ConfirmDialog } from "@/ui/dialog"
+import { Input, Select } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
+import { MoreMenu } from "@/pages/more-menu"
 import { PageHeader } from "@/ui/page-header"
 import { Details, Rows, Section } from "@/ui/section"
 import { Callout, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
@@ -94,7 +98,10 @@ function age(iso: string): { text: string; days: number } {
 }
 
 export function DataHealth() {
-  const { data, isLoading, error, refetch } = useApi<Health>(KEY, "/api/admin/data-health")
+  const { me, loading: signingIn } = useAuth()
+  // `_super` in api/data_health.py: a super admin only. No one else asks.
+  const isSuper = me?.role === "SUPER_ADMIN"
+  const { data, isLoading, error, refetch } = useApi<Health>(KEY, "/api/admin/data-health", { enabled: isSuper })
   const [running, setRunning] = useState(false)
   const [fixing, setFixing] = useState<string | null>(null)
   const [asking, setAsking] = useState<{ key: string; label: string; n: number } | null>(null)
@@ -171,7 +178,15 @@ export function DataHealth() {
   const newest = backups[0]
   const newestAge = newest ? age(newest.created_at) : null
 
-  if (error?.status === 403) {
+  if (signingIn) {
+    return (
+      <div className="page space-y-10">
+        <SkeletonRows rows={8} />
+      </div>
+    )
+  }
+
+  if (!isSuper || error?.status === 403) {
     return (
       <div className="page py-8">
         <NotOpen message="Ask the research office if you think it should be yours." />
@@ -180,16 +195,23 @@ export function DataHealth() {
   }
 
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-6">
       <PageHeader
         title="Data health"
         sub="Contradictions in the record, and the newest backup."
-        spot="spot-audit"
         action={
-          <Button kind="primary" onClick={() => void runNow()} disabled={running}>
-            <RefreshCw aria-hidden className={cn(running && "animate-spin")} />
-            {running ? "Checking" : "Check now"}
-          </Button>
+          <>
+            <MoreMenu
+              items={[
+                { label: backingUp ? "Making a backup" : "Make a backup now", onSelect: () => void backupNow(), disabled: backingUp },
+                { label: badging ? "Awarding badges" : "Award badges now", onSelect: () => void runBadges(), disabled: badging },
+              ]}
+            />
+            <Button kind="primary" onClick={() => void runNow()} disabled={running}>
+              <RefreshCw aria-hidden className={cn(running && "animate-spin")} />
+              {running ? "Checking" : "Check now"}
+            </Button>
+          </>
         }
       />
 
@@ -219,7 +241,7 @@ export function DataHealth() {
         />
       ) : (
         <>
-          <section aria-label="The answer" className="space-y-3">
+          <div className="space-y-3">
             <Answer
               items={[
                 {
@@ -254,9 +276,9 @@ export function DataHealth() {
                 "Not checked yet. Runs every night."
               )}
             </p>
-          </section>
+          </div>
 
-          <ShowFilter
+          <FindingsTable
             problems={problems}
             fixes={data?.fixes ?? {}}
             fixing={fixing}
@@ -277,17 +299,7 @@ export function DataHealth() {
             </Details>
           )}
 
-          <Section
-            id="backups"
-            title="Backups"
-            className="space-y-4"
-            action={
-              <Button kind="default" size="sm" onClick={() => void backupNow()} disabled={backingUp}>
-                <RefreshCw aria-hidden className={cn(backingUp && "animate-spin")} />
-                {backingUp ? "Making a backup" : "Make a backup now"}
-              </Button>
-            }
-          >
+          <Section id="backups" title="Backups" className="space-y-4">
             <Callout tone="info" title="Keep a copy off this server">
               The free database is deleted on 23 October 2026. Download the newest backup and keep it elsewhere.
             </Callout>
@@ -299,24 +311,15 @@ export function DataHealth() {
               </Meta>
             </Details>
           </Section>
-
-          <Details label="other tools">
-            <Button
-              kind="default"
-              onClick={() => void runBadges()}
-              disabled={badging}
-              title="Badges are awarded every hour. This brings them up to date at once."
-            >
-              {badging ? "Awarding badges" : "Award badges now"}
-            </Button>
-          </Details>
         </>
       )}
     </div>
   )
 }
 
-function ShowFilter({
+type Level = "all" | Finding["severity"]
+
+function FindingsTable({
   problems,
   fixes,
   fixing,
@@ -327,118 +330,173 @@ function ShowFilter({
   fixing: string | null
   onFix: (f: Finding) => void
 }) {
-  const [params] = useSearchParams()
-  const show = params.get("show")
-  const shown = show === "error" || show === "warning" || show === "info" ? problems.filter((f) => f.severity === show) : problems
-  const groups = new Map<string, Finding[]>()
-  for (const f of shown) groups.set(f.group, [...(groups.get(f.group) ?? []), f])
-  if (problems.length === 0) {
-    return (
-      <p className="rounded-panel bg-sunken px-4 py-8 text-center text-sm text-fg-muted">
-        Every check found nothing.
-      </p>
-    )
-  }
-  return (
-    <div className="space-y-10">
-      {show && (
-        <p className="flex flex-wrap items-center gap-3 text-sm text-fg-muted">
-          Showing {WORD[show as Finding["severity"]]?.toLowerCase()}s only.
-          <Button kind="default" size="sm" asChild>
-            <Link to="/data/health">Show all {count(problems.length)} checks</Link>
-          </Button>
-        </p>
-      )}
-      {[...groups.entries()].map(([group, findings]) => (
-        <Section key={group} title={group}>
-          <Rows>
-            {findings.map((f) => (
-              <FindingRow
-                key={f.key}
-                f={f}
-                fixLabel={f.fix ? fixes[f.fix] : undefined}
-                busy={fixing === f.fix}
-                onFix={() => onFix(f)}
-              />
-            ))}
-          </Rows>
-        </Section>
-      ))}
-    </div>
+  const [params, setParams] = useSearchParams()
+  const raw = params.get("show")
+  const level: Level = raw === "error" || raw === "warning" || raw === "info" ? raw : "all"
+  const [search, setSearch] = useState("")
+  const [group, setGroup] = useState("")
+  const groups = [...new Set(problems.map((f) => f.group))]
+  const needle = search.trim().toLowerCase()
+  const shown = problems.filter(
+    (f) =>
+      (level === "all" || f.severity === level) &&
+      (!group || f.group === group) &&
+      (!needle || f.title.toLowerCase().includes(needle))
   )
-}
+  const narrowed = level !== "all" || Boolean(group) || Boolean(needle)
+  function clear() {
+    setSearch("")
+    setGroup("")
+    setParams(new URLSearchParams(), { replace: true })
+  }
 
-function FindingRow({
-  f,
-  fixLabel,
-  busy,
-  onFix,
-}: {
-  f: Finding
-  fixLabel?: string
-  busy: boolean
-  onFix: () => void
-}) {
-  const elsewhere = ELSEWHERE[f.key]
-  return (
-    <li className="py-3">
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0 flex-1 basis-64">
-          <p className="flex flex-wrap items-baseline gap-x-2">
-            <span className="font-medium">{f.title}</span>
-            <span className={cn("text-xs font-medium", TONE[f.severity])}>{WORD[f.severity]}</span>
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-3">
-          <span className={cn("figure text-figure tabular", TONE[f.severity])}>{count(f.count)}</span>
-          {fixLabel ? (
-            <Button kind="default" size="sm" onClick={onFix} disabled={busy}>
-              <Wrench aria-hidden />
-              {busy ? "Working" : fixLabel}
-            </Button>
-          ) : elsewhere ? (
-            <Button kind="default" size="sm" asChild>
-              <Link to={elsewhere.to}>{elsewhere.label}</Link>
-            </Button>
-          ) : null}
-        </div>
-      </div>
-      <Details
-        label={f.rows.length > 0 ? "the rows" : "what this means"}
-        count={f.rows.length > 0 ? f.count : undefined}
-        className="mt-1"
-      >
-        <p className="mb-2 max-w-prose text-sm text-fg-muted">{f.help}</p>
-        {f.rows.length > 0 && (
-          <ul className="space-y-1 text-sm">
-            {f.rows.map((r) => (
-              <li key={r.id} className="truncate">
-                {r.href ? (
-                  <Link className="underline-offset-2 hover:underline" to={r.href}>
-                    {r.label}
-                  </Link>
-                ) : (
-                  r.label
+  const columns: Column<Finding>[] = [
+    {
+      key: "title",
+      header: "What was found",
+      exportValue: (f) => f.title,
+      cell: (f) => (
+        <div className="min-w-0">
+          <p className="font-medium">{f.title}</p>
+          <Details
+            label={f.rows.length > 0 ? "the rows" : "what this means"}
+            count={f.rows.length > 0 ? f.count : undefined}
+            className="mt-1"
+          >
+            <p className="mb-2 max-w-prose text-sm text-fg-muted">{f.help}</p>
+            {f.rows.length > 0 && (
+              <ul className="space-y-1 text-sm">
+                {f.rows.map((r) => (
+                  <li key={r.id} className="truncate">
+                    {r.href ? (
+                      <Link className="underline-offset-2 hover:underline" to={r.href}>
+                        {r.label}
+                      </Link>
+                    ) : (
+                      r.label
+                    )}
+                  </li>
+                ))}
+                {f.count > f.rows.length && (
+                  <Meta className="block">
+                    Showing {count(f.rows.length)} of {count(f.count)}. Fix these and check again to see the rest.
+                  </Meta>
                 )}
-              </li>
-            ))}
-            {f.count > f.rows.length && (
-              <Meta className="block">
-                Showing {count(f.rows.length)} of {count(f.count)}. Fix these and check again to see the rest.
-              </Meta>
+              </ul>
             )}
-          </ul>
-        )}
-      </Details>
-    </li>
+          </Details>
+        </div>
+      ),
+    },
+    { key: "group", header: "Part of the record", exportValue: (f) => f.group, cell: (f) => f.group },
+    {
+      key: "level",
+      header: "How serious",
+      exportValue: (f) => WORD[f.severity],
+      cell: (f) => <span className={cn("font-medium", TONE[f.severity])}>{WORD[f.severity]}</span>,
+    },
+    {
+      key: "count",
+      header: "Found",
+      align: "right",
+      exportKind: "number",
+      exportValue: (f) => f.count,
+      cell: (f) => <span className={TONE[f.severity]}>{count(f.count)}</span>,
+    },
+    {
+      key: "act",
+      header: <span className="sr-only">Fix</span>,
+      label: "Fix",
+      cell: (f) => {
+        const fixLabel = f.fix ? fixes[f.fix] : undefined
+        const elsewhere = ELSEWHERE[f.key]
+        return fixLabel ? (
+          <Button kind="default" size="sm" onClick={() => onFix(f)} disabled={fixing === f.fix}>
+            <Wrench aria-hidden />
+            {fixing === f.fix ? "Working" : fixLabel}
+          </Button>
+        ) : elsewhere ? (
+          <Button kind="default" size="sm" asChild>
+            <Link to={elsewhere.to}>{elsewhere.label}</Link>
+          </Button>
+        ) : null
+      },
+    },
+  ]
+
+  return (
+    <div className="space-y-4">
+      {problems.length > 0 && (
+        <div className={filterBar} role="search">
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search the checks"
+            aria-label="Search the checks"
+            className="w-full min-w-0 sm:w-80"
+          />
+          <Select
+            aria-label="How serious"
+            value={level}
+            onChange={(e) => setParams(e.target.value === "all" ? new URLSearchParams() : new URLSearchParams({ show: e.target.value }), { replace: true })}
+            className="w-auto max-sm:w-full"
+          >
+            <option value="all">Every level</option>
+            <option value="error">Errors</option>
+            <option value="warning">Warnings</option>
+            <option value="info">Notes</option>
+          </Select>
+          <Select aria-label="Part of the record" value={group} onChange={(e) => setGroup(e.target.value)} className="w-auto max-sm:w-full">
+            <option value="">Every part of the record</option>
+            {groups.map((g) => (
+              <option key={g} value={g}>
+                {g}
+              </option>
+            ))}
+          </Select>
+          {narrowed && (
+            <Button kind="quiet" onClick={clear}>
+              Clear filters
+            </Button>
+          )}
+        </div>
+      )}
+      <Table
+        rows={shown}
+        columns={columns}
+        getKey={(f) => f.key}
+        maxHeight="none"
+        caption="Checks that found something"
+        tools={{ id: "data-health", title: "Data health" }}
+        empty={
+          problems.length === 0
+            ? { icon: CircleCheck, title: "Every check found nothing", message: "The record does not contradict itself." }
+            : {
+                icon: CircleCheck,
+                title: "No check matches",
+                message: "Nothing fits the search or the choices above.",
+                action: (
+                  <Button kind="default" onClick={clear}>
+                    Clear filters
+                  </Button>
+                ),
+              }
+        }
+      />
+    </div>
   )
 }
 
 function BackupTable({ backups }: { backups: StoredBackup[] }) {
   const cols: Column<StoredBackup>[] = [
-    { key: "name", header: "Backup", cell: (b) => <span className="break-all">{b.name.replace("backups/", "")}</span> },
-    { key: "when", header: "Made", cell: (b) => when(b.created_at) },
-    { key: "size", header: "Size", align: "right", cell: (b) => mb(b.bytes) },
+    {
+      key: "name",
+      header: "Backup",
+      exportValue: (b) => b.name.replace("backups/", ""),
+      cell: (b) => <span className="break-all">{b.name.replace("backups/", "")}</span>,
+    },
+    { key: "when", header: "Made", exportValue: (b) => when(b.created_at), cell: (b) => when(b.created_at) },
+    { key: "size", header: "Size", align: "right", exportValue: (b) => mb(b.bytes), cell: (b) => mb(b.bytes) },
     {
       key: "get",
       header: "Download",
@@ -458,6 +516,8 @@ function BackupTable({ backups }: { backups: StoredBackup[] }) {
       columns={cols}
       getKey={(b) => b.name}
       caption="Stored backups"
+      maxHeight="none"
+      tools={{ id: "data-health-backups", title: "Stored backups" }}
       empty={{
         title: "No backup is stored",
         message: "Make one now and download it, so a copy of every record exists off this server.",

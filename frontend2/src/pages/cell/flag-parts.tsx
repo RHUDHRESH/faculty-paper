@@ -106,7 +106,7 @@ export function FlagLine({
       <div className="flex min-w-0 items-start gap-2.5">
         <Avatar size="sm" person={{ name: c.owner_name, initials: initialsOf(c.owner_name), photo_url: c.owner_photo_url ?? null }} />
         <span className="min-w-0">
-          <Link to={`/papers/${c.id}`} className="line-clamp-2 break-words text-sm font-medium text-fg underline-offset-4 hover:underline">
+          <Link to={`/papers/${c.id}`} className="line-clamp-2 break-words [overflow-wrap:anywhere] text-sm font-medium text-fg underline-offset-4 hover:underline">
             {unshout(c.paper_title) || "Untitled paper"}
           </Link>
           <Meta className="block truncate">{[c.owner_name, c.owner_department].filter(Boolean).join(" · ") || "No department"}</Meta>
@@ -121,8 +121,16 @@ export function FlagLine({
           <p className="text-sm text-fg-muted">Same question and answer as the row above.</p>
         ) : (
           <>
-            <p className="text-base font-medium text-fg">{flag.headline}</p>
-            <p className={cn("mt-0.5 text-sm text-pretty", !more && long && "line-clamp-2", flag.open ? "text-fg" : "text-fg-muted")}>{flag.note}</p>
+            <p className="break-words text-base font-medium text-fg [overflow-wrap:anywhere]">{flag.headline}</p>
+            <p
+              className={cn(
+                "mt-0.5 text-sm text-pretty break-words [overflow-wrap:anywhere]",
+                !more && long && "line-clamp-2",
+                flag.open ? "text-fg" : "text-fg-muted"
+              )}
+            >
+              {flag.note}
+            </p>
           </>
         )}
         {long && !(same && flag.open) && (

@@ -157,11 +157,10 @@ export function Imports() {
   const task = (id: string) => ({ id, open: openIds.has(id), onToggle: () => toggle(id) })
 
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-8">
       <PageHeader
         title="Imports"
         sub="Load a file, then check that it landed."
-        spot="spot-imports"
         action={
           <Button kind="default" onClick={refreshStats} disabled={stats.isFetching}>
             <RefreshCw aria-hidden className={cn(stats.isFetching && "animate-spin")} />
@@ -577,6 +576,7 @@ function FacultyMasterSection({ onImported }: { onImported: () => void }) {
       key: "name",
       header: "Name",
       className: "max-w-[16rem]",
+      exportValue: (f) => f.name,
       cell: (f) => (
         <span className="block">
           <span className="block truncate text-sm">{f.name}</span>
@@ -584,20 +584,22 @@ function FacultyMasterSection({ onImported }: { onImported: () => void }) {
         </span>
       ),
     },
-    { key: "staff", header: "Staff ID", cell: (f) => f.staff_id || null },
+    { key: "staff", header: "Staff ID", exportValue: (f) => f.staff_id, cell: (f) => f.staff_id || null },
     {
       key: "dept",
       header: "Department",
       className: "max-w-[12rem]",
+      exportValue: (f) => f.department,
       cell: (f) => (f.department ? <span className="block truncate text-fg-muted">{f.department}</span> : null),
     },
     {
       key: "email",
       header: "Email",
       className: "max-w-[14rem]",
+      exportValue: (f) => f.email,
       cell: (f) => (f.email ? <span className="block truncate text-fg-muted">{f.email}</span> : null),
     },
-    { key: "scopus", header: "Scopus ID", cell: (f) => f.scopus_author_id || null },
+    { key: "scopus", header: "Scopus ID", exportValue: (f) => f.scopus_author_id, cell: (f) => f.scopus_author_id || null },
   ]
 
   const rows = list.data ?? []
@@ -685,6 +687,7 @@ function FacultyMasterSection({ onImported }: { onImported: () => void }) {
             columns={columns}
             getKey={(f) => f.id}
             caption="Faculty master, first 25 rows"
+            tools={{ id: "imports-1", title: "Faculty master, first 25 rows" }}
             maxHeight="24rem"
             minWidth="46rem"
           />
@@ -1442,6 +1445,7 @@ function ProcessQueueSection() {
       key: "paper",
       header: "Paper",
       className: "max-w-[22rem]",
+      exportValue: (c) => [paperTitle(c.paper_title), c.ticket_number, c.owner_name].filter(Boolean).join(", "),
       cell: (c) => (
         <span className="block">
           <span className="block truncate text-sm">{paperTitle(c.paper_title)}</span>
@@ -1457,6 +1461,7 @@ function ProcessQueueSection() {
       key: "journal",
       header: "Journal",
       className: "max-w-[14rem]",
+      exportValue: (c) => c.journal_title,
       cell: (c) => (
         <span className="block">
           <span className="line-clamp-2 text-sm text-fg-muted">
@@ -1583,6 +1588,7 @@ function ProcessQueueSection() {
             columns={columns}
             getKey={(c) => c.id}
             caption="Papers awaiting Scopus verification"
+            tools={{ id: "imports-2", title: "Papers awaiting Scopus verification" }}
             maxHeight="32rem"
             minWidth="52rem"
           />
@@ -2168,6 +2174,7 @@ function FypRosterSection() {
             columns={columns}
             getKey={(m) => m.code}
             caption="Teams whose mentor matched no account"
+            tools={{ id: "imports-3", title: "Teams whose mentor matched no account" }}
             maxHeight="20rem"
             minWidth="36rem"
           />
@@ -2362,13 +2369,13 @@ function ScopusProfilesSection() {
   const reason = busy ? "Importing." : !file ? "Choose the profile workbook first." : null
 
   const orphanColumns: Column<ProfileRow>[] = [
-    { key: "id", header: "Scopus ID", cell: (p) => <ScopusLink id={p.scopus_id} url={p.url} /> },
+    { key: "id", header: "Scopus ID", exportValue: (p) => p.scopus_id, cell: (p) => <ScopusLink id={p.scopus_id} url={p.url} /> },
     { key: "sheet", header: "Sheet", cell: (p) => p.sheet || null },
     { key: "pubs", header: "Publications", align: "right", cell: (p) => (p.publications == null ? null : p.publications.toString()) },
     { key: "cites", header: "Citations", align: "right", cell: (p) => (p.citations == null ? null : p.citations.toString()) },
   ]
   const bareColumns: Column<ScopusVerification["faculty_without_scopus"][number]>[] = [
-    { key: "name", header: "Faculty member", cell: (p) => <PersonLink person={p} /> },
+    { key: "name", header: "Faculty member", exportValue: (p) => p.name, cell: (p) => <PersonLink person={p} /> },
     { key: "dept", header: "Department", cell: (p) => p.department || null },
     { key: "staff", header: "Staff ID", cell: (p) => p.staff_id || null },
     {
@@ -2379,7 +2386,7 @@ function ScopusProfilesSection() {
     },
   ]
   const mismatchColumns: Column<ScopusVerification["name_mismatches"][number]>[] = [
-    { key: "name", header: "Account", cell: (p) => <PersonLink person={p} /> },
+    { key: "name", header: "Account", exportValue: (p) => p.name, cell: (p) => <PersonLink person={p} /> },
     { key: "stored", header: "Stored Scopus ID", cell: (p) => p.stored_scopus_id || "None" },
     {
       key: "sheet-id",
@@ -2454,6 +2461,7 @@ function ScopusProfilesSection() {
                   columns={orphanColumns}
                   getKey={(p) => p.scopus_id}
                   caption="Profiles whose Scopus ID matches no account"
+                  tools={{ id: "imports-4", title: "Profiles whose Scopus ID matches no account" }}
                   maxHeight="18rem"
                   minWidth="32rem"
                 />
@@ -2485,6 +2493,7 @@ function ScopusProfilesSection() {
                   columns={mismatchColumns}
                   getKey={(p) => `${p.user_id}-${p.sheet_scopus_id}`}
                   caption="Accounts whose Scopus ID differs from their sheet"
+                  tools={{ id: "imports-5", title: "Accounts whose Scopus ID differs from their sheet" }}
                   maxHeight="18rem"
                   minWidth="36rem"
                 />
@@ -2504,6 +2513,7 @@ function ScopusProfilesSection() {
                 columns={bareColumns}
                 getKey={(p) => p.user_id}
                 caption="Faculty accounts with no Scopus ID"
+                tools={{ id: "imports-6", title: "Faculty accounts with no Scopus ID" }}
                 maxHeight="20rem"
                 minWidth="36rem"
               />

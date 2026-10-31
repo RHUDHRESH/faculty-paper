@@ -488,18 +488,28 @@ def notify(
         Notification.objects.filter(pk=note.pk).update(created_at=at)
         note.created_at = at
 
-    if level == EMAIL:
-        send_email(
-            note,
-            user,
-            template=email_template or "notifications/email.html",
-            context=email_context or {},
-            connection=email_connection,
-        )
-    if spec.whatsapp:
-        from core.services import whatsapp
+    def send_outward() -> None:
+        if level == EMAIL:
+            send_email(
+                note,
+                user,
+                template=email_template or "notifications/email.html",
+                context=email_context or {},
+                connection=email_connection,
+            )
+        if spec.whatsapp:
+            from core.services import whatsapp
 
-        whatsapp.send_alert(user, note.title, note.body or "")
+            whatsapp.send_alert(user, note.title, note.body or "")
+
+    # The in-app alert above is a row in the caller's transaction and goes or
+    # stays with it. Email and WhatsApp cannot be recalled, so they leave only
+    # once that transaction commits: a payment that rolls back must not have
+    # told its claimant "Paid". Outside a transaction this runs at once.
+    # `robust`: a failure here is logged and must not turn a payment that has
+    # already committed into a 500.
+    if level == EMAIL or spec.whatsapp:
+        transaction.on_commit(send_outward, robust=True)
     return note
 
 

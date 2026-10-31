@@ -116,8 +116,17 @@ describe("HodHome", () => {
       "/department#push",
       "/department?tab=records",
     ])
+    expect(links).toHaveLength(4)
     expect(glance).toHaveTextContent("59 of 73")
     expect(glance).toHaveTextContent("15")
+  })
+
+  it("has the push table with an Export control and a way to the full list", async () => {
+    mount([])
+    const push = await screen.findByRole("region", { name: "Who needs a push" })
+    expect(within(push).getByRole("button", { name: /export/i })).toBeInTheDocument()
+    expect(within(push).getByRole("link", { name: /View on the department page/ })).toHaveAttribute("href", "/department#push")
+    expect(screen.getByRole("button", { name: /Remind all 2/ })).toBeInTheDocument()
   })
 
   it("lists who to talk to first, with a reason and a next step, and no quality reasons yet", async () => {

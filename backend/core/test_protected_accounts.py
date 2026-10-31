@@ -154,7 +154,7 @@ class ProtectedAccounts(ChainBase):
                     self.assertEqual(r.status_code, 200, r.content)
                     target.refresh_from_db()
                     self.assertTrue(target.check_password(NEW_PASSWORD))
-                    self.assertTrue(target.must_change_password)
+                    self.assertFalse(target.must_change_password)
 
                     r = self._post(actor, "/api/admin/reset-password",
                                    {"email": target.email, "password": NEW_PASSWORD + "-again"})

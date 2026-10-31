@@ -31,6 +31,8 @@ export type FacultyRow = {
   scopus_papers?: number
   /** ISO time of the last Scopus sync for this person, or null if never synced. */
   scopus_synced_at?: string | null
+  /** What the person said about their Scopus profile. "" = not answered. */
+  scopus_profile_status?: "" | "confirmed" | "wrong"
   orcid_id: string | null
   orcid_url: string | null
   papers: number
@@ -68,6 +70,8 @@ export type ScopusSummary = {
   papers: number
   scopus_papers: number
   last_synced_at: string | null
+  /** People who say their Scopus profile is not theirs. Absent from older responses. */
+  disputed?: number
 }
 
 export type GapsPayload = {

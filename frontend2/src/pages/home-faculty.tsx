@@ -1,6 +1,6 @@
-import { firstName, unshout } from "@/lib/names"
+import { unshout } from "@/lib/names"
 import { Link } from "react-router-dom"
-import { ArrowRight, FileText, FilePlus2, FileSearch, Plus, Upload, Wallet } from "lucide-react"
+import { FilePlus2, Wallet } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { HOME_DATA } from "@/app/home-data"
@@ -14,47 +14,37 @@ import {
   type MyAssignment,
 } from "@/pages/assignment-parts"
 import { amountView, filedSentence, SLOW_DAYS, stageWord, type PayoutOutlook } from "@/pages/claims-track"
-import { Answer, tieNumbers } from "@/ui/answer"
+import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
-import { ErrorState, Skeleton, Delayed } from "@/ui/state"
+import { ErrorState, Skeleton } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
 import { money } from "@/ui/paper"
-import { DetailLink, detailHref } from "@/ui/detail-sheet"
+import { DetailLink } from "@/ui/detail-sheet"
 import { Journey, claimStatus, facultyStage } from "@/ui/journey"
-import { ClaimTrack } from "@/ui/claim-track"
 import { Chip } from "@/ui/chip"
-import { DotField, type DotGroup } from "@/ui/dot-field"
-import { Stamp } from "@/ui/stamp"
 import { cn } from "@/lib/cn"
 import { toast } from "@/ui/toast"
 import { Due, When } from "@/ui/when"
-import { Celebrations } from "@/ui/celebrations"
 import { PageHeader } from "@/ui/page-header"
-import { Avatar, type PersonBrief } from "@/ui/person"
-import { Details, Rows, Section } from "@/ui/section"
-import { CompassCard } from "@/pages/compass-parts"
-import { EventsOnHome } from "@/pages/home-events"
+import { Avatar } from "@/ui/person"
+import { Rows, Section } from "@/ui/section"
+import { Table, type Column } from "@/ui/table"
+import { ComingUpEvents } from "@/pages/home-events"
 import { ClaimThresholdNote, ThresholdCard, type ThresholdSummary } from "@/ui/research-threshold"
 
 /**
  * What a faculty member opens the app to find out: is anything needed from
- * me, where are my claims and when does the money come, how is my research
- * going, and what should I do next.
+ * me, where are my claims and when does the money come, and which of my
+ * papers can I still file.
  *
- * The page answers in that order. One sentence first, worked out from the
- * claims and the ledger ("1 claim needs a fix from you; about ₹2,000 is on
- * its way, expected in October"). Then what needs the person, each with the
- * button that does it. Then the money, the claims still moving, the research
- * in one line and a single suggestion. Nothing is drawn as a card inside a
- * card, and celebrations are one quiet line.
+ * Four numbers first (papers to file, claims in progress, paid this year,
+ * h-index), then two plain tables: the papers on the record that could still
+ * be filed, each with a File button, and the person's own claims, with the
+ * ones that need them first.
  *
  * It never says which desk holds a claim. The college decided that a
  * claimant learns how far a claim has come and how long it has waited, and
  * nothing that would send them to stand in front of one person's office.
- *
- * Its data is four requests the shell starts before this code has arrived
- * (`prefetchHome`), and the record ("/api/me/home") is one light call: the
- * old page waited on the department rank and every paper with every author.
  */
 
 type Claim = {
@@ -228,12 +218,6 @@ export function reasonOf(note: string | null | undefined): string | null {
   return t
 }
 
-/** `/api/discover/next`, the part Home uses. */
-type NextThings = {
-  people: (PersonBrief & { papers: number; reasons: string[] })[]
-  journals: { title: string; quartile: string; colleagues: number; reason: string }[]
-}
-
 /** "Good morning" before 12:00 IST, "Good afternoon" before 17:00, else "Good evening". */
 export function greeting(now = new Date()): string {
   const hour = Number(
@@ -269,7 +253,7 @@ export type SentenceInput = {
 }
 
 /**
- * The page's answer in one sentence, worked out from what the page shows.
+ * The page's state in one sentence, worked out from what the page shows.
  * A clause is only said when it is true, and "expected in October" is only
  * said when a claim is already approved for payment, because before that the
  * college has not said it will pay it.
@@ -301,10 +285,9 @@ export function homeSentence(s: SentenceInput): string {
   return out.charAt(0).toUpperCase() + out.slice(1)
 }
 
-/**
- * Where do I stand, what needs me, what is new -- in that order
- * (docs/ux/22). One sentence answers; the sections below are the work.
- */
+/** How many rows a Home table shows; the rest are one link away. */
+const SHOWN = 10
+
 export function FacultyHome() {
   const { me } = useAuth()
   const own = useOwnPapers()
@@ -329,32 +312,18 @@ export function FacultyHome() {
     )
   }
 
-  const first = firstName(me?.name)
   const rec = home.data
-  const empty = !own.isLoading && own.claims.length === 0 && rec?.papers === 0
-  const ready = !own.isLoading && (home.data != null || home.isError)
-  const sentence = ready
-    ? homeSentence({
-        sentBack: own.sentBack.length,
-        drafts: own.drafts.length,
-        moving: own.moving.length,
-        coming: own.coming,
-        estimate: own.moving.some((c) => c.remuneration_is_estimate),
-        approved: own.moving.some((c) => stageOfClaim(c) === "Approved for payment"),
-        nextRun: outlook.data?.next_run_label ?? null,
-        unfiled: rec?.unfiled?.count ?? null,
-        filedAny: own.claims.some((c) => claimStatus(c) !== "DRAFT") || own.paymentCount > 0,
-      })
-    : null
+  const load = own.isLoading
+  const inProgress = own.moving.length + own.sentBack.length
+  const toFile = rec ? (rec.unfiled?.count ?? 0) : null
 
   return (
-    <div className="page space-y-10 pb-16">
+    <div className="page space-y-8 pb-16">
       <PageHeader
-        title={`${greeting()}${first ? `, ${first}` : ""}`}
-        sub={[me?.designation, me?.department].filter(Boolean).join(", ") || undefined}
-        spot="spot-home-faculty"
+        title="Home"
+        sub={[me?.designation, me?.department].filter(Boolean).join(", ") || "Your papers, claims and payments."}
         action={
-          <Button asChild>
+          <Button kind="primary" asChild>
             <Link to="/papers/new">
               <FilePlus2 />
               File a paper
@@ -363,57 +332,99 @@ export function FacultyHome() {
         }
       />
 
-      <div className="space-y-3">
-        {sentence ? (
-          <p
-            role="status"
-            data-testid="home-answer"
-            className="display display-xl max-w-[24ch] text-fg sm:max-w-[28ch]"
-          >
-            {tieNumbers(sentence)}
-          </p>
-        ) : (
-          <Delayed>
-            <Skeleton className="h-16 max-w-xl" />
-          </Delayed>
-        )}
-        <Celebrations variant="line" />
-      </div>
+      <Answer
+        items={[
+          {
+            value: toFile,
+            label: "papers you can still file",
+            zero: "No paper is waiting to be filed",
+            to: "/papers?filter=unclaimed",
+            tone: toFile ? "caution" : "neutral",
+          },
+          {
+            value: load ? null : inProgress,
+            label: `${inProgress === 1 ? "claim" : "claims"} in progress${own.coming > 0 ? `, ${money(own.coming)} on the way` : ""}`,
+            zero: "No claim in progress",
+            to: "/papers/claims",
+            tone: own.sentBack.length ? "caution" : "neutral",
+          },
+          {
+            value: load ? null : money(own.thisYear),
+            label: `paid since ${sinceLabel(own.since)}`,
+            // The statement is by financial year, so this opens the year that
+            // date falls in: one click from the figure to the lines behind it.
+            to: `/papers/statement?fy=${own.since.getMonth() >= 3 ? own.since.getFullYear() : own.since.getFullYear() - 1}`,
+          },
+          {
+            value: rec ? (rec.h_index ?? "Not known yet") : null,
+            label: rec
+              ? rec.citations != null
+                ? `h-index, ${formatCount(rec.citations)} citations on ${plural(rec.papers, "paper", "papers")}`
+                : `h-index, ${plural(rec.papers, "paper", "papers")} on record`
+              : "h-index",
+            to: "/research#metrics",
+          },
+        ]}
+      />
 
-      {empty && <FirstSteps />}
+      {home.isError && (
+        <p role="alert" className="text-sm text-fg-muted">
+          Could not load your record. Nothing has been lost — your papers and payments are safe.{" "}
+          <button type="button" onClick={() => void home.refetch()} className="font-medium text-accent underline underline-offset-2">
+            Try again
+          </button>
+        </p>
+      )}
+      {rec && rec.citations == null && rec.papers > 0 && (
+        <p className="text-sm text-fg-muted">
+          We are still matching you to your Scopus profile, so citations are not shown yet.{" "}
+          <Link to="/me" className="font-medium text-accent underline-offset-2 hover:underline">
+            Check my profile
+          </Link>
+        </p>
+      )}
 
-      <JustPaid own={own} />
+      {rec?.unfiled && rec.unfiled.count > 0 && <UnfiledTable unfiled={rec.unfiled} />}
 
-      <NeedsYouSection own={own} assigned={assigned.data ?? []} />
+      <ClaimsTable own={own} />
 
-      {rec?.unfiled && rec.unfiled.count > 0 && <UnfiledPapers unfiled={rec.unfiled} />}
+      {assigned.data && assigned.data.length > 0 && (
+        <AssignedToYou items={assigned.data} open={assigned.data.filter((a) => a.status !== "DONE").length} />
+      )}
 
-      <MoneySection own={own} outlook={outlook.data} />
+      <MoneyNote own={own} outlook={outlook.data} />
 
-      <OnTheWaySection own={own} />
-
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-2">
-        <ResearchSection rec={rec} failed={home.isError} onRetry={() => void home.refetch()} />
-        <div className="space-y-10">
-          <Suggestion />
-          <CompassCard variant="home" />
-        </div>
-      </div>
-
-      {/* After the jobs: what is on at the college, and what colleagues have published. Each hides when it has nothing to say. */}
-      <EventsOnHome />
+      <ComingUpEvents />
     </div>
   )
 }
 
+/** What has been paid, in a line or two, and the research threshold where there is one. */
+function MoneyNote({ own, outlook }: { own: OwnPapers; outlook: PayoutOutlook | undefined }) {
+  const { received, paymentCount, lastPaidOn, research, isLoading } = own
+  return (
+    <section aria-label="Your money" className="space-y-3">
+      {!isLoading && (
+        <p className="max-w-prose text-sm text-fg-muted">
+          {money(received)} paid to you so far
+          {paymentCount ? `, ${plural(paymentCount, "payment", "payments")}${lastPaidOn ? `, latest ${lastPaidOn}` : ""}` : ""}.{" "}
+          {outlook?.sentence}{" "}
+          <Link to="/papers/statement" className="font-medium text-accent underline-offset-2 hover:underline">
+            Payment statement
+          </Link>
+        </p>
+      )}
+      <JustPaid own={own} />
+      <ThresholdCard s={research} link={false} className="max-w-prose" />
+    </section>
+  )
+}
+
 /**
- * The end of the journey (peak-end): money that reached the person this month
- * or last is said once, plainly, with the college's own mark for a payment.
- * The Stamp is the app's one authored moment and "Pay" is one of the four
- * decisions it stands for. It comes from the ledger (the record of what was
- * actually paid, including everything paid before this app existed), and it
- * leaves on its own when the month is two months old; the statement is the
- * record after that. Nothing to dismiss, nothing asked in return.
+ * Money that reached the person this month or last, said once and plainly. It
+ * comes from the ledger (the record of what was actually paid, including
+ * everything paid before this app existed), and it leaves on its own when the
+ * month is two months old; the statement is the record after that.
  */
 function JustPaid({ own, now = new Date() }: { own: OwnPapers; now?: Date }) {
   const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
@@ -426,105 +437,23 @@ function JustPaid({ own, now = new Date() }: { own: OwnPapers; now?: Date }) {
   const total = recent.reduce((s, p) => s + p.amount, 0)
   const first = recent[0]
   const [y, m] = (first.payout_month as string).split("-").map(Number)
-  const when = new Date(y, m - 1, 1)
-  const month = when.toLocaleDateString("en-IN", { month: "long" })
+  const month = new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "long" })
   return (
-    <section aria-label="Paid" className="flex flex-wrap items-center gap-x-6 gap-y-3" data-testid="just-paid">
-      <Stamp verb="Paid" date={when.toLocaleDateString("en-IN", { month: "short", year: "numeric" })} className="shrink-0" />
-      <p className="min-w-0 max-w-prose text-base text-fg">
-        {recent.length === 1 && first.paper_title ? (
-          <>
-            <span className="font-medium">{money(total)}</span> for{" "}
-            {first.claim_id ? (
-              <Link to={`/papers/${first.claim_id}`} className="underline underline-offset-4 hover:text-accent">
-                {unshout(first.paper_title)}
-              </Link>
-            ) : (
-              unshout(first.paper_title)
-            )}{" "}
-            reached you in {month}.
-          </>
+    <p className="max-w-prose text-sm text-fg" data-testid="just-paid">
+      <span className="font-medium text-positive">{money(total)}</span> for{" "}
+      {recent.length === 1 && first.paper_title ? (
+        first.claim_id ? (
+          <Link to={`/papers/${first.claim_id}`} className="underline underline-offset-4 hover:text-accent">
+            {unshout(first.paper_title)}
+          </Link>
         ) : (
-          <>
-            <span className="font-medium">{money(total)}</span> for {plural(recent.length, "paper", "papers")} reached you in{" "}
-            {month}.
-          </>
-        )}{" "}
-        <Link to="/papers/statement" className="whitespace-nowrap text-accent hover:underline">
-          See your payment statement
-        </Link>
-      </p>
-    </section>
-  )
-}
-
-/** What is asked of the person: sent-back claims, drafts, and work their head set. */
-function NeedsYouSection({ own, assigned }: { own: OwnPapers; assigned: MyAssignment[] }) {
-  const { sentBack, drafts, isLoading } = own
-  if (isLoading) {
-    return (
-      <Delayed>
-        <Skeleton className="h-24" />
-      </Delayed>
-    )
-  }
-  const open = assigned.filter((a) => a.status !== "DONE")
-  // Nothing to do is said once, by the sentence at the top; an empty
-  // "Needs you" heading under it would say it a second time.
-  if (sentBack.length === 0 && drafts.length === 0 && assigned.length === 0) return null
-  return (
-    <div className="space-y-10">
-      {(sentBack.length > 0 || drafts.length > 0) && (
-        <Section title="Needs you" aria-label="Needs you" data-area="record">
-          <Rows>
-            {sentBack.map((c, i) => {
-              const why = reasonOf(c.status_note)
-              return (
-                <li key={c.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-4">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-caution">Sent back to you</p>
-                    <p className="mt-0.5 line-clamp-2 text-base font-medium">{unshout(c.paper_title)}</p>
-                    <p className="mt-1 max-w-prose text-sm text-fg-muted">
-                      {why ? (
-                        <>
-                          <span className="text-fg">The college asked: </span>
-                          {why}
-                        </>
-                      ) : (
-                        "Open it to see what the college asked for."
-                      )}
-                    </p>
-                  </div>
-                  <Button kind={i === 0 ? "primary" : "default"} asChild>
-                    <Link to={`/papers/${c.id}#fix`}>
-                      Fix this claim
-                      <ArrowRight />
-                    </Link>
-                  </Button>
-                </li>
-              )
-            })}
-            {drafts.map((c) => (
-              <li key={c.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3">
-                <div className="flex min-w-0 flex-1 items-start gap-2">
-                  <FileText aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-subtle" />
-                  <div className="min-w-0">
-                    <p className="text-sm text-fg-muted">
-                      Draft{c.updated_at ? <> · last edited <When iso={c.updated_at} /></> : ""}
-                    </p>
-                    <p className="font-medium">{c.paper_title || (c.doi ? `DOI ${c.doi}` : "Untitled paper")}</p>
-                  </div>
-                </div>
-                <Button asChild>
-                  <Link to={`/papers/${c.id}/edit`}>Finish and file</Link>
-                </Button>
-              </li>
-            ))}
-          </Rows>
-        </Section>
-      )}
-      {assigned.length > 0 && <AssignedToYou items={assigned} open={open.length} />}
-    </div>
+          unshout(first.paper_title)
+        )
+      ) : (
+        plural(recent.length, "paper", "papers")
+      )}{" "}
+      reached you in {month}.
+    </p>
   )
 }
 
@@ -533,342 +462,212 @@ function NeedsYouSection({ own, assigned }: { own: OwnPapers; assigned: MyAssign
  * from its claim. The count is My papers' "Not claimed" count; the rows are
  * one per title, so a paper the record holds twice is offered once.
  */
-function UnfiledPapers({ unfiled }: { unfiled: NonNullable<HomeRecord["unfiled"]> }) {
+type Unfiled = NonNullable<HomeRecord["unfiled"]>["items"][number]
+
+function UnfiledTable({ unfiled }: { unfiled: NonNullable<HomeRecord["unfiled"]> }) {
   const { count, items } = unfiled
-  return (
-    <Section
-      title="Papers you can still file"
-      action={
-        <Button kind="default" size="sm" asChild>
-          <Link to="/papers?filter=unclaimed">
-            {count > items.length ? `All ${formatCount(count)} unfiled papers` : "Open in My papers"}
-            <ArrowRight aria-hidden />
+  const rows = items.slice(0, SHOWN)
+  const columns: Column<Unfiled>[] = [
+    {
+      key: "title",
+      header: "Paper",
+      truncate: true,
+      exportValue: (p) => unshout(p.title),
+      cell: (p) => <DetailLink kind="paper" id={p.id}>{unshout(p.title)}</DetailLink>,
+    },
+    {
+      key: "venue",
+      header: "Journal",
+      empty: "Journal not recorded",
+      exportValue: (p) => p.venue,
+      cell: (p) => (p.venue ? <DetailLink kind="journal" name={p.venue} /> : null),
+    },
+    { key: "year", header: "Year", exportValue: (p) => p.year, cell: (p) => p.year },
+    {
+      key: "quartile",
+      header: "Quartile",
+      empty: "None",
+      exportValue: (p) => p.quartile ?? null,
+      cell: (p) =>
+        p.quartile ? (
+          <Chip tone={p.quartile === "Q1" ? "gold" : "neutral"} title="The journal's quartile on the college's record">
+            {p.quartile} journal
+          </Chip>
+        ) : null,
+    },
+    {
+      key: "file",
+      header: "File",
+      label: "File this paper",
+      cell: (p) => (
+        <Button asChild>
+          <Link to={`/papers/new?publication=${p.id}`} aria-label={`File it: ${unshout(p.title)}`}>
+            File it
           </Link>
         </Button>
-      }
-    >
-      <Rows>
-        {items.map((p) => (
-          <li key={p.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3">
-            <div className="min-w-0 flex-1">
-              <p className="line-clamp-2 font-medium">
-                <DetailLink kind="paper" id={p.id}>
-                  {unshout(p.title)}
-                </DetailLink>
-              </p>
-              <p className="truncate text-sm text-fg-muted">
-                {p.venue && <DetailLink kind="journal" name={p.venue} />}
-                {p.venue && p.year ? ", " : ""}
-                {p.year}
-                {!p.venue && !p.year && "Journal not recorded"}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-3">
-              {p.quartile && (
-                <Chip tone={p.quartile === "Q1" ? "gold" : "neutral"} title="The journal's quartile on the college's record">
-                  {p.quartile} journal
-                </Chip>
-              )}
-              <Button asChild>
-                <Link to={`/papers/new?publication=${p.id}`}>File it</Link>
-              </Button>
-            </div>
-          </li>
-        ))}
-      </Rows>
-    </Section>
-  )
-}
-
-/** Money as three figures, each a link, and when the next payment run is. */
-function MoneySection({ own, outlook }: { own: OwnPapers; outlook: PayoutOutlook | undefined }) {
-  const { thisYear, coming, received, since, paymentCount, lastPaidOn, moving, research, isLoading } = own
-  const load = isLoading
-  return (
-    <Section
-      title="Your money"
-      aria-label="Your money"
-      action={
-        <Button kind="default" size="sm" asChild>
-          <Link to="/papers/statement">Payment statement</Link>
-        </Button>
-      }
-    >
-      <Answer className="max-sm:grid-cols-1"
-        items={[
-          {
-            value: load ? null : money(received),
-            label: paymentCount
-              ? `paid to you so far, ${plural(paymentCount, "payment", "payments")}${lastPaidOn ? `, latest ${lastPaidOn}` : ""}`
-              : "paid to you so far",
-            to: "/papers/statement",
-          },
-          {
-            value: load ? null : money(thisYear),
-            label: `paid since ${sinceLabel(since)}`,
-            // The statement is by financial year, so this opens the year that
-            // date falls in: one click from the figure to the lines behind it.
-            to: `/papers/statement?fy=${since.getMonth() >= 3 ? since.getFullYear() : since.getFullYear() - 1}`,
-          },
-          {
-            value: load ? null : money(coming),
-            label: moving.length ? `on its way, from ${plural(moving.length, "claim", "claims")}` : "on its way, nothing is waiting to be paid",
-            to: "/papers/claims",
-          },
-        ]}
-      />
-      {outlook?.sentence && (
-        <Details label="when the next payment is" className="mt-3">
-          <p className="max-w-prose text-sm text-fg-muted">{outlook.sentence}</p>
-        </Details>
-      )}
-      <ThresholdCard s={research} link={false} className="mt-4 max-w-prose" />
-    </Section>
-  )
-}
-
-/** Claims still moving: the longest-waiting first, four at most, the rest one click away. */
-function OnTheWaySection({ own }: { own: OwnPapers }) {
-  const { moving, isLoading } = own
-  if (isLoading || moving.length === 0) return null
-  const shown = moving.slice(0, 4)
-  return (
-    <Section
-      title="Claims on the way"
-      action={
-        <Button kind="default" size="sm" asChild>
-          <Link to="/papers/claims">
-            {moving.length > shown.length ? `All ${formatCount(moving.length)} on the way` : "My claims"}
-          </Link>
-        </Button>
-      }
-    >
-      <Rows>
-        {shown.map((c) => {
-          const days = daysOf(c)
-          const t = { ...c, faculty_stage: stageOfClaim(c), days_waiting: days }
-          const view = amountView(t)
-          const slow = days != null && days > SLOW_DAYS
-          return (
-            <li key={c.id}>
-              <Link
-                to={`/papers/${c.id}`}
-                className="row -mx-2 block rounded-control px-2 py-4"
-              >
-                <span className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
-                  <span className="line-clamp-2 min-w-0 flex-1 font-medium">{unshout(c.paper_title)}</span>
-                  <span className="shrink-0 text-right">
-                    {view.amount != null ? (
-                      <>
-                        <span className="figure block">{money(view.amount)}</span>
-                        <span className="block text-xs text-fg-muted">
-                          {view.caption}
-                          {c.remuneration_is_estimate ? ", an estimate" : ""}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-sm text-fg-subtle">{view.note}</span>
-                    )}
-                  </span>
-                </span>
-                <ClaimTrack stage={stageOfClaim(c)} filedOn={c.submitted_at} size="sm" className="mt-3 max-w-lg" />
-                <span className="mt-2 block text-sm text-fg-muted">
-                  {stageWord(t)}
-                  {" · "}
-                  {filedSentence(t)}
-                  {slow && <span className="text-caution">{" · "}Taking longer than usual</span>}
-                  {c.ticket_number?.startsWith("FP-") ? ` · Claim no. ${c.ticket_number}` : ""}
-                </span>
-                <ClaimThresholdNote c={c} mine className="mt-1 text-xs" />
-              </Link>
-            </li>
-          )
-        })}
-      </Rows>
-    </Section>
-  )
-}
-
-/** The one paper count, the same as My papers and My research, and two figures beside it. */
-function ResearchSection({
-  rec,
-  failed,
-  onRetry,
-}: {
-  rec: HomeRecord | undefined
-  failed: boolean
-  onRetry: () => void
-}) {
-  return (
-    <Section
-      title="Your research"
-      action={
-        <Button kind="default" size="sm" asChild>
-          <Link to="/research">My research</Link>
-        </Button>
-      }
-    >
-      {failed ? (
-        <p role="alert" className="text-sm text-fg-muted">
-          Could not load your record. Nothing has been lost — your papers and payments are safe.{" "}
-          <button type="button" onClick={onRetry} className="font-medium text-accent underline underline-offset-2">
-            Try again
-          </button>
-        </p>
-      ) : !rec ? (
-        <Delayed>
-          <Skeleton className="h-16" />
-        </Delayed>
-      ) : (
-        <>
-          <p className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
-            <Fact to="/papers" metric="papers" value={rec.papers} label={rec.papers === 1 ? "paper" : "papers"} />
-            <Fact to="/research#citations" metric="citations" value={rec.citations} label="citations" />
-            <Fact to="/research#metrics" metric="h_index" value={rec.h_index} label="h-index" />
-          </p>
-          {rec.quartiles && rec.papers > 0 && (
-            <DotField
-              className="mt-5"
-              dot={9}
-              max={160}
-              unit="papers"
-              groups={([
-                { key: "q1", label: "in Q1 journals", count: rec.quartiles.Q1, tone: "gold", to: detailHref({ kind: "metric", metric: "quartile", value: "Q1" }) },
-                {
-                  key: "q2-4",
-                  label: "in Q2 to Q4 journals",
-                  count: rec.quartiles.Q2 + rec.quartiles.Q3 + rec.quartiles.Q4,
-                  tone: "navy",
-                },
-                { key: "other", label: "with no quartile", count: rec.quartiles.none, tone: "slate", to: "/papers?quartile=none" },
-              ] as DotGroup[]).filter((g) => g.count > 0)}
-            />
-          )}
-          {rec.citations == null && rec.papers > 0 && (
-            <p className="mt-2 max-w-prose text-sm text-fg-muted">
-              We are still matching you to your Scopus profile, so citations are not shown yet.{" "}
-              <Link to="/me" className="font-medium text-accent underline-offset-2 hover:underline">
-                Check my profile
-              </Link>
-            </p>
-          )}
-        </>
-      )}
-    </Section>
-  )
-}
-
-function Fact({ to, metric, value, label }: { to: string; metric: string; value: number | null; label: string }) {
-  // A known number opens the papers behind it; one not known yet still goes
-  // to the page that explains why.
-  if (value)
-    return (
-      <DetailLink kind="metric" metric={metric} label={`${formatCount(value)} ${label}`} className="group">
-        <span aria-hidden className="figure text-figure underline decoration-dotted decoration-fg-subtle decoration-1 underline-offset-[6px] group-hover:decoration-solid">
-          {formatCount(value)}
-        </span>{" "}
-        <span aria-hidden className="text-sm text-fg-muted group-hover:text-fg">
-          {label}
-        </span>
-      </DetailLink>
-    )
-  return (
-    <Link to={to} aria-label={value == null ? `${label}: not known yet` : `${formatCount(value)} ${label}`} className="group">
-      <span aria-hidden className="figure text-figure">
-        {value == null ? "–" : formatCount(value)}
-      </span>{" "}
-      <span aria-hidden className="text-sm text-fg-muted group-hover:text-fg">
-        {label}
-      </span>
-    </Link>
-  )
-}
-
-/**
- * One suggestion, not a feed: the colleague the college's own record says is
- * the best person to write with, or failing that a journal colleagues use.
- * More is one click away on Who to work with. Draws nothing when the record
- * has nothing to go on, or when the request fails: a suggestion is never
- * worth an error box on the page everyone lands on.
- */
-function Suggestion() {
-  const q = useApi<NextThings>(["discover", "next"], "/api/discover/next", { retry: false })
-  const person = q.data?.people?.[0]
-  const journal = q.data?.journals?.[0]
-  if (!person && !journal) return null
-  return (
-    <Section
-      title="Something to try next"
-      action={
-        <Button kind="default" size="sm" asChild>
-          <Link to="/collaborate">Who to work with</Link>
-        </Button>
-      }
-    >
-      {person ? (
-        <div className="flex items-start gap-3">
-          <Avatar person={person} size="lg" />
-          <div className="min-w-0">
-            <p className="text-base">
-              Write with{" "}
-              <Link to={`/u/${person.id}`} className="font-medium underline-offset-4 hover:underline">
-                {person.name}
-              </Link>
-            </p>
-            <p className="text-sm text-fg-muted">
-              {[person.designation, person.department].filter(Boolean).join(", ")}
-              {person.papers ? ` · ${plural(person.papers, "recent paper", "recent papers")}` : ""}
-            </p>
-            {person.reasons[0] && <p className="mt-1 text-sm text-fg-muted">{person.reasons[0]}</p>}
-          </div>
-        </div>
-      ) : journal ? (
-        <div>
-          <p className="text-base">
-            Aim for <span className="font-medium">{journal.title}</span>
-            {journal.quartile ? ` (${journal.quartile})` : ""}
-          </p>
-          <p className="mt-1 text-sm text-fg-muted">{journal.reason}</p>
-        </div>
-      ) : null}
-    </Section>
-  )
-}
-
-/** The three steps, for somebody who has filed nothing yet. */
-function FirstSteps() {
-  const steps = [
-    { icon: FileSearch, title: "Paste the DOI", text: "Most of the claim fills itself in from the paper's record." },
-    { icon: Upload, title: "Attach the PDFs", text: "The published article and the cited references with the college's affiliation." },
-    { icon: FilePlus2, title: "Send it and watch", text: "You see how far it has come and how long it has waited, until it is paid." },
+      ),
+    },
   ]
   return (
-    <section className="panel-lead p-6 sm:p-8">
-      <h2 className="text-lg font-semibold">File your first paper</h2>
-      <p className="mt-1 max-w-prose text-fg-muted">About five minutes, with the DOI and the PDFs to hand.</p>
-      <ol className="mt-6 grid gap-6 sm:grid-cols-3">
-        {steps.map(({ icon: Icon, title, text }, i) => (
-          <li key={title} className="flex gap-3">
-            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-accent-wash text-sm font-semibold text-accent">
-              {i + 1}
-            </span>
-            <div>
-              <p className="flex items-center gap-1.5 font-medium">
-                <Icon className="size-4 text-fg-subtle" aria-hidden />
-                {title}
-              </p>
-              <p className="mt-0.5 text-sm text-fg-muted">{text}</p>
-            </div>
-          </li>
-        ))}
-      </ol>
-      <Button kind="primary" size="lg" asChild className="mt-7">
-        <Link to="/papers/new">
-          <Plus />
-          File your first paper
+    <Section title="Papers you can still file">
+      <Table
+        rows={rows}
+        columns={columns}
+        getKey={(p) => p.id}
+        tools={{ id: "faculty-home-unfiled", title: "Papers you can still file" }}
+      />
+      <p className="mt-2 text-sm">
+        <Link to="/papers?filter=unclaimed" className="text-accent underline-offset-4 hover:underline">
+          {count > rows.length ? `View all ${formatCount(count)} unfiled papers` : "View in My papers"}
         </Link>
-      </Button>
-    </section>
+      </p>
+    </Section>
+  )
+}
+
+type ClaimRow = { claim: Claim; kind: "sent" | "draft" | "moving" }
+
+/**
+ * The person's own claims, what needs them first: sent back with the college's
+ * reason, drafts never filed, then every claim still moving with how long it
+ * has waited. Never which desk holds one.
+ */
+function ClaimsTable({ own }: { own: OwnPapers }) {
+  const { sentBack, drafts, moving, isLoading, claims } = own
+  if (isLoading) return <Skeleton className="h-40" />
+  const all: ClaimRow[] = [
+    ...sentBack.map((claim) => ({ claim, kind: "sent" as const })),
+    ...drafts.map((claim) => ({ claim, kind: "draft" as const })),
+    ...moving.map((claim) => ({ claim, kind: "moving" as const })),
+  ]
+  const rows = all.slice(0, SHOWN)
+  const text = (r: ClaimRow) => {
+    const c = r.claim
+    if (r.kind === "sent") return "Sent back to you"
+    if (r.kind === "draft") return "Draft"
+    const t = { ...c, faculty_stage: stageOfClaim(c), days_waiting: daysOf(c) }
+    return `${stageWord(t)} · ${filedSentence(t)}`
+  }
+  const columns: Column<ClaimRow>[] = [
+    {
+      key: "paper",
+      header: "Paper",
+      truncate: true,
+      exportValue: (r) => r.claim.paper_title || "Untitled paper",
+      cell: ({ claim: c, kind }) => (
+        <Link to={kind === "draft" ? `/papers/${c.id}/edit` : `/papers/${c.id}`} className="font-medium text-accent underline-offset-4 hover:underline">
+          {unshout(c.paper_title) || (c.doi ? `DOI ${c.doi}` : "Untitled paper")}
+        </Link>
+      ),
+    },
+    {
+      key: "status",
+      header: "Where it is",
+      exportValue: text,
+      cell: (r) => {
+        const c = r.claim
+        if (r.kind === "sent") {
+          const why = reasonOf(c.status_note)
+          return (
+            <>
+              <p className="font-medium text-caution">Sent back to you</p>
+              <p className="text-sm text-fg-muted">
+                {why ? (
+                  <>
+                    <span className="text-fg">The college asked: </span>
+                    {why}
+                  </>
+                ) : (
+                  "Open it to see what the college asked for."
+                )}
+              </p>
+            </>
+          )
+        }
+        if (r.kind === "draft") {
+          return (
+            <p className="text-fg-muted">
+              Draft{c.updated_at ? <> · last edited <When iso={c.updated_at} /></> : ""}
+            </p>
+          )
+        }
+        const days = daysOf(c)
+        const t = { ...c, faculty_stage: stageOfClaim(c), days_waiting: days }
+        return (
+          <>
+            <p>
+              {stageWord(t)}
+              {" · "}
+              {filedSentence(t)}
+            </p>
+            {days != null && days > SLOW_DAYS && <p className="text-sm text-caution">Taking longer than usual</p>}
+            {c.ticket_number?.startsWith("FP-") && <p className="text-sm text-fg-muted">Claim no. {c.ticket_number}</p>}
+            <ClaimThresholdNote c={c} mine className="mt-1 text-xs" />
+          </>
+        )
+      },
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      align: "right",
+      exportKind: "money",
+      exportValue: (r) => r.claim.remuneration,
+      cell: ({ claim: c, kind }) => {
+        if (kind !== "moving") return c.remuneration ? money(c.remuneration) : <span className="text-fg-muted">Not worked out yet</span>
+        const view = amountView({ ...c, faculty_stage: stageOfClaim(c), days_waiting: daysOf(c) })
+        return view.amount != null ? (
+          <>
+            {money(view.amount)}
+            <span className="block text-xs font-normal text-fg-muted">
+              {view.caption}
+              {c.remuneration_is_estimate ? ", an estimate" : ""}
+            </span>
+          </>
+        ) : (
+          <span className="text-sm font-normal text-fg-muted">{view.note}</span>
+        )
+      },
+    },
+    {
+      key: "next",
+      header: "Next step",
+      cell: ({ claim: c, kind }) =>
+        kind === "sent" ? (
+          <Button asChild>
+            <Link to={`/papers/${c.id}#fix`}>Fix this claim</Link>
+          </Button>
+        ) : kind === "draft" ? (
+          <Button asChild>
+            <Link to={`/papers/${c.id}/edit`}>Finish and file</Link>
+          </Button>
+        ) : (
+          <span className="text-fg-muted">Nothing needed from you</span>
+        ),
+    },
+  ]
+  const more = sentBack.length + drafts.length + moving.length
+  return (
+    <Section title="Your claims">
+      <Table
+        rows={rows}
+        columns={columns}
+        getKey={(r) => `${r.kind}-${r.claim.id}`}
+        tools={{ id: "faculty-home-claims", title: "Your claims" }}
+        empty={{
+          title: claims.length === 0 ? "You have not filed a claim yet" : "Nothing needs you",
+          message:
+            claims.length === 0
+              ? "File a paper with its DOI and PDFs, then follow it here until it is paid."
+              : "Nothing is waiting to be paid. Every claim you filed is complete.",
+        }}
+      />
+      <p className="mt-2 text-sm">
+        <Link to="/papers/claims" className="text-accent underline-offset-4 hover:underline">
+          {more > rows.length ? `View all ${formatCount(more)} claims` : "View all my claims"}
+        </Link>
+      </p>
+    </Section>
   )
 }
 
@@ -1019,10 +818,7 @@ export function NeedsYou({ sentBack, drafts }: { sentBack: Claim[]; drafts: Clai
                 )}
               </div>
               <Button kind={i === 0 ? "primary" : "default"} asChild>
-                <Link to={`/papers/${c.id}`}>
-                  Fix this claim
-                  <ArrowRight />
-                </Link>
+                <Link to={`/papers/${c.id}`}>Fix this claim</Link>
               </Button>
             </div>
           </li>

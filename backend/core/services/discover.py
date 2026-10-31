@@ -80,6 +80,12 @@ def find_journal(name: str, *, year: int = 2025) -> ScimagoJournal | None:
     for row in scope.filter(title__iexact=name.strip())[:5]:
         return row
 
+    return _find_by_words(name, wanted, scope)
+
+
+def _find_by_words(name: str, wanted: str, scope) -> ScimagoJournal | None:
+    """The second way `find_journal` looks: the name's rarest words pull a small
+    candidate set, which is then compared on the whole normalised title."""
     distinctive = [w for w in _tokens(name) if w not in _STOPWORDS]
     if not distinctive:
         distinctive = _tokens(name)
@@ -97,6 +103,33 @@ def find_journal(name: str, *, year: int = 2025) -> ScimagoJournal | None:
     # Nothing matched exactly. A near miss is worse than no answer here: the
     # reader would get real numbers attached to the wrong journal.
     return None
+
+
+def find_journals(names: list[str], *, year: int = 2025) -> dict[str, ScimagoJournal | None]:
+    """`find_journal` for several names, with one title query for all of them.
+
+    Each name gets exactly the answer `find_journal(name)` gives. The exact-title
+    lookup is a scan of the year's 32,000 rows whichever name it is for, so asking
+    it once with every name in it costs what one name did; only the names it does
+    not settle go on to the word search, which is per name by nature.
+    """
+    wanted = [n for n in dict.fromkeys(names) if n and n.strip() and normalize_title(n)]
+    found: dict[str, ScimagoJournal | None] = {n: None for n in names}
+    if not wanted:
+        return found
+
+    scope = ScimagoJournal.objects.filter(year=year)
+    exact = Q()
+    for n in wanted:
+        exact |= Q(title__iexact=n.strip())
+    rows = list(scope.filter(exact))
+    for n in wanted:
+        folded = n.strip().casefold()
+        row = next((r for r in rows if (r.title or "").casefold() == folded), None)
+        if row is None:
+            row = _find_by_words(n, normalize_title(n), scope)
+        found[n] = row
+    return found
 
 
 def _issns(row: ScimagoJournal) -> list[str]:
@@ -142,7 +175,30 @@ def categories_of(row: ScimagoJournal) -> list[dict[str, Any]]:
     return parsed if isinstance(parsed, list) else []
 
 
-def describe_journal(row: ScimagoJournal) -> dict[str, Any]:
+def find_snips(rows: list[ScimagoJournal]) -> dict[str, float | None]:
+    """`find_snip` for several journals (keyed by row id), with one query."""
+    codes = {r.id: set(_issns(r)) for r in rows}
+    every = sorted({c for cs in codes.values() for c in cs})
+    out: dict[str, float | None] = {r.id: None for r in rows}
+    if not every:
+        return out
+    matches = list(
+        SnipSource.objects.filter(Q(print_issn__in=every) | Q(e_issn__in=every))
+        .exclude(snip__isnull=True)
+        .order_by("-year")
+    )
+    for r in rows:
+        mine = codes[r.id]
+        hit = next((m for m in matches if m.print_issn in mine or m.e_issn in mine), None)
+        out[r.id] = hit.snip if hit else None
+    return out
+
+
+_ASK = object()
+
+
+def describe_journal(row: ScimagoJournal, *, snip: Any = _ASK) -> dict[str, Any]:
+    """`snip` is for a caller that has already looked the SNIP up for many rows."""
     categories = categories_of(row)
     best = best_by_quartile(categories) if categories else {}
     return {
@@ -152,8 +208,14 @@ def describe_journal(row: ScimagoJournal) -> dict[str, Any]:
         "subject": best.get("category"),
         "sjr": row.sjr,
         "dataset_year": row.year,
-        "snip": find_snip(row),
+        "snip": find_snip(row) if snip is _ASK else snip,
     }
+
+
+def describe_journals(rows: list[ScimagoJournal]) -> dict[str, dict[str, Any]]:
+    """`describe_journal` for several rows (keyed by row id), the SNIPs in one query."""
+    snips = find_snips(rows)
+    return {r.id: describe_journal(r, snip=snips[r.id]) for r in rows}
 
 
 def estimate_payout(

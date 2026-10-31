@@ -1,10 +1,10 @@
 import { Link } from "react-router-dom"
 
 import { useApi } from "@/lib/query"
-import { Button } from "@/ui/button"
-import { Rows, Section } from "@/ui/section"
+import { Section } from "@/ui/section"
+import { Table, type Column } from "@/ui/table"
 import { showcaseSentence, whenWords, type EventsSummary, type Highlights } from "@/pages/events-model"
-import { CountdownChip, DateTile, GoingCount } from "@/pages/events-parts"
+import { CountdownChip, GoingCount } from "@/pages/events-parts"
 
 /**
  * Two small cards for Home, so seminars and the college's research are seen
@@ -30,33 +30,49 @@ function useCollegeMonth(): string | null {
   return q.data && !q.data.empty ? showcaseSentence(q.data) : null
 }
 
+type Upcoming = EventsSummary["upcoming"][number]
+
+/** A plain table: the event is the link, then when, then how soon and who is going. */
 function ComingUpCard({ data }: { data: EventsSummary }) {
+  const columns: Column<Upcoming>[] = [
+    {
+      key: "title",
+      header: "Event",
+      exportValue: (e) => e.title,
+      cell: (e) => (
+        <Link to={`/events?event=${e.id}`} className="font-medium text-fg underline-offset-4 hover:underline">
+          {e.title}
+        </Link>
+      ),
+    },
+    { key: "when", header: "When", exportValue: (e) => whenWords(e), cell: (e) => whenWords(e) },
+    {
+      key: "soon",
+      header: "How soon",
+      exportValue: (e) => e.starts_on,
+      cell: (e) => (
+        <span className="flex flex-wrap items-center gap-2">
+          <CountdownChip event={e} today={data.today} />
+          <GoingCount event={e} />
+        </span>
+      ),
+    },
+  ]
   return (
     <Section
       title="Coming up"
       action={
-        <Button kind="default" size="sm" asChild>
-          <Link to="/events">All events</Link>
-        </Button>
+        <Link to="/events" className="text-sm text-accent underline-offset-4 hover:underline">
+          All events
+        </Link>
       }
     >
-      <Rows>
-        {data.upcoming.map((e) => (
-          <li key={e.id}>
-            <Link to={`/events?event=${e.id}`} className="row -mx-2 flex items-center gap-3 rounded-control px-2 py-3">
-              <DateTile event={e} size="sm" />
-              <span className="min-w-0 flex-1">
-                <span className="line-clamp-2 font-medium">{e.title}</span>
-                <span className="line-clamp-1 text-sm text-fg-muted">{whenWords(e)}</span>
-              </span>
-              <span className="flex shrink-0 flex-col items-end gap-1">
-                <CountdownChip event={e} today={data.today} />
-                <GoingCount event={e} />
-              </span>
-            </Link>
-          </li>
-        ))}
-      </Rows>
+      <Table
+        rows={data.upcoming}
+        columns={columns}
+        getKey={(e) => e.id}
+        tools={{ id: "events-home", title: "Coming up" }}
+      />
     </Section>
   )
 }

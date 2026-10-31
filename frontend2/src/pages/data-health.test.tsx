@@ -10,7 +10,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 import type { Me } from "@/app/auth"
 import { api } from "@/lib/api"
 import { DataHealth } from "@/pages/data-health"
-import { failing, fakeApi, renderWithProviders } from "@/test/harness"
+import { FINANCE, failing, fakeApi, renderWithProviders } from "@/test/harness"
 
 const ADMIN: Me = { id: "u-a", email: "a@x.edu", name: "Admin", role: "SUPER_ADMIN", department: null }
 const finding = (key: string, count: number, extra: object = {}) => ({
@@ -68,5 +68,12 @@ describe("Data health", () => {
     renderWithProviders(<DataHealth />)
     await userEvent.click(await screen.findByRole("button", { name: "Move web addresses out of journal names" }))
     expect(await screen.findByText(/This changes 1,250 stored records/)).toBeTruthy()
+  })
+
+  it("sends no request for anyone but a super admin, and shows the not-open gate", async () => {
+    vi.mocked(api).mockImplementation(fakeApi({ "/api/auth/me": () => FINANCE, "/api/admin/data-health": () => HEALTH }))
+    renderWithProviders(<DataHealth />)
+    expect(await screen.findByRole("heading", { name: "Not open to this account" })).toBeInTheDocument()
+    expect(vi.mocked(api).mock.calls.some(([path]) => String(path).startsWith("/api/admin/data-health"))).toBe(false)
   })
 })

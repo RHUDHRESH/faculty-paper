@@ -3,7 +3,7 @@ import uuid
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
-from django.db.models.functions import Lower
+from django.db.models.functions import Lower, Upper
 from django.utils import timezone
 
 
@@ -170,6 +170,10 @@ class User(AbstractBaseUser, PermissionsMixin):
     #: When `sync_scopus_authors` last paged through this person's Scopus
     #: profile (AU-ID search); oldest first, so an interrupted run resumes.
     scopus_synced_at = models.DateTimeField(blank=True, null=True)
+    #: The person's own answer to "is this your Scopus profile?": "" (not
+    #: asked), "confirmed" or "wrong". Their word on the id, kept beside it.
+    scopus_profile_status = models.CharField(max_length=12, blank=True, default="")
+    scopus_profile_checked_at = models.DateTimeField(blank=True, null=True)
     must_change_password = models.BooleanField(default=False)
 
     #: Regular or research, set by an admin rather than inferred from the
@@ -642,6 +646,11 @@ class PriorPayment(models.Model):
         PriorImport, null=True, blank=True, on_delete=models.SET_NULL, related_name="payments"
     )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # `employee_id__iexact` is `UPPER(employee_id) = UPPER(value)` on
+        # PostgreSQL, which only an index on the same expression serves.
+        indexes = [models.Index(Upper("employee_id"), name="priorpay_emp_upper")]
 
 
 class Claim(models.Model):
@@ -1243,6 +1252,9 @@ class PaidLedger(models.Model):
                 name="one_reversal_per_claim_cycle",
             ),
         ]
+        # `staff_id__iexact` (a person's own payments) is `UPPER(staff_id) =
+        # UPPER(value)` on PostgreSQL; see PriorPayment.
+        indexes = [models.Index(Upper("staff_id"), name="ledger_staff_upper")]
 
 
 class ResearchThreshold(models.Model):
@@ -1328,6 +1340,15 @@ class AuditLog(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = AuditQuerySet.as_manager()
+
+    class Meta:
+        indexes = [
+            # The log only grows and is read newest first (the audit page, the
+            # hub's "last 24 hours" count)...
+            models.Index(fields=["-created_at"], name="audit_when"),
+            # ...and by what it is about (a claim's history).
+            models.Index(fields=["entity", "entity_id"], name="audit_entity"),
+        ]
 
     def save(self, *args, **kwargs):
         if not self._state.adding:
@@ -2989,6 +3010,40 @@ class Authorship(models.Model):
 
     def __str__(self):
         return f"{self.display_name} on {self.publication_id}"
+
+
+class PaperCandidate(models.Model):
+    """A paper that may be the person's, put to them to confirm or reject.
+
+    Made from the cleanup log (`seed_paper_candidates`): a link the name matcher
+    made and the cleanup removed. Nothing is linked to the person until they
+    confirm it. A rejection is recorded as a dispute, so the matcher does not
+    link the paper to them again.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        CONFIRMED = "confirmed"
+        REJECTED = "rejected"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="paper_candidates")
+    publication = models.ForeignKey(Publication, on_delete=models.CASCADE)
+    #: The author row the cleanup took the person off, when it still exists.
+    authorship = models.ForeignKey(Authorship, null=True, blank=True, on_delete=models.SET_NULL)
+    source = models.CharField(max_length=40)
+    reason = models.CharField(max_length=200)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "publication"], name="paper_candidate_user_publication"),
+        ]
+
+    def __str__(self):
+        return f"{self.status}: {self.publication_id} for {self.user_id}"
 
 
 class PublicationMerge(models.Model):

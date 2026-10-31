@@ -438,6 +438,13 @@ class ActionIn(Schema):
     checklist: Optional[list[dict]] = None
 
 
+class VoidIn(ActionIn):
+    #: Required to void a payment that is already in a bank file: the bank
+    #: pays what it is sent, so the void has to say the transfer was recalled
+    #: (the bank's reference). Kept on the reversal row and in the audit trail.
+    bank_recall_ref: Optional[str] = None
+
+
 class RecalcIn(Schema):
     #: Super-admin escape hatch for a Scopus outage: recompute from the stored
     #: verified values without calling out. Audited.
@@ -542,7 +549,7 @@ class UserCreateIn(Schema):
     designation: Optional[str] = None
     scopus_author_url: Optional[str] = None
     scopus_author_id: Optional[str] = None
-    must_change_password: bool = True
+    must_change_password: bool = False
     #: Creating a head for a department that already has one: demote the one
     #: in post to faculty in the same write. Without it the request is refused
     #: (409) and names them.
@@ -662,6 +669,7 @@ __all__ = [
     'UserOut',
     'UserUpdateIn',
     'VerifyIn',
+    'VoidIn',
     '_ATTACHMENT_NAME',
     '_FACULTY_WRITABLE',
     '_SELF_REPORT_ALIASES',

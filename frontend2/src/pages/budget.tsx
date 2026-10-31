@@ -3,7 +3,6 @@ import { useSearchParams } from "react-router-dom"
 import { Coins, Pencil, Plus } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
-import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
 import { BudgetBurn, type FinancialYear } from "@/pages/statements"
 import { BudgetStrip } from "@/pages/budget-strip"
@@ -21,10 +20,11 @@ import {
   DialogTitle,
 } from "@/ui/dialog"
 import { Field, Input, NumberInput } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
 import { money } from "@/ui/paper"
 import { Callout, EmptyState, ErrorState, NotOpen, Skeleton, SkeletonRows } from "@/ui/state"
-import { stickyHeadCell, TableScroller } from "@/ui/table"
-import { ColumnLabel, Meta, SectionTitle } from "@/ui/text"
+import { Table, type Column } from "@/ui/table"
+import { Meta } from "@/ui/text"
 import { PageHeader } from "@/ui/page-header"
 import { Details } from "@/ui/section"
 import { Ago } from "@/ui/when"
@@ -170,26 +170,28 @@ export function Budget() {
   )
 
   return (
-    <div className="page space-y-8">
+    <div className="page space-y-6">
       <PageHeader
         title="Budget"
+        sub="What each department was given for the year, what has been paid and what is promised."
         action={
-          /* Outside the loading and error branches on purpose: a reader who
-             has landed on a year that will not load still needs a way off it,
-             and a retry button on its own cannot get them there. */
-          <div className="flex flex-wrap items-end gap-3">
-            <Field label="Financial year" className="w-44 shrink-0">
-              <Combobox value={fy} onChange={selectYear} options={yearOptions} searchPlaceholder="Type a year" />
-            </Field>
-            {mayEdit && (
-              <Button kind="primary" size="md" onClick={() => setAdding(true)}>
-                <Plus aria-hidden />
-                Set an allocation
-              </Button>
-            )}
-          </div>
+          mayEdit ? (
+            <Button kind="primary" size="md" onClick={() => setAdding(true)}>
+              <Plus aria-hidden />
+              Set an allocation
+            </Button>
+          ) : undefined
         }
       />
+
+      {/* Outside the loading and error branches on purpose: a reader who has
+          landed on a year that will not load still needs a way off it, and a
+          retry button on its own cannot get them there. */}
+      <div className={filterBar} role="search">
+        <Field label="Financial year" className="w-44 shrink-0">
+          <Combobox value={fy} onChange={selectYear} options={yearOptions} searchPlaceholder="Type a year" />
+        </Field>
+      </div>
 
       {isLoading ? (
         <BudgetSkeleton />
@@ -226,10 +228,6 @@ export function Budget() {
           <FyBurn fy={data.financial_year} />
 
           <section className="space-y-3">
-            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-              <SectionTitle>By department</SectionTitle>
-            </div>
-
             {departments.length === 0 ? (
               <EmptyState
                 art="no-budget"
@@ -247,12 +245,6 @@ export function Budget() {
               />
             ) : (
               <>
-                <DepartmentCards
-                  rows={departments}
-                  college={data.college}
-                  mayEdit={mayEdit}
-                  onEdit={openEdit}
-                />
                 <DepartmentTable
                   rows={departments}
                   college={data.college}
@@ -419,67 +411,6 @@ function CollegePosition({
   )
 }
 
-/**
- * Paid and committed as two segments of one allocation.
- *
- * They are drawn as separate segments rather than one total because the two
- * are undoable to different degrees: what is paid is gone, what is committed
- * is a decision that can still be revisited. A single bar tells you the year
- * is 90% used; this one tells you how much of that 90% you could still get
- * back.
- */
-function UsedBar({ slice, compact }: { slice: BudgetSlice; compact?: boolean }) {
-  if (slice.allocated === null || slice.allocated <= 0) return null
-
-  const spentShare = Math.max(0, Math.min(1, slice.spent / slice.allocated))
-  const committedShare = Math.max(0, Math.min(1 - spentShare, slice.committed / slice.allocated))
-  const used = slice.used_fraction ?? 0
-  const over = isOver(slice)
-
-  return (
-    <div className="space-y-1.5">
-      <div
-        className="flex h-2 w-full overflow-hidden rounded-full bg-sunken"
-        role="img"
-        aria-label={`${Math.round(used * 100)} per cent of the allocation is paid or committed`}
-      >
-        {/* Past the ceiling the whole bar turns critical. Two tidy segments
-            filling the track exactly to its end otherwise read as a year
-            that came out even, which is the opposite of what happened. */}
-        <span
-          className={cn("block transition-[width] duration-500", over ? "bg-critical" : "bg-accent")}
-          style={{ width: `${spentShare * 100}%` }}
-        />
-        <span
-          className={cn(
-            "block transition-[width] duration-500",
-            over ? "bg-critical" : "bg-caution"
-          )}
-          style={{ width: `${committedShare * 100}%` }}
-        />
-      </div>
-      {!compact && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          <Legend className={over ? "bg-critical" : "bg-accent"}>Paid {money(slice.spent)}</Legend>
-          <Legend className={over ? "bg-critical" : "bg-caution"}>
-            Committed {money(slice.committed)}
-          </Legend>
-          <Meta className="tabular">{Math.round(used * 100)}% of the allocation</Meta>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function Legend({ className, children }: { className: string; children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 text-sm text-fg-muted">
-      <span className={cn("size-2 shrink-0 rounded-full", className)} aria-hidden />
-      {children}
-    </span>
-  )
-}
-
 /** The over-allocation flag, next to the name rather than only in the "left"
  *  column — one red figure among five right-aligned ones is missable, and
  *  being over the ceiling is the single thing this page exists to surface. */
@@ -496,11 +427,10 @@ function OverTag() {
 /* ------------------------------------------------------------------------ */
 
 /**
- * Bespoke `<table>` markup rather than `<Table>`, because of the footer: the
- * college total has to sit in the same column grid as the departments above
- * it, and a generic column renderer has nowhere to put a `<tfoot>`. Hidden
- * below the `sm` breakpoint, where `DepartmentCards` says the same thing
- * without asking a phone to scroll sideways to reach an edit button.
+ * The departments as one table, with the college total in the footer row: a
+ * paper filed by somebody with no department on record still spends the
+ * college's money, so the total is the server's, not the sum of the rows
+ * above it. On a phone the rows stack and keep their labels.
  */
 function DepartmentTable({
   rows,
@@ -513,123 +443,81 @@ function DepartmentTable({
   mayEdit: boolean
   onEdit: (slice: BudgetSlice) => void
 }) {
+  const left = (s: BudgetSlice) =>
+    s.remaining === null ? <Meta>Not set</Meta> : isOver(s) ? `over ${money(Math.abs(s.remaining))}` : money(s.remaining)
+  const leftTone = (s: BudgetSlice) => (isOver(s) ? "text-critical" : s.remaining !== null ? "text-positive" : undefined)
+  const columns: Column<BudgetSlice>[] = [
+    {
+      key: "department",
+      header: "Department",
+      exportValue: (r) => r.department || "No department recorded",
+      cell: (r) => (
+        <span className="block">
+          {r.department || "No department recorded"}
+          {isOver(r) && <OverTag />}
+          {r.note && <Meta className="mt-0.5 block truncate">{r.note}</Meta>}
+        </span>
+      ),
+    },
+    {
+      key: "allocated",
+      header: "Allocated",
+      align: "right",
+      exportKind: "money",
+      exportValue: (r) => r.allocated,
+      cell: (r) => (r.allocated === null ? <Meta>Not set</Meta> : money(r.allocated)),
+    },
+    { key: "spent", header: "Paid", align: "right", exportKind: "money", exportValue: (r) => r.spent, cell: (r) => money(r.spent) },
+    {
+      key: "committed",
+      header: "Committed",
+      align: "right",
+      exportKind: "money",
+      exportValue: (r) => r.committed,
+      cell: (r) => (r.committed > 0 ? money(r.committed) : <Meta>None</Meta>),
+    },
+    {
+      key: "left",
+      header: "Left",
+      align: "right",
+      exportKind: "money",
+      exportValue: (r) => r.remaining,
+      cell: (r) => <span className={leftTone(r)}>{left(r)}</span>,
+    },
+    ...(mayEdit
+      ? [
+          {
+            key: "edit",
+            header: <span className="sr-only">Allocation</span>,
+            label: "Allocation",
+            cell: (r: BudgetSlice) => <AllocationButton slice={r} onEdit={onEdit} />,
+          },
+        ]
+      : []),
+  ]
   return (
-    <div className="hidden sm:block">
-      <TableScroller minWidth="48rem">
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr>
-              <th scope="col" className={stickyHeadCell}>
-                <ColumnLabel>Department</ColumnLabel>
-              </th>
-              <th scope="col" className={cn(stickyHeadCell, "w-36 text-right")}>
-                <ColumnLabel>Allocated</ColumnLabel>
-              </th>
-              <th scope="col" className={cn(stickyHeadCell, "w-32 text-right")}>
-                <ColumnLabel>Paid</ColumnLabel>
-              </th>
-              <th scope="col" className={cn(stickyHeadCell, "w-32 text-right")}>
-                <ColumnLabel>Committed</ColumnLabel>
-              </th>
-              <th scope="col" className={cn(stickyHeadCell, "w-32 text-right")}>
-                <ColumnLabel>Left</ColumnLabel>
-              </th>
-              {mayEdit && (
-                <th scope="col" className={cn(stickyHeadCell, "w-28 text-right")}>
-                  <ColumnLabel>Allocation</ColumnLabel>
-                </th>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr
-                key={row.department ?? "unrecorded"}
-                className="row border-b border-line last:border-b-0"
-              >
-                <td className="px-3 py-2.5 align-middle">
-                  <span className="block">
-                    {row.department || "No department recorded"}
-                    {isOver(row) && <OverTag />}
-                  </span>
-                  {row.note && <Meta className="mt-0.5 block truncate">{row.note}</Meta>}
-                </td>
-                <MoneyCell value={row.allocated} placeholder="Not set" />
-                <MoneyCell value={row.spent} />
-                <MoneyCell value={row.committed > 0 ? row.committed : null} />
-                <RemainingCell slice={row} />
-                {mayEdit && (
-                  <td className="px-3 py-2.5 text-right align-middle">
-                    <AllocationButton slice={row} onEdit={onEdit} />
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            {/* Not the sum of the rows above it. A paper filed by somebody
-                with no department on record still spends the college's
-                money, and has no departmental row to be counted in. */}
-            <tr className="border-t border-edge bg-surface">
-              <th scope="row" className="px-3 py-2.5 text-left align-middle font-medium">
-                <span className="block">
-                  The college
-                  {isOver(college) && <OverTag />}
-                </span>
-                <Meta className="mt-0.5 block">Every department together</Meta>
-              </th>
-              <MoneyCell value={college.allocated} placeholder="Not set" strong />
-              <MoneyCell value={college.spent} strong />
-              <MoneyCell value={college.committed > 0 ? college.committed : null} strong />
-              <RemainingCell slice={college} strong />
-              {mayEdit && (
-                <td className="px-3 py-2.5 text-right align-middle">
-                  <AllocationButton slice={college} onEdit={onEdit} />
-                </td>
-              )}
-            </tr>
-          </tfoot>
-        </table>
-      </TableScroller>
-    </div>
-  )
-}
-
-function MoneyCell({
-  value,
-  placeholder = "None",
-  strong,
-}: {
-  value: number | null
-  placeholder?: string
-  strong?: boolean
-}) {
-  return (
-    <td className={cn("px-3 py-2.5 text-right align-middle tabular", strong && "font-medium")}>
-      {value === null ? <Meta>{placeholder}</Meta> : money(value)}
-    </td>
-  )
-}
-
-function RemainingCell({ slice, strong }: { slice: BudgetSlice; strong?: boolean }) {
-  const over = isOver(slice)
-  return (
-    <td
-      className={cn(
-        "px-3 py-2.5 text-right align-middle tabular",
-        strong && "font-medium",
-        over && "text-critical",
-        !over && slice.remaining !== null && "text-positive"
-      )}
-    >
-      {slice.remaining === null ? (
-        <Meta>Not set</Meta>
-      ) : over ? (
-        `over ${money(Math.abs(slice.remaining))}`
-      ) : (
-        money(slice.remaining)
-      )}
-    </td>
+    <Table
+      rows={rows}
+      columns={columns}
+      getKey={(r) => r.department ?? "unrecorded"}
+      maxHeight="none"
+      caption="Budget by department"
+      tools={{ id: "budget-departments", title: "Budget by department" }}
+      footer={{
+        department: (
+          <span className="block">
+            The college
+            {isOver(college) && <OverTag />}
+            <Meta className="mt-0.5 block font-normal">Every department together</Meta>
+          </span>
+        ),
+        allocated: college.allocated === null ? <Meta>Not set</Meta> : money(college.allocated),
+        spent: money(college.spent),
+        committed: college.committed > 0 ? money(college.committed) : <Meta>None</Meta>,
+        left: <span className={leftTone(college)}>{left(college)}</span>,
+        edit: mayEdit ? <AllocationButton slice={college} onEdit={onEdit} /> : undefined,
+      }}
+    />
   )
 }
 
@@ -666,125 +554,6 @@ function AllocationButton({
       {slice.budget_id ? <Pencil /> : <Plus />}
       {slice.budget_id ? "Edit" : "Set"}
     </Button>
-  )
-}
-
-/* ------------------------------------------------------------------------ */
-/* The department list, for a phone                                          */
-/* ------------------------------------------------------------------------ */
-
-/**
- * The same five figures stacked, for screens narrower than `sm`.
- *
- * A six-column table on a 375px screen is a 768px table inside a sideways
- * scroller, and the action column is the one furthest off the right edge —
- * so the very control Finance opens this page to press is the last thing
- * they can reach, if they find it at all. Below `sm` the rows become cards
- * and the control comes with them.
- */
-function DepartmentCards({
-  rows,
-  college,
-  mayEdit,
-  onEdit,
-}: {
-  rows: BudgetSlice[]
-  college: BudgetSlice
-  mayEdit: boolean
-  onEdit: (slice: BudgetSlice) => void
-}) {
-  return (
-    <ul className="divide-y divide-line sm:hidden">
-      {rows.map((row) => (
-        <li key={row.department ?? "unrecorded"} className="py-4">
-          <DepartmentCard slice={row} mayEdit={mayEdit} onEdit={onEdit} />
-        </li>
-      ))}
-      <li className="border-t border-edge py-4">
-        <DepartmentCard
-          slice={college}
-          label="The college"
-          hint="Every department together"
-          mayEdit={mayEdit}
-          onEdit={onEdit}
-        />
-      </li>
-    </ul>
-  )
-}
-
-function DepartmentCard({
-  slice,
-  label,
-  hint,
-  mayEdit,
-  onEdit,
-}: {
-  slice: BudgetSlice
-  label?: string
-  hint?: string
-  mayEdit: boolean
-  onEdit: (slice: BudgetSlice) => void
-}) {
-  const over = isOver(slice)
-  return (
-    <div className="space-y-3">
-      <div>
-        <span className="font-medium">
-          {label ?? slice.department ?? "No department recorded"}
-          {over && <OverTag />}
-        </span>
-        {hint && <Meta className="block">{hint}</Meta>}
-      </div>
-
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-        <CardFigure term="Allocated" value={slice.allocated} placeholder="Not set" />
-        <CardFigure term="Paid" value={slice.spent} />
-        <CardFigure term="Committed" value={slice.committed > 0 ? slice.committed : null} placeholder="None" />
-        <CardFigure
-          term={over ? "Over by" : "Left"}
-          placeholder="Not set"
-          value={slice.remaining === null ? null : Math.abs(slice.remaining)}
-          tone={over ? "critical" : slice.remaining === null ? undefined : "positive"}
-        />
-      </dl>
-
-      <UsedBar slice={slice} compact />
-
-      {slice.note && <Meta className="block">{slice.note}</Meta>}
-
-      {mayEdit && <AllocationButton slice={slice} onEdit={onEdit} className="w-full" />}
-    </div>
-  )
-}
-
-function CardFigure({
-  term,
-  value,
-  placeholder = "None",
-  tone,
-}: {
-  term: string
-  value: number | null
-  placeholder?: string
-  tone?: "positive" | "critical"
-}) {
-  return (
-    <div>
-      <dt>
-        <ColumnLabel>{term}</ColumnLabel>
-      </dt>
-      <dd
-        className={cn(
-          "tabular",
-          tone === "positive" && "text-positive",
-          tone === "critical" && "font-medium text-critical",
-          value === null && "text-fg-subtle"
-        )}
-      >
-        {value === null ? placeholder : money(value)}
-      </dd>
-    </div>
   )
 }
 

@@ -62,9 +62,16 @@ def inr(amount: float) -> str:
 
 
 def year_start_month() -> int:
-    cfg = FormulaConfig.objects.filter(active=True).order_by("-version").only("research_year_start_month").first()
-    m = getattr(cfg, "research_year_start_month", None) or DEFAULT_YEAR_START_MONTH
-    return m if 1 <= m <= 12 else DEFAULT_YEAR_START_MONTH
+    """The policy's first month of the research year; read once per read request
+    (a screen asks for several periods, and each used to read the policy again)."""
+    from core.services.aggregate_cache import once_per_request
+
+    def read() -> int:
+        cfg = FormulaConfig.objects.filter(active=True).order_by("-version").only("research_year_start_month").first()
+        m = getattr(cfg, "research_year_start_month", None) or DEFAULT_YEAR_START_MONTH
+        return m if 1 <= m <= 12 else DEFAULT_YEAR_START_MONTH
+
+    return once_per_request("research_year_start_month", read)
 
 
 def year_bounds(on: date, month: Optional[int] = None) -> tuple[date, date]:

@@ -55,7 +55,7 @@
      Nothing else is set in it: the contrast between the two is the point. */
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
-  --font-display: "Brygada 1918 Variable", "Brygada Fallback", Georgia, ui-serif, serif;
+  --font-display: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
 
   /* The UI scale: 12 / 13 / 14 / 16, then a deliberate jump. There is no
      size between 16 and 32 (DESIGN.md, "the nothing-in-between rule"): a
@@ -69,27 +69,27 @@
   --text-base--line-height: 1.5rem;
   --text-lg: 1rem;         /* 16 — section heading */
   --text-lg--line-height: 1.5rem;
-  --text-lead: 1.125rem;   /* 18 — the one sentence under a page title */
-  --text-lead--line-height: 1.75rem;
+  --text-lead: 1rem;       /* 16 — the one sentence under a page title */
+  --text-lead--line-height: 1.5rem;
   /* Kept so existing pages keep working; new work uses display/figure. */
-  --text-xl: 1.625rem;     /* 26 */
-  --text-xl--line-height: 2rem;
-  --text-2xl: 1.75rem;     /* 28 — a number that is the answer (older pages) */
+  --text-xl: 1.25rem;      /* 20 */
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;      /* 24 */
   --text-2xl--line-height: 2rem;
   --text-3xl: 2.25rem;     /* 36 */
   --text-3xl--line-height: 2.5rem;
 
   /* The display scale. Fluid between a phone and a wide desktop. */
-  --text-display: clamp(2rem, 1.5rem + 1.6vw, 2.5rem);          /* page title */
-  --text-display--line-height: 1.1;
-  --text-display-xl: clamp(2.25rem, 1.5rem + 3.4vw, 3.75rem);    /* the answer sentence */
-  --text-display-xl--line-height: 1.04;
+  --text-display: 1.75rem;                 /* 28 — page title */
+  --text-display--line-height: 2.25rem;    /* 36 */
+  --text-display-xl: 1.875rem;             /* 30 — the answer sentence (phones: 24, below) */
+  --text-display-xl--line-height: 2.375rem; /* 38 */
   --text-honour: 2.75rem;
   --text-honour--line-height: 3rem;
-  --text-figure-xl: 3.5rem;                                     /* a page's single hero number */
-  --text-figure-xl--line-height: 3.5rem;
-  --text-figure: 2.25rem;                                       /* an answer figure */
-  --text-figure--line-height: 2.5rem;
+  --text-figure-xl: 2.25rem;               /* 36 — a page's single hero number */
+  --text-figure-xl--line-height: 2.75rem;  /* 44 */
+  --text-figure: 1.75rem;                  /* 28 — an answer figure */
+  --text-figure--line-height: 2.25rem;     /* 36 */
 
   /* ---- colour: paper and ink -------------------------------------------
      The ground is the colour of the paper the college's drawings were made
@@ -99,62 +99,60 @@
      The five tones are a measured ladder (steps of roughly 2 in CIE L*) and
      the order is the whole point: sunken is below the ground, the ground is
      below a panel. Every text colour below holds 4.5:1 on every step. */
-  --color-fg: #1b1f2e;
-  --color-fg-muted: #55596b;
-  --color-fg-subtle: #595d70;
+  --color-fg: #1f2937;
+  --color-fg-muted: #475467;
+  --color-fg-subtle: #5b6475;
 
-  --color-surface: #fefcf8;  /* a panel, a table, a menu, a field */
-  --color-bg: #f8f5ee;       /* the page */
-  --color-sunken: #f0ece2;   /* a well, the sidebar, a table head */
-  --color-hover: #eae5d9;    /* the pointer is on this */
-  --color-active: #e1dbcc;   /* the pointer is down on this */
-  --color-selected: #e6e0d1; /* this one is chosen */
+  --color-surface: #ffffff;  /* a panel, a table, a menu, a field */
+  --color-bg: #f9fafb;       /* the page */
+  --color-sunken: #f2f4f7;   /* a well, the sidebar, a table head */
+  --color-hover: #f2f4f7;    /* the pointer is on this */
+  --color-active: #e4e7ec;   /* the pointer is down on this */
+  --color-selected: #f2f7ff; /* this one is chosen */
 
   /* Rules. `line` separates rows; `edge` bounds a region; `field` rings an
      input. Three weights only. */
-  --color-line: #e7e1d3;
-  --color-edge: #dad3c2;
-  --color-field: #968d79;   /* 3.2:1 on a field's surface: a boundary people can see (WCAG 1.4.11) */
+  --color-line: #e5e7eb;
+  --color-edge: #d0d5dd;
+  --color-field: #8b93a1;
   /* The outline of a secondary button and of a filter chip at rest: between
-     `edge` (a region) and `field` (an input), so a button on paper has a
-     visible outline without shouting like a field. */
-  --color-control-edge: #aaa18c;
+     `edge` (a region) and `field` (an input). */
+  --color-control-edge: #a6adba;
 
   /* The one accent: clay. Links, the focus ring, the unread dot, "needs you",
      the selected chip, the stamp. Not the primary button (that is `action`)
      and never an error (that is `critical`, far from it in hue). */
-  --color-accent: #9e4527;      /* 5.8:1 on paper, 4.6:1 on the deepest tone */
-  --color-accent-hover: #873a20;
+  --color-accent: #465fff;
+  --color-accent-hover: #3641f5;
   --color-accent-fg: #ffffff;
-  --color-accent-wash: #f7e9e1;
-  --color-accent-line: #e8c5b4;
+  --color-accent-wash: #f2f7ff;
+  --color-accent-line: #c2d6ff;
 
-  /* The primary button, and the ink of the thread: navy. One per view. */
-  --color-action: #263050;
-  --color-action-hover: #1b2340;
-  --color-action-fg: #fbf8f1;
+  /* The primary button: the one blue accent. */
+  --color-action: #465fff;
+  --color-action-hover: #3641f5;
+  --color-action-fg: #ffffff;
 
-  /* The college's navy as a quiet voice: the "record" area, the first chart
-     series, a calm highlight. */
-  --color-navy: #34406a;
-  --color-navy-wash: #e9ebf2;
-  --color-navy-line: #cbd0e0;
+  /* Mapped to the same blue: the old navy voice is now the accent. */
+  --color-navy: #465fff;
+  --color-navy-wash: #f2f7ff;
+  --color-navy-line: #c2d6ff;
 
-  /* The brand ground: the sign-in panel's field of colour. */
-  --color-brand: #263050;
-  --color-brand-fg: #f8f5ee;
+  /* The brand ground: the sign-in panel. */
+  --color-brand: #465fff;
+  --color-brand-fg: #ffffff;
 
-  /* State. Held to 4.5:1 as text on the whole ladder. */
-  --color-positive: #366748;
-  --color-positive-wash: #e8f0e7;
-  --color-positive-line: #c5d8c9;
-  --color-caution: #82560a;
-  --color-caution-wash: #f8efd9;
-  --color-caution-line: #e8d4a6;
-  --color-critical: #b0233f;     /* crimson: 27 degrees of hue from clay on purpose */
-  --color-critical-wash: #fae8eb;
-  --color-critical-line: #edbbc4;
-  --color-critical-fg: #ffffff;  /* text on a filled crimson (a danger button on hover) */
+  /* State. Status values per the template; see report for text contrast. */
+  --color-positive: #067647;
+  --color-positive-wash: #ecfdf3;
+  --color-positive-line: #abefc6;
+  --color-caution: #b54708;
+  --color-caution-wash: #fffaeb;
+  --color-caution-line: #fedf89;
+  --color-critical: #b42318;
+  --color-critical-wash: #fef3f2;
+  --color-critical-line: #fecdca;
+  --color-critical-fg: #ffffff;  /* text on a filled critical (a danger button on hover) */
 
   /* ---- areas -----------------------------------------------------------
      One colour per area of the app, so a reader always knows where they
@@ -162,49 +160,43 @@
      bg-area-research-wash, border-area-research-line. Components that take
      an `area` prop set `data-area`, which maps the generic `--area`,
      `--area-wash`, `--area-line` (below the dark block) to that area. */
-  --color-area-record: #34406a;
-  --color-area-record-wash: #e9ebf2;
-  --color-area-record-line: #cbd0e0;
-  --color-area-research: #416553;
-  --color-area-research-wash: #e9f0eb;
-  --color-area-research-line: #c9dacf;
-  --color-area-people: #9e4527;
-  --color-area-people-wash: #f7e9e1;
-  --color-area-people-line: #e8c5b4;
-  --color-area-honours: #7a5b14;
-  --color-area-honours-fill: #d4a24a;
-  --color-area-honours-wash: #f6edd6;
-  --color-area-honours-line: #e6d5a8;
-  --color-area-time: #3b6577;
-  --color-area-time-wash: #e8eff1;
-  --color-area-time-line: #c9d9df;
-  --area-time: #3b6577;
-  --area-time-wash: #e8eff1;
-  --area-time-line: #c9d9df;
-  --area-people: #9e4527;
-  --area-people-wash: #f7e9e1;
-  --area-people-line: #e8c5b4;
+  --color-area-record: #465fff;
+  --color-area-record-wash: #f2f7ff;
+  --color-area-record-line: #d9e6ff;
+  --color-area-research: #465fff;
+  --color-area-research-wash: #f2f7ff;
+  --color-area-research-line: #d9e6ff;
+  --color-area-people: #465fff;
+  --color-area-people-wash: #f2f7ff;
+  --color-area-people-line: #d9e6ff;
+  --color-area-honours: #465fff;
+  --color-area-honours-fill: #465fff;
+  --color-area-honours-wash: #f2f7ff;
+  --color-area-honours-line: #d9e6ff;
+  --color-area-time: #465fff;
+  --color-area-time-wash: #f2f7ff;
+  --color-area-time-line: #d9e6ff;
+  --area-time: #465fff;
+  --area-time-wash: #f2f7ff;
+  --area-time-line: #d9e6ff;
+  --area-people: #465fff;
+  --area-people-wash: #f2f7ff;
+  --area-people-line: #d9e6ff;
 
   /* Certificate surfaces only: impact plate, Wall of fame, "you were cited". */
-  --color-paper: #fbf8f1;
-  /* The mount a drawing sits on: a sand-coloured margin, like the paper
-     round a print in a bound volume. It stays light in dark mode, so a
-     cream-filled drawing reads as a print and not as a sticker. */
-  --color-plate: #efe8dc;
-  /* The flat paper inside the sign-in painting (public/illustrations/generated/
-     hero-sign-in.png fades into exactly this colour on its left), so the
-     sign-in panel can be this colour and the painting needs no frame. */
-  --color-hero-paper: #f6ede2;
-  --color-gold: #d4a24a;
+  --color-paper: #ffffff;
+  /* The mount a drawing sits on: a neutral margin. It stays light in dark mode. */
+  --color-plate: #f2f4f7;
+  --color-hero-paper: #f9fafb;
+  --color-gold: #465fff;
 
-  /* Chart inks, in the order a chart uses them (DESIGN.md, "Charts"). At
-     most four series, direct labels, every one also differs in lightness. */
-  --chart-1: #34406a;  /* navy ink */
-  --chart-2: #b5603a;  /* clay */
-  --chart-3: #5b8a6f;  /* sage */
-  --chart-4: #a6801f;  /* gold (3.4:1 on paper, the lowest a mark may go) */
-  --chart-5: #4a7e92;  /* slate */
-  --chart-6: #7c5a86;  /* plum */
+  /* Chart inks, in the order a chart uses them. Calm six-colour set. */
+  --chart-1: #465fff;
+  --chart-2: #12b76a;
+  --chart-3: #f79009;
+  --chart-4: #0ba5ec;
+  --chart-5: #7a5af8;
+  --chart-6: #f04438;
 
   /* Honour face (display-honour). Same family as the title. */
   --font-honour: var(--font-display);
@@ -216,7 +208,7 @@
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
   --radius-xl: 1.25rem;
-  --radius-2xl: 1.25rem;
+  --radius-2xl: 1rem;
   --radius-3xl: 1.5rem;
 
   /* The two radii a page is built from (docs/ux/22, "one border radius for
@@ -224,7 +216,7 @@
      choose from: buttons, fields, sidebar links. A panel is anything that
      holds other things: a table, a menu, an empty state, a `.panel`. */
   --radius-control: 0.625rem;
-  --radius-panel: 1rem;
+  --radius-panel: 0.75rem;
 
   /* ---- elevation ------------------------------------------------------
      Six steps, and each one is a sentence about where a thing is. If you
@@ -235,14 +227,14 @@
      something with an edge you can press. `action` is the same claim for the
      one navy button, carrying its own lit top edge; `press` is what pressing
      spends it for. Every one has an offset and a blur, never a flat halo. */
-  --shadow-raise: 0 1px 0 rgb(255 255 255 / 0.7) inset, 0 1px 2px rgb(27 31 46 / 0.12), 0 1px 1px rgb(27 31 46 / 0.06);
-  --shadow-action: 0 1px 0 rgb(255 255 255 / 0.16) inset, 0 1px 2px rgb(27 35 64 / 0.4), 0 4px 10px -4px rgb(27 35 64 / 0.5);
-  --shadow-action-hover: 0 1px 0 rgb(255 255 255 / 0.22) inset, 0 1px 2px rgb(27 35 64 / 0.45), 0 7px 16px -5px rgb(27 35 64 / 0.55);
-  --shadow-press: 0 1px 3px rgb(27 31 46 / 0.22) inset;
+  --shadow-raise: 0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-action: 0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-action-hover: 0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-press: 0 0 #0000;
   --shadow-lift: 0 0 #0000;
-  --shadow-under: 0 1px 0 rgb(27 31 46 / 0.07);
-  --shadow-pop: 0 4px 20px -6px rgb(27 31 46 / 0.14), 0 0 0 1px rgb(27 31 46 / 0.07);
-  --shadow-modal: 0 16px 40px -12px rgb(27 31 46 / 0.22), 0 0 0 1px rgb(27 31 46 / 0.07);
+  --shadow-under: 0 0 #0000;
+  --shadow-pop: 0 4px 8px -2px rgb(16 24 40 / 0.1), 0 2px 4px -2px rgb(16 24 40 / 0.06);
+  --shadow-modal: 0 20px 24px -4px rgb(16 24 40 / 0.1), 0 8px 8px -4px rgb(16 24 40 / 0.04);
 
   /* ---- motion ---------------------------------------------------------
      Exponential ease-out: arrives fast, settles slowly. Nothing a pointer
@@ -257,8 +249,8 @@
   --dur-5: 640ms;
 
   /* ---- layout ---------------------------------------------------------- */
-  --sidebar-w: 16rem;
-  --page-max: 68.75rem;
+  --sidebar-w: 18.125rem;
+  --page-max: 96rem;
 }
 
 /* Phones get a half-step up, because a lecturer reads this in a corridor
@@ -272,8 +264,8 @@
     --text-sm--line-height: 1.3125rem;
     --text-base: 0.9375rem;
     --text-base--line-height: 1.5rem;
-    --text-lead: 1.0625rem;
-    --text-lead--line-height: 1.6875rem;
+    --text-display-xl: 1.5rem;
+    --text-display-xl--line-height: 2rem;
   }
 }
 
@@ -523,11 +515,11 @@
     width: 100%;
     max-width: var(--page-max);
     margin-inline: auto;
-    padding-inline: clamp(1rem, 0.4rem + 2.6vw, 2.5rem);
+    padding-inline: 1rem;
   }
-  @media (max-width: 640px) {
+  @media (min-width: 768px) {
     .page {
-      padding-inline: 1rem;
+      padding-inline: 1.5rem;
     }
   }
   /* The calm page header (docs/ux/00): serif title and muted sentence on
@@ -587,46 +579,36 @@
      strip of segmented controls. Recessed by an inner shadow, which is the
      one kind of depth that cannot be mistaken for "this floats". */
   .well {
-    background-color: var(--color-sunken);
-    border-radius: var(--radius-control);
-    box-shadow: var(--shadow-well), inset 0 0 0 1px var(--color-line);
+    background-color: var(--color-surface);
+    border-radius: var(--radius-panel);
+    box-shadow: inset 0 0 0 1px var(--color-edge);
   }
 
-  /* A rule that fades out at both ends, for separating two stretches of a
-     page that are the same kind of thing. A full-width hairline says "these
-     are different regions" and compartmentalises the page; this says "there
-     is a break here" and leaves the page open. Built from `edge`, so it is
-     the palette and not a grey somebody picked. */
+  /* A flat rule for separating two stretches of a page. */
   .hairline {
     height: 1px;
     border: 0;
-    background-image: linear-gradient(
-      to right,
-      transparent 0,
-      var(--color-edge) 6%,
-      var(--color-edge) 94%,
-      transparent 100%
-    );
+    background-color: var(--color-edge);
   }
 
-  /* A page title: heavier and tighter than a section heading, so the name of
-     the place you are standing in is never mistaken for bold body text. */
+  /* A page title. Inter, semibold, normal tracking. */
   .display {
     font-family: var(--font-display);
-    font-weight: 500;
-    letter-spacing: -0.018em;
+    font-size: var(--text-display);
+    line-height: var(--text-display--line-height);
+    font-weight: 600;
+    letter-spacing: 0;
+    font-variant-numeric: tabular-nums;
     font-optical-sizing: auto;
-    font-kerning: normal;
   }
-  /* The one answer sentence on a page, and the sign-in headline. Larger and a
-     touch lighter than a title, because at 60px weight 500 turns heavy. One
-     per screen (DESIGN.md, "Display XL"). */
+  /* The one answer sentence on a page, and the sign-in headline. One per screen. */
   .display-xl {
     font-family: var(--font-display);
     font-size: var(--text-display-xl);
     line-height: var(--text-display-xl--line-height);
-    font-weight: 450;
-    letter-spacing: -0.022em;
+    font-weight: 600;
+    letter-spacing: 0;
+    font-variant-numeric: tabular-nums;
     font-optical-sizing: auto;
     text-wrap: balance;
   }
@@ -647,10 +629,21 @@
      same size stay distinguishable. */
   .figure {
     font-family: var(--font-display);
+    font-size: var(--text-figure);
+    line-height: var(--text-figure--line-height);
     font-variant-numeric: tabular-nums lining-nums;
     font-feature-settings: "tnum" 1, "lnum" 1;
-    font-weight: 500;
-    letter-spacing: -0.01em;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+  .figure-xl {
+    font-family: var(--font-display);
+    font-size: var(--text-figure-xl);
+    line-height: var(--text-figure-xl--line-height);
+    font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: "tnum" 1, "lnum" 1;
+    font-weight: 600;
+    letter-spacing: 0;
   }
 
   /* A mounted print (DESIGN.md, "The Mount Rule"). An illustration is never a
@@ -731,12 +724,13 @@
  * Both stops are tokens: the ground is `--color-hover` and the highlight is
  * `--color-active`, i.e. exactly the two greys a row already moves between
  * under the pointer. Nothing new was invented to make this. */
-@keyframes skeleton-sweep {
-  from {
-    background-position: 150% 0;
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    background-color: var(--color-sunken);
   }
-  to {
-    background-position: -50% 0;
+  50% {
+    background-color: var(--color-active);
   }
 }
 
@@ -753,27 +747,15 @@
 @layer utilities {
   .skeleton {
     opacity: 0;
-    background-color: var(--color-hover);
-    background-image: linear-gradient(
-      90deg,
-      var(--color-hover) 0%,
-      var(--color-hover) 35%,
-      var(--color-active) 50%,
-      var(--color-hover) 65%,
-      var(--color-hover) 100%
-    );
-    background-size: 200% 100%;
-    background-repeat: no-repeat;
+    background-color: var(--color-sunken);
     animation:
       skeleton-appear 1ms linear 300ms forwards,
-      skeleton-sweep 1.6s var(--ease-in-out) infinite;
+      skeleton-pulse 1.6s var(--ease-in-out) infinite;
   }
 
-  /* The global reduce rule would leave the sweep frozen mid-travel, which
-     is a gradient nobody asked for. Flat grey instead, still after 300 ms. */
+  /* Reduced motion: a flat block, still after 300 ms, no pulse. */
   @media (prefers-reduced-motion: reduce) {
     .skeleton {
-      background-image: none;
       animation: skeleton-appear 1ms linear 300ms forwards;
     }
   }
@@ -935,86 +917,85 @@
 
 /* ---------------------------------------------------------------------------
  * Night. The same token names, redefined, so no page carries a colour of its
- * own and every screen follows. A navy-black night (not a charcoal): the ink
- * of the day becomes the ground, the paper becomes the text. The primary
- * button inverts to a paper-coloured button with navy text. Chosen in the
+ * own and every screen follows. A neutral dark night. The primary button keeps
+ * the accent blue, lightened for contrast, with dark text. Chosen in the
  * account menu (light, dark or the system's setting) and applied before first
  * paint by index.html.
  * ------------------------------------------------------------------------ */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --color-fg: #ede8dc;
-  --color-fg-muted: #b7b3a8;
-  --color-fg-subtle: #a6a398;
-  --color-surface: #222633;
-  --color-bg: #1a1d27;
-  --color-sunken: #141720;
-  --color-hover: #2a2f3e;
-  --color-active: #333949;
-  --color-selected: #2d3347;
-  --color-line: #2d3243;
-  --color-edge: #3a4054;
-  --color-field: #6b7391;
-  --color-accent: #e88f6e;
-  --color-accent-hover: #f0a387;
-  --color-accent-fg: #1a1d27;
-  --color-accent-wash: #3a2a28;
-  --color-accent-line: #5c3f36;
-  --color-action: #ede8dc;
-  --color-action-hover: #ffffff;
-  --color-action-fg: #1a1d27;
-  --color-navy: #a9b6ea;
-  --color-navy-wash: #262c45;
-  --color-navy-line: #3a4366;
-  --color-brand: #141720;
-  --color-brand-fg: #ede8dc;
-  --color-positive: #8fc4a0;
-  --color-positive-wash: #22302b;
-  --color-positive-line: #35483f;
-  --color-caution: #e3bd6f;
-  --color-caution-wash: #34301f;
-  --color-caution-line: #54492b;
-  --color-critical: #f08b97;
-  --color-critical-wash: #3a2228;
-  --color-critical-line: #5c3640;
-  --color-critical-fg: #2a1217;
-  --color-control-edge: #5a6384;
-  --shadow-raise: 0 1px 0 rgb(255 255 255 / 0.07) inset, 0 1px 2px rgb(0 0 0 / 0.5);
-  --shadow-action: 0 1px 0 rgb(255 255 255 / 0.55) inset, 0 1px 2px rgb(0 0 0 / 0.5), 0 4px 12px -4px rgb(0 0 0 / 0.65);
-  --shadow-action-hover: 0 1px 0 rgb(255 255 255 / 0.75) inset, 0 1px 2px rgb(0 0 0 / 0.5), 0 7px 18px -5px rgb(0 0 0 / 0.75);
-  --shadow-press: 0 1px 3px rgb(0 0 0 / 0.5) inset;
-  --color-area-record: #a9b6ea;
-  --color-area-record-wash: #262c45;
-  --color-area-record-line: #3a4366;
-  --color-area-research: #9cc4b0;
-  --color-area-research-wash: #232f2b;
-  --color-area-research-line: #35483f;
-  --color-area-people: #e88f6e;
-  --color-area-people-wash: #3a2a28;
-  --color-area-people-line: #5c3f36;
-  --color-area-honours: #e3c27f;
-  --color-area-honours-fill: #d4a24a;
-  --color-area-honours-wash: #33301f;
-  --color-area-honours-line: #51452c;
-  --color-area-time: #9cc1d2;
-  --color-area-time-wash: #233038;
-  --color-area-time-line: #3b4a50;
-  --area-time: #9cc1d2;
-  --area-time-wash: #233038;
-  --area-time-line: #3b4a50;
-  --area-people: #e88f6e;
-  --area-people-wash: #3a2a28;
-  --area-people-line: #5c3f36;
-  --color-paper: #2b2f3e;
-  --chart-1: #a9b6ea;
-  --chart-2: #e49a78;
-  --chart-3: #86bd9d;
-  --chart-4: #e0b867;
-  --chart-5: #7fb2c6;
-  --chart-6: #c4a1cf;
-  --shadow-under: 0 1px 0 rgb(0 0 0 / 0.35);
-  --shadow-pop: 0 8px 24px -8px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.07);
-  --shadow-modal: 0 20px 48px -12px rgb(0 0 0 / 0.65), 0 0 0 1px rgb(255 255 255 / 0.08);
+  --color-fg: #f9fafb;
+  --color-fg-muted: #d0d5dd;
+  --color-fg-subtle: #98a2b3;
+  --color-surface: #1d2939;
+  --color-bg: #101828;
+  --color-sunken: #0c111d;
+  --color-hover: #26313f;
+  --color-active: #344054;
+  --color-selected: #1c2640;
+  --color-line: #344054;
+  --color-edge: #475467;
+  --color-field: #7a8497;
+  --color-accent: #7592ff;
+  --color-accent-hover: #9cadff;
+  --color-accent-fg: #101828;
+  --color-accent-wash: #1c2640;
+  --color-accent-line: #2e3d6b;
+  --color-action: #7592ff;
+  --color-action-hover: #9cadff;
+  --color-action-fg: #101828;
+  --color-navy: #7592ff;
+  --color-navy-wash: #1c2640;
+  --color-navy-line: #2e3d6b;
+  --color-brand: #101828;
+  --color-brand-fg: #f9fafb;
+  --color-positive: #32d583;
+  --color-positive-wash: #0f2a1d;
+  --color-positive-line: #174d35;
+  --color-caution: #fdb022;
+  --color-caution-wash: #33260a;
+  --color-caution-line: #5c4512;
+  --color-critical: #f97066;
+  --color-critical-wash: #3a1a18;
+  --color-critical-line: #6b2b26;
+  --color-critical-fg: #101828;
+  --color-control-edge: #5a6373;
+  --shadow-raise: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-action: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-action-hover: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-press: 0 0 #0000;
+  --color-area-record: #7592ff;
+  --color-area-record-wash: #1c2640;
+  --color-area-record-line: #2e3d6b;
+  --color-area-research: #7592ff;
+  --color-area-research-wash: #1c2640;
+  --color-area-research-line: #2e3d6b;
+  --color-area-people: #7592ff;
+  --color-area-people-wash: #1c2640;
+  --color-area-people-line: #2e3d6b;
+  --color-area-honours: #7592ff;
+  --color-area-honours-fill: #7592ff;
+  --color-area-honours-wash: #1c2640;
+  --color-area-honours-line: #2e3d6b;
+  --color-area-time: #7592ff;
+  --color-area-time-wash: #1c2640;
+  --color-area-time-line: #2e3d6b;
+  --area-time: #7592ff;
+  --area-time-wash: #1c2640;
+  --area-time-line: #2e3d6b;
+  --area-people: #7592ff;
+  --area-people-wash: #1c2640;
+  --area-people-line: #2e3d6b;
+  --color-paper: #1d2939;
+  --chart-1: #7592ff;
+  --chart-2: #32d583;
+  --chart-3: #fdb022;
+  --chart-4: #0ba5ec;
+  --chart-5: #a48bff;
+  --chart-6: #f97066;
+  --shadow-under: 0 0 #0000;
+  --shadow-pop: 0 4px 8px -2px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+  --shadow-modal: 0 20px 24px -4px rgb(0 0 0 / 0.5), 0 8px 8px -4px rgb(0 0 0 / 0.3);
 }
 
 /* The current area. `data-area` on any component root (HeroBand, StatTile,
@@ -1064,7 +1045,7 @@
   }
   /* Gold ribbon: a 3px top border on honour surfaces and nowhere else. */
   .ribbon {
-    background-image: linear-gradient(90deg, var(--color-gold), var(--color-gold));
+    background-color: var(--color-gold);
   }
   /* display-honour: pair with text-honour. Honour moments only. */
   .honour {
@@ -1246,6 +1227,33 @@
  * Table tools (ui/table-tools.tsx): grid lines, compact rows, sticky head.
  * Tokens only. The header row takes `sunken`, the one ground a head sits on.
  * ------------------------------------------------------------------------- */
+/* Default table: a flat header on the page ground, normal-case muted heads,
+   1px row lines, 48px rows, a sticky head. Utilities still win (components
+   layer sits below utilities). Phone stacked tables keep their own layout. */
+@layer components {
+  table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: var(--color-bg);
+    color: var(--color-fg-muted);
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--color-line);
+  }
+  table:not(.stack-table) tbody td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-line);
+  }
+  table tbody tr:hover {
+    background-color: var(--color-bg);
+  }
+}
 table[data-grid="true"] th,
 table[data-grid="true"] td {
   border: 1px solid var(--color-edge);
@@ -1257,7 +1265,7 @@ table[data-density="compact"] thead th {
   z-index: 10;
 }
 table[data-grid="true"] thead th {
-  background-color: var(--color-sunken);
+  background-color: var(--color-bg);
 }
 table[data-density="compact"] th,
 table[data-density="compact"] td {

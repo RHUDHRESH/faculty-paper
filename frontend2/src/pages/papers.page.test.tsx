@@ -1,5 +1,6 @@
 import { screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { useLocation } from "react-router-dom"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -8,8 +9,12 @@ vi.mock("@/lib/api", async (importOriginal) => {
 })
 
 import { api } from "@/lib/api"
-import { answerSentence, Papers, rolePhrase, type RecordPaper } from "@/pages/papers"
+import { Papers, rolePhrase, type RecordPaper } from "@/pages/papers"
 import { FACULTY, fakeApi, renderWithProviders } from "@/test/harness"
+
+function Where() {
+  return <output data-testid="where">{useLocation().search}</output>
+}
 
 const paper = (id: string, over: Partial<RecordPaper> = {}): RecordPaper => ({
   id, title: `Title ${id}`, year: 2025, date: null, venue: "A Venue", type: "article", quartile: null, doi: null,
@@ -49,36 +54,42 @@ function mount(route = "/papers", publications = RECORD) {
       }),
       "/api/me/payments": () => ({ total: 396703.75, count: 89, rows: [] }),
       "/api/me/research-threshold": () => ({ research: false }),
+      // Settled profile and nothing to confirm: the page shows neither question.
+      "/api/me/scopus-profile": () => ({
+        scopus_author_id: "57200597022", url: null, papers_in_scopus: 134, papers_on_record: 159,
+        status: "confirmed", checked_at: null,
+      }),
+      "/api/me/paper-candidates": () => ({ pending: 0, results: [] }),
     })
   )
-  renderWithProviders(<Papers />, { route })
+  renderWithProviders(<><Papers /><Where /></>, { route })
 }
 
 describe("My papers", () => {
-  it("opens with the answer in a sentence: what to file, what is with the college, what is paid", async () => {
+  it("keeps the page plain: one Export menu, the statement behind More, no header sentence", async () => {
     mount()
-    expect(
-      await screen.findByText("8 papers on your record. 2 papers are ready to file, 1 is with the college, 3 have been paid.")
-    ).toBeTruthy()
-    // The statement and the forms are buttons one press away, not four figures.
-    expect(await screen.findByRole("link", { name: "Payment statement" })).toBeTruthy()
-    expect(screen.getByRole("link", { name: "List for appraisal" }).getAttribute("href")).toBe("/papers/appraisal")
+    await screen.findByText("Title open-1")
+    expect(screen.getByRole("button", { name: /export/i })).toBeTruthy()
+    expect(screen.queryByText(/papers on your record\./)).toBeNull()
+    await userEvent.click(screen.getByRole("button", { name: /^More: / }))
+    expect(await screen.findByRole("menuitem", { name: "Payment statement" })).toBeTruthy()
   })
 
-  it("says a zero as what it means, never as a bare count", () => {
-    const none = { all: 0, unclaimed: 0, progress: 0, paid: 0, ineligible: 0 }
-    expect(answerSentence(0, none)).toBe("0 papers on your record.")
-    expect(answerSentence(1, { ...none, all: 1, unclaimed: 1 })).toBe("1 paper on your record. 1 paper is ready to file.")
+  it("a header sort changes the URL", async () => {
+    mount()
+    await screen.findByText("Title open-1")
+    await userEvent.click(within(screen.getByRole("columnheader", { name: /Year/ })).getByRole("button"))
+    expect(screen.getByTestId("where").textContent).toContain("sort=oldest")
   })
 
-  it("counts the tabs from the same rows as the sentence", async () => {
+  it("counts the figures from the same rows as the table", async () => {
     mount()
-    const state = await screen.findByRole("tablist", { name: "Claim state" })
-    expect(within(state).getByRole("tab", { name: /^All\s*8$/ })).toBeTruthy()
-    expect(within(state).getByRole("tab", { name: /^Ready to file\s*2$/ })).toBeTruthy()
-    expect(within(state).getByRole("tab", { name: /^With the college\s*1$/ })).toBeTruthy()
-    expect(within(state).getByRole("tab", { name: /^Paid\s*3$/ })).toBeTruthy()
-    expect(within(state).getByRole("tab", { name: /^Not eligible\s*2$/ })).toBeTruthy()
+    await screen.findByText("Title open-1")
+    const glance = screen.getByRole("group", { name: "At a glance" })
+    expect(within(glance).getByRole("link", { name: "2 Ready to file" })).toBeTruthy()
+    expect(within(glance).getByRole("link", { name: "1 With the college" })).toBeTruthy()
+    expect(within(glance).getByRole("link", { name: "3 Paid" })).toBeTruthy()
+    expect(within(glance).getByRole("link", { name: "2 Not eligible" })).toBeTruthy()
   })
 
   it("puts one 'File it' on each unclaimed paper and names the state of the rest", async () => {

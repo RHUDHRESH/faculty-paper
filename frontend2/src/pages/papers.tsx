@@ -1,14 +1,6 @@
 import { useMemo, useState } from "react"
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
-import {
-  CloudDownload,
-  ClipboardPaste,
-  FilePlusCorner,
-  MoreHorizontal,
-  Search,
-  SlidersHorizontal,
-  X,
-} from "lucide-react"
+import { CloudDownload, FilePlusCorner, MoreHorizontal, Search } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 
 import { api } from "@/lib/api"
@@ -20,19 +12,20 @@ import { Chip } from "@/ui/chip"
 import { ConfirmDialog } from "@/ui/dialog"
 import { DetailLink } from "@/ui/detail-sheet"
 import { Input, Select } from "@/ui/field"
-import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/ui/menu"
+import { Answer } from "@/ui/answer"
+import { filterBar } from "@/ui/filter-bar"
+import { Pagination } from "@/ui/pagination"
 import { PageHeader } from "@/ui/page-header"
 import { money, stageOf } from "@/ui/paper"
 import { stageCode, stageName } from "@/ui/journey"
 import { SLOW_DAYS } from "@/pages/claims-track"
 import { Avatar, initialsOf } from "@/ui/person"
 import { useMyThreshold, ThresholdCard } from "@/ui/research-threshold"
-import { Details } from "@/ui/section"
-import { Tabs } from "@/ui/tabs"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { toast } from "@/ui/toast"
-import { typeLabel } from "@/pages/record-bits"
+import { PaperCandidates, ScopusProfileQuestion } from "@/pages/papers-confirm"
 import { unshout } from "@/lib/names"
 /**
  * My papers (docs/ux/03): the person's whole publication record from the
@@ -161,13 +154,6 @@ export async function downloadMine(): Promise<void> {
   download("my-papers.csv", toCsv(data.publications), "text/csv")
 }
 
-const SORT_LABEL: Record<string, string> = {
-  year: "Newest first",
-  oldest: "Oldest first",
-  citations: "Most cited",
-  title: "Title A to Z",
-}
-
 /** What a Scopus check changed, in words: "1 new paper, 2 now paid". */
 export function describeChange(before: RecordPaper[], after: RecordPaper[]): string {
   const was = new Map(before.map((p) => [p.id, tabOf(p)]))
@@ -186,8 +172,6 @@ export function describeChange(before: RecordPaper[], after: RecordPaper[]): str
   if (moved.ineligible) parts.push(`${moved.ineligible} no longer eligible`)
   return parts.length ? parts.join(", ") : "nothing new"
 }
-
-const STEP = 25
 
 // Which version of a paper leads its group: the claim already moving first, then paid, ready to file, not eligible.
 const LEAD: Record<ReturnType<typeof tabOf>, number> = { progress: 0, paid: 1, unclaimed: 2, ineligible: 3 }
@@ -252,8 +236,8 @@ export function Papers() {
   const [reporting, setReporting] = useState<Report | null>(null)
   const [pulling, setPulling] = useState(false)
   const [pulled, setPulled] = useState<string | null>(null)
-  const [showFilters, setShowFilters] = useState(false)
-  const [shown, setShown] = useState(STEP)
+  const page = Math.max(0, Number.parseInt(params.get("page") ?? "0", 10) || 0)
+  const size = [30, 50, 100].includes(Number(params.get("size"))) ? Number(params.get("size")) : 30
   const [open, setOpen] = useState<Set<string>>(new Set())
 
   function toggleVersions(key: string) {
@@ -268,11 +252,23 @@ export function Papers() {
   const query = useApi<Payload>(["me-publications", sort], `/api/me/publications?sort=${sort}`)
   const threshold = useMyThreshold()
 
-  function set(key: string, value: string) {
-    setShown(STEP)
+  function setPaging(key: "page" | "size", value: string) {
     setParams(
       (prev) => {
         const next = new URLSearchParams(prev)
+        if (value) next.set(key, value)
+        else next.delete(key)
+        if (key === "size") next.delete("page")
+        return next
+      },
+      { replace: true }
+    )
+  }
+  function set(key: string, value: string) {
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete("page")
         if (value && !(key === "tab" && value === "all") && !(key === "sort" && value === "year")) next.set(key, value)
         else next.delete(key)
         if (key === "tab") next.delete("filter")
@@ -282,7 +278,6 @@ export function Papers() {
     )
   }
   function clearFilters() {
-    setShown(STEP)
     setParams(
       (prev) => {
         const next = new URLSearchParams(prev)
@@ -305,7 +300,6 @@ export function Papers() {
     () => ([...new Set(all.map((p) => p.year).filter(Boolean))] as number[]).sort((a, b) => b - a),
     [all]
   )
-  const types = useMemo(() => [...new Set(all.map((p) => p.type).filter(Boolean))] as string[], [all])
   const titleKeys = useMemo(() => nearTitleKeys(all.map((p) => sameTitleKey(p.title))), [all])
   const keyOf = (title: string) => {
     const k = sameTitleKey(title)
@@ -365,18 +359,11 @@ export function Papers() {
     const k = keyOf(p.title)
     if (repOf.get(k)?.id === p.id && open.has(k)) listed.push(...groups.get(k)!.filter((v) => v.id !== p.id))
   }
-  const rows = listed.slice(0, shown)
+  const maxPage = Math.max(0, Math.ceil(listed.length / size) - 1)
+  const rows = listed.slice(Math.min(page, maxPage) * size, (Math.min(page, maxPage) + 1) * size)
   const reported = all.filter((p) => hidden.has(p.id))
 
   if (status) return <Navigate to={`/papers/claims?status=${encodeURIComponent(status)}`} replace />
-
-  const active: { key: string; label: string }[] = [
-    year && { key: "year", label: year },
-    quartile && { key: "quartile", label: quartile === "none" ? "No quartile" : quartile },
-    type && { key: "type", label: typeLabel(type) ?? type },
-    role && { key: "role", label: role === "first" ? "First author" : "Co-author" },
-    sort !== "year" && { key: "sort", label: SORT_LABEL[sort] ?? sort },
-  ].filter(Boolean) as { key: string; label: string }[]
 
   async function pull() {
     setPulling(true)
@@ -409,16 +396,22 @@ export function Papers() {
     toast.ok(r.kind === "duplicate" ? "Reported as a duplicate." : "Reported as not mine.")
   }
 
-  const sentence = query.data
-    ? answerSentence(query.data.count, counts)
-    : query.isError
-      ? "Your record could not be loaded."
-      : "Loading your record."
+  function sortBy(key: string) {
+    if (key === "paper") set("sort", "title")
+    else if (key === "year") set("sort", sort === "year" ? "oldest" : "year")
+    else if (key === "cited") set("sort", "citations")
+  }
+  const sortKey = sort === "title" ? "paper" : sort === "citations" ? "cited" : "year"
+  const sortDir = sort === "year" || sort === "citations" ? "desc" : "asc"
+  const statusText = (p: RecordPaper) =>
+    p.claim ? stageOf(stageCode(p.claim.stage)).label : tabOf(p) === "unclaimed" ? "Not claimed" : "Not eligible"
 
   const columns: Column<RecordPaper>[] = [
     {
       key: "paper",
       header: "Paper",
+      sortable: true,
+      exportValue: (p) => p.title,
       cell: (p) => (
         <div className="min-w-0">
           <p className="line-clamp-2 text-base font-medium text-fg">
@@ -426,34 +419,55 @@ export function Papers() {
               {unshout(p.title)}
             </DetailLink>
           </p>
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-muted">
-            <span className="min-w-0 break-words">
-              {p.venue && <DetailLink kind="journal" name={p.venue} />}
-              {p.venue && p.year ? " · " : ""}
-              {p.year}
-              {!p.venue && !p.year && "Venue not recorded"}
-            </span>
-            {p.quartile && <Chip tone={p.quartile === "Q1" ? "gold" : "neutral"}>{p.quartile}</Chip>}
-            {p.citations != null && p.citations > 0 && <span className="tabular">Cited {formatCount(p.citations)}</span>}
-            {repOf.get(keyOf(p.title))?.id === p.id && (
-              <Button
-                kind="quiet"
-                size="sm"
-                aria-expanded={open.has(keyOf(p.title))}
-                onClick={() => toggleVersions(keyOf(p.title))}
-              >
-                {groups.get(keyOf(p.title))!.length} versions
-              </Button>
-            )}
-            {folded.has(p.id) && <Chip>Another version</Chip>}
-          </p>
+          {(repOf.get(keyOf(p.title))?.id === p.id || folded.has(p.id)) && (
+            <p className="mt-0.5 flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+              {repOf.get(keyOf(p.title))?.id === p.id && (
+                <Button
+                  kind="quiet"
+                  size="sm"
+                  aria-expanded={open.has(keyOf(p.title))}
+                  onClick={() => toggleVersions(keyOf(p.title))}
+                >
+                  {groups.get(keyOf(p.title))!.length} versions
+                </Button>
+              )}
+              {folded.has(p.id) && <Chip>Another version</Chip>}
+            </p>
+          )}
         </div>
       ),
     },
     {
+      key: "journal",
+      header: "Journal",
+      exportValue: (p) => p.venue,
+      cell: (p) => (
+        <span className="inline-flex flex-wrap items-center gap-2">
+          {p.venue && <DetailLink kind="journal" name={p.venue} />}
+          {p.quartile && <Chip tone={p.quartile === "Q1" ? "gold" : "neutral"}>{p.quartile}</Chip>}
+        </span>
+      ),
+    },
+    {
+      key: "year",
+      header: "Year",
+      sortable: true,
+      exportValue: (p) => p.year,
+      cell: (p) => (p.year ? <span className="tabular">{p.year}</span> : null),
+    },
+    {
+      key: "cited",
+      header: "Cited",
+      align: "right",
+      sortable: true,
+      exportKind: "number",
+      exportValue: (p) => p.citations,
+      cell: (p) => (p.citations != null ? <span className="tabular">{formatCount(p.citations)}</span> : null),
+    },
+    {
       key: "authors",
       header: "Authors",
-      className: "w-72",
+      exportValue: (p) => p.authors.map((a) => a.name).join("; "),
       cell: (p) => {
         const part = rolePhrase(p)
         const others = p.authors.some((a) => a.user_id !== (query.data?.user.id ?? ""))
@@ -465,10 +479,18 @@ export function Papers() {
           </div>
         )
       },
-    },    {
+    },
+    {
+      key: "doi",
+      header: "DOI",
+      defaultHidden: true,
+      exportValue: (p) => p.doi,
+      cell: (p) => p.doi,
+    },
+    {
       key: "stands",
       header: "Where it stands",
-      className: "w-52",
+      exportValue: statusText,
       cell: (p) => <Standing p={p} isNew={fresh.has(p.id)} />,
     },
     {
@@ -515,11 +537,8 @@ export function Papers() {
   return (
     <div className="page space-y-8 pb-24 sm:pb-6" data-area="record">
       <PageHeader
-        // An empty record is its own plate and its own next step (below); a
-        // second picture and a second primary button in the header would be two.
-        spot={all.length > 0 ? "spot-my-papers" : undefined}
         title="My papers"
-        sub={sentence}
+        sub="Every paper on your record and where its claim stands."
         action={
           all.length === 0 ? undefined : (
           <Button kind="primary" asChild className="max-sm:hidden">
@@ -531,6 +550,9 @@ export function Papers() {
           )
         }
       />
+
+      <ScopusProfileQuestion />
+      <PaperCandidates />
 
       {query.isError ? (
         <ErrorState
@@ -559,40 +581,19 @@ export function Papers() {
         />
       ) : (
         <>
-          <div className="-mt-3 flex flex-wrap gap-2 print:hidden">
-            <Button kind="default" size="sm" asChild>
-              <Link to="/papers/claims">My claims</Link>
-            </Button>
-            <Button kind="default" size="sm" asChild>
-              <Link to="/papers/appraisal">List for appraisal</Link>
-            </Button>
-            <Button kind="default" size="sm" asChild>
-              <Link to="/papers/statement">Payment statement</Link>
-            </Button>
-            <Button kind="default" size="sm" asChild>
-              <Link to="/papers/locker">Proof locker</Link>
-            </Button>
-          </div>
-
           <ThresholdCard s={threshold.data} />
 
-          <section aria-label="Your papers" className="space-y-3">
-            <Tabs
-              label="Claim state"
-              idPrefix="papers"
-              value={tab}
-              onChange={(v) => set("tab", v)}
-              tabs={TABS.filter((t) => t.id !== "ineligible" || counts.ineligible > 0 || tab === "ineligible").map((t) => ({
-                id: t.id,
-                label: t.label,
-                count: counts[t.id],
-              }))}
-            />
+          <Answer
+            items={TABS.filter((t) => t.id !== "all" && (t.id !== "ineligible" || counts.ineligible > 0 || tab === t.id)).map(
+              (t) => ({ value: counts[t.id], label: t.label, to: tab === t.id ? "/papers" : `/papers?tab=${t.id}` })
+            )}
+          />
 
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="relative min-w-0 flex-1 basis-48 sm:max-w-72 sm:flex-none">
+          <section aria-label="Your papers" className="space-y-3">
+            <div className={filterBar} role="search">
+              <label className="relative sm:w-72">
                 <span className="sr-only">Search in my papers</span>
-                <Search aria-hidden className="pointer-events-none absolute top-2.5 left-2.5 size-4 text-fg-subtle" />
+                <Search aria-hidden className="pointer-events-none absolute top-3 left-2.5 size-4 text-fg-subtle" />
                 <Input
                   value={q}
                   onChange={(e) => set("q", e.target.value)}
@@ -600,120 +601,65 @@ export function Papers() {
                   className="pl-8"
                 />
               </label>
-              <Button
-                kind="quiet"
-                aria-expanded={showFilters}
-                aria-controls="paper-filters"
-                onClick={() => setShowFilters((s) => !s)}
-              >
-                <SlidersHorizontal />
-                Filters{active.length > 0 && <span className="tabular-nums text-fg-muted">{active.length}</span>}
-              </Button>
+              <Select aria-label="Year" value={year} onChange={(e) => set("year", e.target.value)}>
+                <option value="">Any year</option>
+                {years.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </Select>
+              <Select aria-label="Quartile" value={quartile} onChange={(e) => set("quartile", e.target.value)}>
+                <option value="">Any quartile</option>
+                {["Q1", "Q2", "Q3", "Q4"].map((x) => (
+                  <option key={x}>{x}</option>
+                ))}
+                <option value="none">No quartile</option>
+              </Select>
+              <Select aria-label="Author role" value={role} onChange={(e) => set("role", e.target.value)}>
+                <option value="">First or co-author</option>
+                <option value="first">First author</option>
+                <option value="co">Co-author</option>
+              </Select>
+              {(tab !== "all" || year || quartile || type || role || q) && (
+                <Button
+                  kind="quiet"
+                  onClick={() => {
+                    clearFilters()
+                    set("tab", "all")
+                  }}
+                >
+                  Clear
+                </Button>
+              )}
               <Button onClick={() => void pull()} disabled={pulling} className="sm:ml-auto">
                 <CloudDownload />
                 {pulling ? "Pulling…" : "Pull from Scopus"}
               </Button>
               <Menu>
                 <MenuTrigger asChild>
-                  <Button kind="quiet" aria-label="More: download, appraisal list and statement">
+                  <Button kind="quiet" aria-label="More: BibTeX, appraisal list and statement">
                     <MoreHorizontal />
                   </Button>
                 </MenuTrigger>
                 <MenuContent align="end">
-                  <MenuLabel>Download what is shown</MenuLabel>
-                  <MenuItem onSelect={() => download("my-papers.csv", toCsv(matching), "text/csv")}>
-                    Download as spreadsheet (CSV)
-                  </MenuItem>
                   <MenuItem onSelect={() => download("my-papers.bib", toBibtex(matching), "application/x-bibtex")}>
                     Download as BibTeX
                   </MenuItem>
                   <MenuSeparator />
-                  <MenuLabel>For appraisal and tax</MenuLabel>
                   <MenuItem onSelect={() => nav("/papers/appraisal")}>List for appraisal</MenuItem>
                   <MenuItem onSelect={() => nav("/papers/statement")}>Payment statement</MenuItem>
-                  <MenuSeparator />
+                  <MenuItem onSelect={() => nav("/papers/locker")}>Proof locker</MenuItem>
                   <MenuItem onSelect={() => nav("/papers/claims")}>All my claims, drafts included</MenuItem>
+                  <MenuItem onSelect={() => nav("/papers/new?method=doi")}>A paper is missing? Paste its DOI</MenuItem>
                 </MenuContent>
               </Menu>
             </div>
 
             {pulled && (
-              <p role="status" className="flex items-center gap-2 text-sm text-fg-muted">
-                <CloudDownload aria-hidden className="size-4 text-(--area)" strokeWidth={1.75} />
+              <p role="status" className="text-sm text-fg-muted">
                 Checked Scopus just now: {pulled}.
-                <button
-                  type="button"
-                  onClick={() => setPulled(null)}
-                  aria-label="Dismiss"
-                  className="rounded-control p-1 hover:bg-hover focus-visible:ring-2 focus-visible:ring-accent outline-none"
-                >
-                  <X className="size-3.5" />
-                </button>
               </p>
-            )}
-
-            {showFilters && (
-              <div id="paper-filters" className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                <Select aria-label="Year" value={year} onChange={(e) => set("year", e.target.value)}>
-                  <option value="">Any year</option>
-                  {years.map((y) => (
-                    <option key={y} value={y}>
-                      {y}
-                    </option>
-                  ))}
-                </Select>
-                <Select aria-label="Quartile" value={quartile} onChange={(e) => set("quartile", e.target.value)}>
-                  <option value="">Any quartile</option>
-                  {["Q1", "Q2", "Q3", "Q4"].map((x) => (
-                    <option key={x}>{x}</option>
-                  ))}
-                  <option value="none">No quartile</option>
-                </Select>
-                <Select aria-label="Type" value={type} onChange={(e) => set("type", e.target.value)}>
-                  <option value="">Any type</option>
-                  {types.map((t) => (
-                    <option key={t} value={t}>
-                      {typeLabel(t)}
-                    </option>
-                  ))}
-                </Select>
-                <Select aria-label="Author role" value={role} onChange={(e) => set("role", e.target.value)}>
-                  <option value="">First or co-author</option>
-                  <option value="first">First author</option>
-                  <option value="co">Co-author</option>
-                </Select>
-                <Select aria-label="Sort" value={sort} onChange={(e) => set("sort", e.target.value)}>
-                  {Object.entries(SORT_LABEL).map(([k, v]) => (
-                    <option key={k} value={k}>
-                      {v}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            )}
-
-            {active.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                {active.map((f) => (
-                  <button
-                    key={f.key}
-                    type="button"
-                    onClick={() => set(f.key, "")}
-                    aria-label={`Remove filter ${f.label}`}
-                    className="inline-flex h-7 items-center gap-1 rounded-full bg-(--area-wash) px-2.5 text-(--area) outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                  >
-                    {f.label}
-                    <X aria-hidden className="size-3.5" />
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={clearFilters}
-                  className="rounded-control px-1 text-fg-muted underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                  Clear filters
-                </button>
-              </div>
             )}
 
             {reported.map((p) => (
@@ -735,13 +681,6 @@ export function Papers() {
               </p>
             ))}
 
-            {(listed.length !== all.length || rows.length < listed.length) && (
-              <p className="text-sm text-fg-muted" aria-live="polite">
-                Showing {formatCount(rows.length)} of {formatCount(listed.length)}
-                {listed.length === all.length ? " papers" : ` matching papers, ${formatCount(all.length)} on your record`}.
-              </p>
-            )}
-
             <Table
               rows={rows}
               columns={columns}
@@ -749,6 +688,10 @@ export function Papers() {
               rowLink={(p) => (p.claim?.id ? `/papers/${p.claim.id}` : null)}
               maxHeight="none"
               caption="Your papers and where each claim stands"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={sortBy}
+              tools={{ id: "my-papers", title: "My papers", getAllRows: async () => listed }}
               empty={
                 tab === "unclaimed" && counts.unclaimed === 0
                   ? {
@@ -790,29 +733,22 @@ export function Papers() {
                     }
               }
             />
-            {rows.length < listed.length && (
-              <Button onClick={() => setShown((s) => s + STEP)}>
-                Show {formatCount(Math.min(STEP, listed.length - rows.length))} more
-              </Button>
-            )}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Pagination page={page} pageSize={size} total={listed.length} onChange={(n) => setPaging("page", n ? String(n) : "")} />
+              <Select
+                aria-label="Rows per page"
+                value={String(size)}
+                onChange={(e) => setPaging("size", e.target.value === "30" ? "" : e.target.value)}
+                className="w-auto"
+              >
+                {[30, 50, 100].map((n) => (
+                  <option key={n} value={n}>
+                    {n} per page
+                  </option>
+                ))}
+              </Select>
+            </div>
           </section>
-
-          {years.length > 1 && (
-            <Details label="papers per year" count={years.length}>
-              <YearBars papers={all} selected={year} onSelect={(y) => set("year", y === year ? "" : y)} />
-            </Details>
-          )}
-
-          <div className="flex flex-wrap gap-2">
-            <Button kind="default" size="sm" asChild>
-              <Link to="/papers/new?method=doi">
-                <ClipboardPaste />A paper is missing? Paste its DOI
-              </Link>
-            </Button>
-            <Button kind="quiet" size="sm" asChild>
-              <Link to="/faculty/me">Your full record with the college</Link>
-            </Button>
-          </div>
         </>
       )}
 
@@ -853,95 +789,6 @@ export function rolePhrase(p: RecordPaper): string | null {
   const corr = p.corresponding_author ? ", corresponding" : ""
   if (p.author_position === 1) return p.total_authors <= 1 ? `Sole author${corr}` : `First author${corr}`
   return `Author ${p.author_position} of ${p.total_authors}${corr}`
-}
-
-/**
- * Papers per year, one labelled bar each, shaded by what happened to them:
- * paid, in progress, not yet claimed, not eligible. Clicking a year filters.
- */
-function YearBars({
-  papers,
-  selected,
-  onSelect,
-}: {
-  papers: RecordPaper[]
-  selected: string
-  onSelect: (year: string) => void
-}) {
-  const byYear = new Map<number, Record<Exclude<Tab, "all">, number>>()
-  for (const p of papers) {
-    if (!p.year) continue
-    const r = byYear.get(p.year) ?? { paid: 0, progress: 0, unclaimed: 0, ineligible: 0 }
-    r[tabOf(p)]++
-    byYear.set(p.year, r)
-  }
-  const ys = [...byYear.keys()].sort((a, b) => a - b)
-  if (ys.length === 0) return null
-  const last = new Date().getFullYear()
-  const first = Math.max(ys[0], last - 9)
-  const span = Array.from({ length: last - first + 1 }, (_, i) => first + i)
-  const max = Math.max(1, ...span.map((y) => sum(byYear.get(y))))
-  const SEG = [
-    { k: "paid", cls: "bg-positive", label: "Paid" },
-    { k: "progress", cls: "bg-caution", label: "In progress" },
-    { k: "unclaimed", cls: "bg-(--area)", label: "Not claimed" },
-    { k: "ineligible", cls: "bg-line", label: "Not eligible" },
-  ] as const
-  return (
-    <figure>
-      <figcaption className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-fg-muted">
-        <span className="font-medium text-fg">Papers per year</span>
-        {SEG.map((s) => (
-          <span key={s.k} className="inline-flex items-center gap-1.5">
-            <span aria-hidden className={cn("size-2.5 rounded-sm", s.cls)} />
-            {s.label}
-          </span>
-        ))}
-      </figcaption>
-      <div className="flex h-28 items-end gap-1.5 sm:gap-2">
-        {span.map((y) => {
-          const r = byYear.get(y)
-          const n = sum(r)
-          const on = selected === String(y)
-          return (
-            <button
-              key={y}
-              type="button"
-              aria-pressed={on}
-              disabled={n === 0}
-              onClick={() => onSelect(String(y))}
-              aria-label={`${y}: ${n} ${n === 1 ? "paper" : "papers"}${
-                r ? `, ${r.paid} paid, ${r.progress} in progress, ${r.unclaimed} not claimed` : ""
-              }. ${on ? "Show all years" : "Show only this year"}`}
-              className={cn(
-                "group flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1 rounded-control px-0.5 pt-1 outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default",
-                on ? "bg-(--area-wash)" : "enabled:hover:bg-hover",
-                selected && !on && "opacity-50"
-              )}
-            >
-              <span className="text-xs tabular-nums text-fg-muted">{n || ""}</span>
-              <span
-                className="flex w-full max-w-8 flex-col-reverse overflow-hidden rounded-sm"
-                style={{ height: `${(n / max) * 64}px` }}
-              >
-                {r &&
-                  SEG.map((s) =>
-                    r[s.k] ? <span key={s.k} className={s.cls} style={{ flexGrow: r[s.k] }} /> : null
-                  )}
-              </span>
-              <span className={cn("text-xs tabular-nums", on ? "font-semibold text-fg" : "text-fg-muted")}>
-                {span.length > 6 ? `'${String(y).slice(2)}` : y}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-    </figure>
-  )
-}
-
-function sum(r?: Record<string, number>) {
-  return r ? Object.values(r).reduce((a, b) => a + b, 0) : 0
 }
 
 /** "2025-03" -> "Mar 2025". */
@@ -1034,19 +881,6 @@ function Standing({ p, isNew }: { p: RecordPaper; isNew: boolean }) {
       )}
     </div>
   )
-}
-
-/** The page's answer, in the order a person needs it. Real counts, and a zero says what it means. */
-export function answerSentence(total: number, c: Record<Tab, number>): string {
-  const n = (k: number, one: string, many: string) => `${formatCount(k)} ${k === 1 ? one : many}`
-  const parts: string[] = []
-  if (c.unclaimed) parts.push(`${n(c.unclaimed, "paper is", "papers are")} ready to file`)
-  if (c.progress) parts.push(`${n(c.progress, "is", "are")} with the college`)
-  if (c.paid) parts.push(`${formatCount(c.paid)} ${c.paid === 1 ? "has" : "have"} been paid`)
-  const head = `${n(total, "paper", "papers")} on your record.`
-  if (parts.length === 0) return head
-  const first = parts[0].charAt(0).toUpperCase() + parts[0].slice(1)
-  return `${head} ${[first, ...parts.slice(1)].join(", ")}.`
 }
 
 /** "More than 10 authors" -> 10. */

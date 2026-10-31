@@ -2,40 +2,23 @@ import { cn } from "@/lib/cn"
 import { Breadcrumbs, type Crumb } from "@/ui/breadcrumbs"
 import type { IllustrationName } from "@/ui/illustration"
 import { InfoTip } from "@/ui/info"
-import { Plate } from "@/ui/plate"
 
-/** The small mounted print at the right of a `.page-head` header. */
-export function HeaderSpot({ name }: { name: IllustrationName }) {
-  return <Plate name={name} width={120} className="hidden sm:block" eager />
+/** Retained for imports; pictures are no longer drawn. */
+export function HeaderSpot(_props: { name: IllustrationName }) {
+  return null
 }
 
 /**
- * The top of every view (docs/ux/22, "page anatomy", part 1): the title, one
- * line saying what the view is for in the person's words, and at most one
- * primary action at the top right. Breadcrumbs sit above the title when the
- * view is a detail of something else.
+ * The top of every view: optional breadcrumb line, the title (24px/600), one
+ * line saying what the view is for, and the actions on the right (wrapping
+ * below the title on phones).
  *
- * The title is the display face at 32 to 40px (DESIGN.md, "Display"): the one
- * thing on most pages set in it, and the only thing within 16px of its size,
- * so a reader always knows where they are standing before they read anything
- * else. The line under it is the lead, 18px, no wider than 40rem.
- *
- *   `sub`        the lead. A sentence, not a paragraph. It wraps to as many
- *                lines as it needs (`text-pretty`); it is never truncated.
- *   `about`      the explanation that does not need to be on the page: how the
- *                numbers are worked out, who can see what. Opens from the (i).
- *   `action`     the one primary action (a `Button kind="primary"`). Only one.
- *   `actions`    the older slot for several buttons; kept so existing pages
- *                keep working, but a new page uses `action`.
- *   `breadcrumbs` for a page drawn outside the router. Routed pages get theirs
- *                from the shell (`app/crumbs.ts`); passing both draws two.
- *   `spot`       a mounted print at the right. Home views, and a view whose
- *                subject has a drawing. One per view (DESIGN.md).
- *   `eyebrow`    deprecated: a kicker above a title is banned. Still drawn so
- *                old pages keep working; a new page does not pass it.
- *
- * There is no rule under the header. Space separates it from the first
- * section; a hairline is for the rows of one list.
+ *   `sub`         the description line.
+ *   `about`       longer explanation, opened from the (i).
+ *   `action`      the one primary action. `actions` is the older multi slot.
+ *   `breadcrumbs` for a page drawn outside the router.
+ *   `spot`        ignored: no picture is drawn.
+ *   `eyebrow`     deprecated; still drawn as a small muted line.
  */
 export function PageHeader({
   eyebrow,
@@ -45,7 +28,6 @@ export function PageHeader({
   action,
   actions,
   breadcrumbs,
-  spot,
   children,
   className,
 }: {
@@ -56,6 +38,7 @@ export function PageHeader({
   action?: React.ReactNode
   actions?: React.ReactNode
   breadcrumbs?: Crumb[]
+  /** Ignored. */
   spot?: IllustrationName
   children?: React.ReactNode
   className?: string
@@ -63,25 +46,24 @@ export function PageHeader({
   const buttons = action ?? actions
   const aboutBody = about ?? null
   return (
-    <header className={cn("flex items-start gap-8 pb-2", className)}>
-      <div className="min-w-0 flex-1">
-        {breadcrumbs && breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} className="mb-2" />}
-        {eyebrow && <p className="text-sm text-fg-muted">{eyebrow}</p>}
-        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+    <header className={cn("pb-2", className)}>
+      {breadcrumbs && breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} className="mb-2" />}
+      {eyebrow && <p className="text-sm text-fg-muted">{eyebrow}</p>}
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+        <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
-            <h1 className="display text-display text-balance text-fg">{title}</h1>
+            <h1 className="text-balance text-2xl font-semibold leading-8 text-fg">{title}</h1>
             {aboutBody && <InfoTip label="About this page">{aboutBody}</InfoTip>}
           </div>
-          {buttons && (
-            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:mt-1 sm:shrink-0 print:hidden">{buttons}</div>
-          )}
+          {sub && <div className="mt-1 text-pretty text-sm text-fg-muted">{sub}</div>}
         </div>
-        {sub && (
-          <div className="mt-2 max-w-[48rem] text-pretty text-lead text-fg-muted">{sub}</div>
+        {buttons && (
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end print:hidden">
+            {buttons}
+          </div>
         )}
-        {children}
       </div>
-      {spot && <Plate name={spot} width={120} className="hidden sm:block print:hidden" eager />}
+      {children}
     </header>
   )
 }

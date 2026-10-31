@@ -18,6 +18,7 @@ from datetime import date
 from typing import Any, Optional
 
 from django.db.models import Sum
+from django.utils import timezone
 
 from core.models import Budget, Claim, ClaimStatus, PaidLedger
 from core.services import college_totals, institution
@@ -240,7 +241,7 @@ def financial_year(fy: Optional[str] = None) -> dict[str, Any]:
     """Month by month spend from April to March against the college allocation."""
     from core.api.budget import financial_year_of, _fy_bounds
 
-    fy = fy or financial_year_of(date.today())
+    fy = fy or financial_year_of(timezone.localdate())
     start, _end = _fy_bounds(fy)
     per: dict[str, float] = defaultdict(float)
     for p in college_totals.payments():

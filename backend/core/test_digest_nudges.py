@@ -195,7 +195,8 @@ class DigestSendTests(DigestBase):
         quiet = _person("quiet@t.edu", "Quiet One", dept="Nowhere")
         # Email of the summary is opt-in.
         NotificationPreference.objects.create(user=self.me, kind="digest", level="email")
-        summary = digest.send_weekly_digest(now=MONDAY)
+        with self.captureOnCommitCallbacks(execute=True):
+            summary = digest.send_weekly_digest(now=MONDAY)
         mine = Notification.objects.get(user=self.me, kind="digest")
         self.assertEqual(mine.href, "/notifications?tab=week")
         self.assertFalse(Notification.objects.filter(user=quiet).exists())

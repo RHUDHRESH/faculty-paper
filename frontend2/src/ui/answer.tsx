@@ -29,7 +29,7 @@ const TONE: Record<NonNullable<AnswerItem["tone"]>, string> = {
   positive: "text-positive",
 }
 
-const COLS = ["", "sm:grid-cols-1", "sm:grid-cols-2", "sm:grid-cols-3", "sm:grid-cols-4"]
+const COLS = ["", "sm:grid-cols-1", "sm:grid-cols-2", "sm:grid-cols-3", "sm:grid-cols-2 lg:grid-cols-4"]
 
 /**
  * The answer strip (docs/ux/22, "page anatomy", part 2): one to four figures
@@ -52,7 +52,7 @@ export function Answer({ items, className }: { items: AnswerItem[]; className?: 
     <div
       role="group"
       aria-label="At a glance"
-      className={cn("grid grid-cols-2 gap-x-8 gap-y-6", COLS[shown.length], className)}
+      className={cn("grid grid-cols-2 gap-4", COLS[shown.length], className)}
     >
       {shown.map((it, i) => (
         <Figure key={`${i}-${it.label}`} item={it} />
@@ -70,9 +70,8 @@ function DetailFigure({ spec, children }: { spec: DetailSpec; children: React.Re
       type="button"
       onClick={() => open(spec)}
       className={cn(
-        "block w-full min-w-0 cursor-pointer border-t border-edge pt-3 text-left hover:border-fg-muted",
-        "[&_.figure]:underline [&_.figure]:decoration-dotted [&_.figure]:decoration-fg-subtle [&_.figure]:decoration-1 [&_.figure]:underline-offset-[6px]",
-        "hover:[&_.figure]:decoration-solid"
+        "block w-full min-w-0 cursor-pointer text-left hover:border-fg-subtle",
+        "rounded-xl border border-edge bg-surface p-4"
       )}
     >
       {children}
@@ -95,8 +94,8 @@ function Figure({ item }: { item: AnswerItem }) {
           // amount ("₹12,34,56,789") at 36 px is wider than that and used to
           // push the page sideways, so on a phone a long value is set smaller
           // and, as a last resort, allowed to wrap rather than overflow.
-          "figure block text-figure [overflow-wrap:anywhere]",
-          text.length > 9 && "max-sm:text-figure",
+          "figure block text-[28px] font-semibold leading-9 [overflow-wrap:anywhere]",
+          text.length > 9 && "max-sm:text-2xl",
           text.length > 13 && "max-sm:text-lg",
           loading && "text-fg-subtle",
           isZero ? "text-fg-subtle" : !loading && TONE[tone]
@@ -104,7 +103,7 @@ function Figure({ item }: { item: AnswerItem }) {
       >
         {loading ? "–" : text}
       </span>
-      <span aria-hidden className="mt-1.5 block text-sm text-fg-muted">
+      <span aria-hidden className="mt-1 block text-[13px] text-fg-muted">
         {line}
       </span>
       {/* One phrase for a screen reader, in the order a person would say it. */}
@@ -119,12 +118,12 @@ function Figure({ item }: { item: AnswerItem }) {
   return to ? (
     <Link
       to={to}
-      className="block min-w-0 border-t border-edge pt-3 hover:border-fg-muted hover:[&_.figure]:underline hover:[&_.figure]:decoration-1 hover:[&_.figure]:underline-offset-4"
+      className="block min-w-0 hover:border-fg-subtle rounded-xl border border-edge bg-surface p-4"
     >
       {body}
     </Link>
   ) : (
-    <div className="min-w-0 border-t border-edge pt-3">{body}</div>
+    <div className="min-w-0 rounded-xl border border-edge bg-surface p-4">{body}</div>
   )
 }
 
@@ -149,24 +148,23 @@ export function tieNumbers(text: string): string {
  */
 export function AnswerLine({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <p role="status" className={cn("display display-xl max-w-[22ch] text-fg sm:max-w-[26ch]", className)}>
+    <h2 role="status" className={cn("text-balance text-xl font-semibold text-fg", className)}>
       {children}
-    </p>
+    </h2>
   )
 }
 
 const WORD_TONE = {
-  clay: "bg-accent-wash text-accent",
-  sage: "bg-positive-wash text-positive",
-  amber: "bg-caution-wash text-caution",
-  crimson: "bg-critical-wash text-critical",
-  navy: "bg-navy-wash text-navy",
+  clay: "text-accent",
+  sage: "text-positive",
+  amber: "text-caution",
+  crimson: "text-critical",
+  navy: "text-accent",
 } as const
 
 /**
- * A word of the answer set as a pill, at the sentence's own size: "One claim
- * is [being checked]." The word still reads as text to a screen reader. Colour
- * is the second signal; the word is the first.
+ * A word of the answer set in bold with the status colour as text colour only
+ * (no background). Colour is the second signal; the word is the first.
  */
 export function AnswerWord({
   children,
@@ -175,9 +173,5 @@ export function AnswerWord({
   children: React.ReactNode
   tone?: keyof typeof WORD_TONE
 }) {
-  return (
-    <span className={cn("mx-[0.06em] inline-block rounded-full px-[0.34em] pb-[0.06em] not-italic", WORD_TONE[tone])}>
-      {children}
-    </span>
-  )
+  return <strong className={cn("font-semibold", WORD_TONE[tone])}>{children}</strong>
 }

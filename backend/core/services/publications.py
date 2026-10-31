@@ -469,6 +469,31 @@ class _Index:
         return (doi and self.doi.get(doi)) or (eid and self.eid.get(eid)) or (title and self.title.get(title)) or None
 
 
+def _user_row(pub: Publication, user: User, *, method: str, confidence: float) -> Authorship:
+    """A new author row for `user` on `pub`, for when no row of theirs can be used."""
+    return Authorship.objects.create(
+        publication=pub, position=None, display_name=user.name[:255],
+        author_key=_author_key("", user.name), is_college=True,
+        institution_name="Saveetha Engineering College", institution_country="IN",
+        user=user, match_confidence=confidence, match_method=method,
+    )
+
+
+def confirm_authorship(pub: Publication, user: User, row: Authorship | None) -> tuple[Authorship, bool]:
+    """Put `user` on `pub` because they said the paper is theirs.
+
+    Their candidate row is used when nobody else holds it, or it is already
+    theirs. Otherwise a row is added for them: another person's row is never
+    taken. Returns the row and whether it was added.
+    """
+    if row is not None and row.user_id in (None, user.id):
+        row.user = user
+        row.match_method, row.match_confidence, row.is_college = "confirmed", 1.0, True
+        row.save(update_fields=["user", "match_method", "match_confidence", "is_college"])
+        return row, False
+    return _user_row(pub, user, method="confirmed", confidence=1.0), True
+
+
 def ensure_user_authorship(pub: Publication, user: User, *, method: str, confidence: float) -> Authorship:
     """Put `user` on `pub`: on their own author row when one is recognisably
     theirs, else as an extra row. Never twice."""
@@ -487,12 +512,7 @@ def ensure_user_authorship(pub: Publication, user: User, *, method: str, confide
         best.match_confidence, best.match_method, best.is_college = confidence, method, True
         best.save(update_fields=["user", "match_confidence", "match_method", "is_college"])
         return best
-    return Authorship.objects.create(
-        publication=pub, position=None, display_name=user.name[:255],
-        author_key=_author_key("", user.name), is_college=True,
-        institution_name="Saveetha Engineering College", institution_country="IN",
-        user=user, match_confidence=confidence, match_method=method,
-    )
+    return _user_row(pub, user, method=method, confidence=confidence)
 
 
 def link_records() -> dict[str, int]:
@@ -546,14 +566,16 @@ def link_records() -> dict[str, int]:
 # --------------------------------------------------------------------------- matching
 
 #: Evidence that survives a re-match: somebody's record or a person said so.
-ANCHORED = ("record", "scopus_sheet", "scopus", "scopus_id", "manual")
+ANCHORED = ("record", "scopus_sheet", "scopus", "scopus_id", "manual", "confirmed")
 #: name_dept is no longer made; a run clears any such row and re-derives it under the gate.
 INFERRED = ("orcid", "alias", "author_id", "name", "name_dept")
 
 
 def _people() -> list[User]:
+    # `email` is here because the author-match screen names each suggested
+    # person with it; left out, every suggestion read the row again.
     return list(User.objects.filter(active=True).only(
-        "id", "name", "department", "orcid_id", "scopus_author_id", "scopus_synced_at"))
+        "id", "name", "email", "department", "orcid_id", "scopus_author_id", "scopus_synced_at"))
 
 
 class _NameIndex:

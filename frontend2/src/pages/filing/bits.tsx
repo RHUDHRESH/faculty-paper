@@ -18,7 +18,7 @@ export function Tag({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs font-medium",
+        "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-sm font-medium",
         tone === "positive" && "bg-positive-wash text-positive",
         tone === "caution" && "bg-caution-wash text-caution",
         tone === "critical" && "bg-critical-wash text-critical",
@@ -44,7 +44,7 @@ export function Tag({
 export function SourceTag({ source, className }: { source?: string | null; className?: string }) {
   if (!source) return null
   return (
-    <span className={cn("shrink-0 whitespace-nowrap text-xs text-fg-subtle", className)}>
+    <span className={cn("shrink-0 whitespace-nowrap text-sm text-fg-subtle", className)}>
       <span className="sr-only">from </span>
       {source}
     </span>

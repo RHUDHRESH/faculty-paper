@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
-import { Link, useSearchParams } from "react-router-dom"
-import { CheckCircle2, RotateCw } from "lucide-react"
+import { useSearchParams } from "react-router-dom"
+import { ListChecks, RotateCw } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
@@ -8,9 +8,11 @@ import { useApi, useApiMutation } from "@/lib/query"
 import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { ConfirmDialog } from "@/ui/dialog"
+import { Input, Select } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
 import { PageHeader } from "@/ui/page-header"
-import { Details, Rows, Section } from "@/ui/section"
-import { EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
+import { Rows } from "@/ui/section"
+import { ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
@@ -120,11 +122,39 @@ function grouped(jobs: Job[]): Group[] {
     .sort((a, b) => (b.last ?? "").localeCompare(a.last ?? ""))
 }
 
+type Status = "Failed" | "Finished" | "In progress" | "Waiting"
+
+/** One line of the table: a run, a job a worker is on, or one still waiting. */
+type JobLine = {
+  id: string
+  name: string
+  status: Status
+  started: string | null
+  took: number | null
+  result: string
+  retry?: Job
+  retryNote?: boolean
+}
+
+const STATUS_TONE: Record<Status, string> = {
+  Failed: "text-critical",
+  Finished: "text-positive",
+  "In progress": "text-accent",
+  Waiting: "text-fg-muted",
+}
+
+type Show = "all" | "failed" | "active" | "finished"
+type View = "runs" | "names"
+
 export function Jobs() {
   const { me } = useAuth()
   const allowed = can(me?.role).admin
-  const [params] = useSearchParams()
-  const failedOnly = params.get("show") === "failed"
+  const [params, setParams] = useSearchParams()
+  const only = params.get("only")
+  const show: Show =
+    params.get("show") === "failed" ? "failed" : only === "active" || only === "finished" ? only : "all"
+  const [view, setView] = useState<View>("runs")
+  const [search, setSearch] = useState("")
   const [retrying, setRetrying] = useState<Job | null>(null)
   const { data, isLoading, isError, refetch } = useApi<JobsPayload>(
     ["admin", "jobs", "recent"],
@@ -141,6 +171,43 @@ export function Jobs() {
 
   const groups = useMemo(() => grouped(data?.jobs ?? []), [data])
 
+  // Failed runs first (the list of failures can reach further back than the
+  // last hundred runs), then what is going on now, then everything that ran.
+  const lines = useMemo<JobLine[]>(() => {
+    if (!data) return []
+    const seen = new Set<string>()
+    const out: JobLine[] = []
+    const run = (j: Job): JobLine => ({
+      id: j.id,
+      name: j.name,
+      status: j.success ? "Finished" : "Failed",
+      started: j.started,
+      took: j.duration_s,
+      result: j.success ? j.result : j.result || "No reason was recorded.",
+      retry: !j.success && j.retry_safe ? j : undefined,
+      retryNote: !j.success && !j.retry_safe,
+    })
+    for (const j of failedQ.data?.jobs ?? []) {
+      seen.add(j.id)
+      out.push(run(j))
+    }
+    for (const r of data.running ?? []) {
+      out.push({
+        id: `run-${r.id}`,
+        name: r.name,
+        status: "In progress",
+        started: r.started ?? null,
+        took: r.running_s ?? null,
+        result: "",
+      })
+    }
+    for (const q of data.queued) {
+      out.push({ id: `wait-${q.id}`, name: q.name, status: "Waiting", started: q.locked, took: null, result: "" })
+    }
+    for (const j of data.jobs) if (!seen.has(j.id)) out.push(run(j))
+    return out
+  }, [data, failedQ.data])
+
   if (!allowed)
     return (
       <div className="page py-8">
@@ -148,7 +215,6 @@ export function Jobs() {
       </div>
     )
 
-  const failed = failedQ.data?.jobs ?? []
   const lastDone = (data?.jobs ?? []).find((j) => j.stopped)?.stopped ?? null
   // The scheduled jobs run every few minutes, so three hours of silence means
   // the worker has stopped, not that there was nothing to do.
@@ -156,13 +222,109 @@ export function Jobs() {
   const running = data?.running ?? []
   const waiting = data?.queued ?? []
 
+  const needle = search.trim().toLowerCase()
+  const shownLines = lines.filter(
+    (l) =>
+      (show === "all" ||
+        (show === "failed" && l.status === "Failed") ||
+        (show === "active" && (l.status === "In progress" || l.status === "Waiting")) ||
+        (show === "finished" && l.status === "Finished")) &&
+      (!needle || l.name.toLowerCase().includes(needle))
+  )
+  const shownGroups = groups.filter((g) => !needle || g.name.toLowerCase().includes(needle))
+  const narrowed = show !== "all" || Boolean(needle)
+  function clear() {
+    setSearch("")
+    setParams(new URLSearchParams(), { replace: true })
+  }
+  function setShow(next: Show) {
+    setParams(
+      next === "all" ? new URLSearchParams() : new URLSearchParams(next === "failed" ? { show: "failed" } : { only: next }),
+      { replace: true }
+    )
+  }
+
+  const lineCols: Column<JobLine>[] = [
+    { key: "name", header: "Job", exportValue: (l) => l.name, cell: (l) => <span className="font-medium">{l.name}</span> },
+    {
+      key: "status",
+      header: "Status",
+      exportValue: (l) => l.status,
+      cell: (l) => <span className={cn("font-medium", STATUS_TONE[l.status])}>{l.status}</span>,
+    },
+    {
+      key: "started",
+      header: "Started",
+      className: "whitespace-nowrap",
+      exportValue: (l) => (l.started ? when(l.started) : l.status === "Waiting" ? "Queued" : ""),
+      cell: (l) => (l.started ? when(l.started) : l.status === "Waiting" ? "Queued" : null),
+    },
+    {
+      key: "took",
+      header: "Took",
+      align: "right",
+      exportValue: (l) => (l.took == null ? "" : duration(l.took)),
+      cell: (l) => (l.took == null ? null : duration(l.took)),
+    },
+    {
+      key: "result",
+      header: "What it said",
+      empty: "Nothing to report",
+      exportValue: (l) => l.result,
+      cell: (l) => (l.result ? <span className="break-words text-fg-muted">{l.result}</span> : null),
+    },
+    {
+      key: "act",
+      header: <span className="sr-only">Retry</span>,
+      label: "Retry",
+      cell: (l) =>
+        l.retry ? (
+          <Button kind="default" size="sm" onClick={() => setRetrying(l.retry ?? null)}>
+            <RotateCw aria-hidden /> Retry job
+          </Button>
+        ) : l.retryNote ? (
+          <Meta className="max-w-[16rem]">Not safe to repeat. Run it from its own page.</Meta>
+        ) : null,
+    },
+  ]
+
+  const nameCols: Column<Group>[] = [
+    { key: "name", header: "Job", exportValue: (g) => g.name, cell: (g) => <span className="font-medium">{g.name}</span> },
+    { key: "runs", header: "Runs", align: "right", exportValue: (g) => g.runs, cell: (g) => count(g.runs) },
+    {
+      key: "failed",
+      header: "Failed",
+      align: "right",
+      empty: "None",
+      exportValue: (g) => g.failed,
+      cell: (g) => (g.failed > 0 ? <span className="text-critical">{count(g.failed)}</span> : null),
+    },
+    { key: "last", header: "Last run", exportValue: (g) => (g.last ? when(g.last) : ""), cell: (g) => (g.last ? when(g.last) : null) },
+    {
+      key: "avg",
+      header: "Usually takes",
+      align: "right",
+      exportValue: (g) => (g.avg == null ? "" : duration(g.avg)),
+      cell: (g) => (g.avg == null ? null : duration(g.avg)),
+    },
+  ]
+
+  const emptyTable = narrowed
+    ? {
+        icon: ListChecks,
+        title: "No job matches",
+        message: "Nothing fits the search or the choice above.",
+        action: (
+          <Button kind="default" onClick={clear}>
+            Show every job
+          </Button>
+        ),
+      }
+    : { title: "No jobs have run yet", message: "Jobs appear here once they run." }
+
   return (
-    <div className="page space-y-10">
-      <PageHeader
-        title="Jobs"
-        sub="Harvests, the Scopus sync, backups and imports."
-        spot="spot-imports"
-      />
+    <div className="page space-y-6">
+      <PageHeader title="Jobs" sub="Harvests, the Scopus sync, backups and imports, and whether the worker is alive." />
 
       {isLoading ? (
         <SkeletonRows rows={6} rowHeight={56} />
@@ -174,10 +336,10 @@ export function Jobs() {
         />
       ) : (
         <>
-          <section aria-label="The answer" className="space-y-3">
+          <div className="space-y-3">
             <Answer
               items={[
-                { value: data.failed_count, label: "Failed jobs", to: "?show=failed", tone: "critical", zero: "Nothing has failed" },
+                { value: data.failed_count, label: "Failed jobs", tone: "critical", zero: "Nothing has failed" },
                 { value: running.length, label: "In progress now", zero: "Nothing is running" },
                 { value: waiting.length, label: "Waiting to run", zero: "Nothing is waiting" },
                 quiet
@@ -196,111 +358,59 @@ export function Jobs() {
                 Last job finished <Ago iso={lastDone} />.
               </p>
             )}
-          </section>
+          </div>
 
-          {(data.failed_count > 0 || failedOnly) && (
-            <Section
-              title={`Failed (${count(data.failed_count)})`}
-              action={
-                failedOnly ? (
-                  <Button kind="default" size="sm" asChild>
-                    <Link to="/jobs">Show everything</Link>
-                  </Button>
-                ) : undefined
-              }
+          <div className={filterBar} role="search">
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by job name"
+              aria-label="Search the jobs"
+              className="w-full min-w-0 sm:w-80"
+            />
+            <Select
+              aria-label="Show"
+              value={show}
+              onChange={(e) => setShow(e.target.value as Show)}
+              disabled={view === "names"}
+              className="w-auto max-sm:w-full"
             >
-              {failed.length === 0 ? (
-                failedQ.isLoading ? (
-                  <SkeletonRows rows={2} rowHeight={48} />
-                ) : (
-                  <EmptyState
-                    illustration="empty-nothing-to-review"
-                    title="No failed jobs"
-                    message="Every job on record finished."
-                  />
-                )
-              ) : (
-                <Rows>
-                  {failed.map((j) => (
-                    <li key={j.id} className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 py-3">
-                      <div className="min-w-0 flex-1 basis-64 space-y-0.5">
-                        <p className="font-medium">
-                          {j.name}
-                        </p>
-                        <Meta className="block">
-                          Started {when(j.started)}
-                          {j.duration_s != null ? `, took ${duration(j.duration_s)}` : ""}
-                        </Meta>
-                        <p className="break-words text-sm text-fg-muted">{j.result || "No reason was recorded."}</p>
-                      </div>
-                      {j.retry_safe ? (
-                        <Button kind="default" size="sm" onClick={() => setRetrying(j)}>
-                          <RotateCw aria-hidden /> Retry job
-                        </Button>
-                      ) : (
-                        <Meta className="max-w-[16rem]">Not safe to repeat. Run it from its own page.</Meta>
-                      )}
-                    </li>
-                  ))}
-                </Rows>
-              )}
-            </Section>
-          )}
+              <option value="all">Every run</option>
+              <option value="failed">Failed ({count(data.failed_count)})</option>
+              <option value="active">In progress and waiting</option>
+              <option value="finished">Finished</option>
+            </Select>
+            <Select aria-label="View" value={view} onChange={(e) => setView(e.target.value as View)} className="w-auto max-sm:w-full">
+              <option value="runs">One line per run</option>
+              <option value="names">One line per job</option>
+            </Select>
+            {narrowed && (
+              <Button kind="quiet" onClick={clear}>
+                Clear filters
+              </Button>
+            )}
+          </div>
 
-          {!failedOnly && (running.length > 0 || waiting.length > 0) && (
-            <Section title="In progress and waiting">
-              {running.length > 0 && <RunningJobs rows={running} />}
-              {waiting.length > 0 && (
-                <Rows>
-                  {waiting.map((q) => (
-                    <li key={q.id} className="flex flex-wrap justify-between gap-2 py-2 text-sm">
-                      <span>{q.name}</span>
-                      <Meta>{q.locked ? `Picked up ${when(q.locked)}` : "Queued"}</Meta>
-                    </li>
-                  ))}
-                </Rows>
-              )}
-            </Section>
-          )}
-
-          {!failedOnly && (
-            <Section title="What has run">
-              {groups.length === 0 ? (
-                <EmptyState
-                  illustration="empty-nothing-to-review"
-                  title="No jobs have run yet"
-                  message="Jobs appear here once they run."
-                />
-              ) : (
-                <GroupTable groups={groups} />
-              )}
-              {data.jobs.length > 0 && (
-                <Details label="every run" count={data.jobs.length} className="mt-3">
-                  <Rows>
-                    {data.jobs.map((j) => (
-                      <li key={j.id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 py-2 text-sm">
-                        <span className="flex items-center gap-2">
-                          {j.success ? (
-                            <CheckCircle2 aria-hidden className="size-4 text-positive" />
-                          ) : (
-                            <span aria-hidden className="size-2 rounded-full bg-critical" />
-                          )}
-                          {j.name}
-                          <span className={cn("text-xs", j.success ? "text-fg-muted" : "text-critical")}>
-                            {j.success ? "Finished" : "Failed"}
-                          </span>
-                        </span>
-                        <Meta>
-                          {when(j.started)}
-                          {j.duration_s != null ? `, ${duration(j.duration_s)}` : ""}
-                        </Meta>
-                        {j.result && <p className="basis-full break-words text-fg-muted">{j.result}</p>}
-                      </li>
-                    ))}
-                  </Rows>
-                </Details>
-              )}
-            </Section>
+          {view === "names" ? (
+            <Table
+              rows={shownGroups}
+              columns={nameCols}
+              getKey={(g) => g.name}
+              caption="Jobs, one line each"
+              maxHeight="none"
+              tools={{ id: "jobs-by-name", title: "Jobs by name" }}
+              empty={emptyTable}
+            />
+          ) : (
+            <Table
+              rows={shownLines}
+              columns={lineCols}
+              getKey={(l) => l.id}
+              caption="Jobs, failed ones first"
+              maxHeight="none"
+              tools={{ id: "jobs", title: "Jobs" }}
+              empty={emptyTable}
+            />
           )}
         </>
       )}
@@ -324,21 +434,4 @@ export function Jobs() {
       />
     </div>
   )
-}
-
-function GroupTable({ groups }: { groups: Group[] }) {
-  const cols: Column<Group>[] = [
-    { key: "name", header: "Job", cell: (g) => g.name },
-    { key: "runs", header: "Runs", align: "right", cell: (g) => count(g.runs) },
-    {
-      key: "failed",
-      header: "Failed",
-      align: "right",
-      empty: "None",
-      cell: (g) => (g.failed > 0 ? <span className="text-critical">{count(g.failed)}</span> : null),
-    },
-    { key: "last", header: "Last run", cell: (g) => (g.last ? when(g.last) : null) },
-    { key: "avg", header: "Usually takes", align: "right", cell: (g) => (g.avg == null ? null : duration(g.avg)) },
-  ]
-  return <Table rows={groups} columns={cols} getKey={(g) => g.name} caption="Jobs, one line each" maxHeight="28rem" />
 }

@@ -1,28 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useNavigate } from "react-router-dom"
-import { Download, Inbox, ListFilter } from "lucide-react"
+import { Link, useNavigate } from "react-router-dom"
+import { Inbox } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { openShortcuts } from "@/app/shortcuts"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
-import { AnswerLine } from "@/ui/answer"
+import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { ClaimNoJump } from "@/ui/claim-number"
 import { ComingUp } from "@/ui/coming-up"
-import { Checkbox } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
+import { paperTitle } from "@/lib/names"
 import { OwnPapersNote } from "@/ui/own-papers"
 import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
-import { BulkHoldDialog, NoBulkSendBack, QuietSelect, SearchBox, SkippedDialog, reviewLink, useUrlFilters, waitingLabel } from "@/ui/queue"
+import { BulkHoldDialog, NoBulkSendBack, QuietSelect, SearchBox, SkippedDialog, reviewLink, useUrlFilters } from "@/ui/queue"
 import { useSlashToSearch } from "@/ui/queue-keys"
-import { Details, Rows } from "@/ui/section"
-import { EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
-import { Meta } from "@/ui/text"
+import { Details } from "@/ui/section"
+import { ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { toast } from "@/ui/toast"
 import type { QueueClaim, QueuePayload } from "@/pages/approvals-actions"
-import { ApprovalRow } from "@/pages/principal/approval-row"
-import { isReady, notReady } from "@/pages/principal/ready"
+import { DeskTable } from "@/pages/desk-table"
+import { isReady, notes, notReady } from "@/pages/principal/ready"
 import { useApprovals } from "@/pages/principal/use-approvals"
 
 /**
@@ -69,7 +69,6 @@ export function Approvals() {
   const sort = values.sort || "waiting"
   const searchRef = useRef<HTMLInputElement>(null)
   useSlashToSearch(searchRef)
-  const [showFilters, setShowFilters] = useState(false)
 
   const listQuery = new URLSearchParams()
   if (q) listQuery.set("q", q)
@@ -202,72 +201,23 @@ export function Approvals() {
 
   const totals = data?.totals
   const oldest = totals?.longest_wait_days ?? null
-  const answer = !data ? (
-    "What waits for your approval."
-  ) : rows.length === 0 ? (
-    filtered ? (
-      "No claim matches these filters."
-    ) : (
-      "Nothing is waiting."
-    )
-  ) : (
-    <>
-      {plural(totals?.count ?? rows.length, "claim", "claims")}, {money(totals?.amount ?? 0)}, {(totals?.count ?? rows.length) === 1 ? "is" : "are"} waiting.
-    </>
-  )
+  const count = totals?.count ?? rows.length
 
-  const laneHead = (title: string, list: QueueClaim[], hint?: string) => (
-    <div className="mb-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1">
-      <div className="flex items-baseline gap-3">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <span className="tabular text-sm text-fg-muted">
-          {list.length}
-          {list.some((c) => c.remuneration != null) && ` · ${money(list.reduce((s, c) => s + (c.remuneration || 0), 0))}`}
-        </span>
-      </div>
-      <div className="flex items-center gap-3">
-        {hint && <Meta className="hidden sm:inline">{hint}</Meta>}
-        <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
-          <Checkbox
-            checked={list.length > 0 && list.every((c) => selected.has(c.id))}
-            onCheckedChange={() => toggleLane(list)}
-            aria-label={`Choose all ${list.length} in ${title.toLowerCase()}`}
-          />
-          Choose all
-        </label>
-      </div>
-    </div>
-  )
+  /** Why a claim is not ready, or that it is; then anything worth knowing that does not stop it. */
+  const statusText = (c: QueueClaim) => [...(isReady(c) ? ["Ready to approve"] : notReady(c)), ...notes(c)].join(", ")
+  const own = (c: QueueClaim) => !!me?.id && c.owner_id === me.id
 
-  let cursor = -1
-  const lane = (list: QueueClaim[], isReadyLane: boolean) => (
-    <Rows>
-      {list.map((c) => {
-        cursor += 1
-        const i = cursor
-        return (
-          <ApprovalRow
-            key={c.id}
-            claim={c}
-            me={me?.id}
-            ready={isReadyLane}
-            href={href(c)}
-            active={i === activeRow}
-            selected={selected.has(c.id)}
-            onToggle={() => toggleSelected(c)}
-            onActive={() => setActiveRow(i)}
-            onApprove={() => ap.approveOne(c)}
-            onSendBack={() => ap.sendBack(c)}
-          />
-        )
-      })}
-    </Rows>
-  )
+  const sub = !data
+    ? "Claims the research office has cleared, waiting for your approval."
+    : rows.length === 0
+      ? "Claims the research office has cleared wait here for your approval."
+      : `${plural(count, "claim", "claims")}, ${money(totals?.amount ?? rows.reduce((s, c) => s + (c.remuneration || 0), 0))}, ${count === 1 ? "is" : "are"} waiting for your approval.`
 
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-6">
       <PageHeader
         title="Approvals"
+        sub={sub}
         action={
           ready.length > 0 ? (
             <Button kind="primary" onClick={() => ap.approveBatch(ready)} disabled={ap.busy}>
@@ -277,34 +227,32 @@ export function Approvals() {
         }
       />
 
-      <div className="-mt-6 space-y-3">
-        <AnswerLine>{answer}</AnswerLine>
-        {rows.length > 0 && (
-          <p className="max-w-[40rem] text-lead text-fg-muted">
-            {rest.length === 0 ? `All ${rows.length} are ready.` : `${ready.length} are ready; ${rest.length} need a look.`}
-            {oldest != null && ` The longest has waited ${waitingLabel(oldest).toLowerCase()}.`}
-          </p>
-        )}
-      </div>
+      <Answer
+        items={[
+          { value: data ? count : null, label: "claims waiting", zero: "Nothing is waiting" },
+          { value: data ? money(totals?.amount ?? 0) : null, label: "comes to" },
+          { value: data ? ready.length : null, label: "ready to approve", zero: "None is ready yet", tone: "positive" },
+          {
+            value: data ? (oldest ?? 0) : null,
+            label: "days the longest has waited",
+            zero: "Nothing is waiting",
+            tone: oldest != null && oldest > 30 ? "critical" : oldest != null && oldest > 14 ? "caution" : "neutral",
+          },
+        ]}
+      />
 
       {(rows.length > 0 || filtered) && (
-        <section aria-label="Find and narrow" className="space-y-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex w-full items-center gap-2 sm:w-auto">
-              <SearchBox
-                inputRef={searchRef}
-                value={q}
-                onCommit={(next) => set({ q: next })}
-                placeholder="Claim no., title or claimant"
-                label="Search the queue"
-                className="min-w-0 flex-1 sm:w-80"
-              />
-              <Button kind="default" size="sm" aria-expanded={showFilters} onClick={() => setShowFilters((v) => !v)}>
-                <ListFilter />
-                Filters
-              </Button>
-            </div>
-            <QuietSelect value={department} onChange={(v) => set({ department: v })} label="Filter by department" className="max-sm:hidden">
+        <section aria-label="Find and narrow" className="space-y-2">
+          <div className={filterBar} role="search">
+            <SearchBox
+              inputRef={searchRef}
+              value={q}
+              onCommit={(next) => set({ q: next })}
+              placeholder="Claim no., title or claimant"
+              label="Search the queue"
+              className="w-full min-w-0 sm:w-80"
+            />
+            <QuietSelect value={department} onChange={(v) => set({ department: v })} label="Filter by department">
               <option value="">All departments</option>
               {(data?.departments ?? []).map((d) => (
                 <option key={d} value={d}>
@@ -312,55 +260,43 @@ export function Approvals() {
                 </option>
               ))}
             </QuietSelect>
+            <QuietSelect value={quartile} onChange={(v) => set({ quartile: v })} label="Filter by quartile">
+              <option value="">Any quartile</option>
+              {["Q1", "Q2", "Q3", "Q4"].map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
+            </QuietSelect>
+            <QuietSelect value={sort} onChange={(v) => set({ sort: v === "waiting" ? "" : v })} label="Sort the queue">
+              {SORTS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </QuietSelect>
+            <SearchBox
+              value={waitingOver}
+              onCommit={(next) => set({ waiting_over: next.replace(/\D/g, "") })}
+              placeholder="Days over"
+              label="Only claims waiting longer than this many days"
+              inputMode="numeric"
+              className="sm:w-32"
+            />
+            <SearchBox
+              value={minAmount}
+              onCommit={(next) => set({ min_amount: next.replace(/\D/g, "") })}
+              placeholder="₹ over"
+              label="Only claims over this amount, in rupees"
+              inputMode="numeric"
+              className="sm:w-32"
+            />
             {filtered && (
-              <Button kind="default" size="sm" onClick={clear}>
+              <Button kind="quiet" onClick={clear}>
                 Clear filters
               </Button>
             )}
           </div>
-          {showFilters && (
-            <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap">
-              <QuietSelect value={department} onChange={(v) => set({ department: v })} label="Filter by department" className="sm:hidden">
-                <option value="">All departments</option>
-                {(data?.departments ?? []).map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </QuietSelect>
-              <QuietSelect value={sort} onChange={(v) => set({ sort: v === "waiting" ? "" : v })} label="Sort the queue">
-                {SORTS.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </QuietSelect>
-              <QuietSelect value={quartile} onChange={(v) => set({ quartile: v })} label="Filter by quartile">
-                <option value="">Any quartile</option>
-                {["Q1", "Q2", "Q3", "Q4"].map((x) => (
-                  <option key={x} value={x}>
-                    {x}
-                  </option>
-                ))}
-              </QuietSelect>
-              <SearchBox
-                value={waitingOver}
-                onCommit={(next) => set({ waiting_over: next.replace(/\D/g, "") })}
-                placeholder="Days over"
-                label="Only claims waiting longer than this many days"
-                inputMode="numeric"
-                className="sm:w-28"
-              />
-              <SearchBox
-                value={minAmount}
-                onCommit={(next) => set({ min_amount: next.replace(/\D/g, "") })}
-                placeholder="₹ over"
-                label="Only claims over this amount, in rupees"
-                inputMode="numeric"
-                className="sm:w-28"
-              />
-            </div>
-          )}
           <ClaimNoJump term={q} skip={new Set(rows.map((c) => c.id))} />
         </section>
       )}
@@ -369,10 +305,10 @@ export function Approvals() {
         <div className="sticky top-14 z-20 space-y-2 rounded-panel bg-surface px-4 py-3 shadow-pop ring-1 ring-edge md:top-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm">
-              <span className="font-semibold">{selected.size}</span> chosen ·{" "}
+              <span className="font-semibold">{selected.size}</span> chosen,{" "}
               <span className="tabular font-semibold">{money(selectedTotal)}</span>
               {selectedRows.some((c) => !isReady(c)) && (
-                <span className="text-caution"> · {selectedRows.filter((c) => !isReady(c)).length} not ready</span>
+                <span className="text-caution">, {selectedRows.filter((c) => !isReady(c)).length} not ready</span>
               )}
             </p>
             <div className="flex flex-wrap items-center gap-2">
@@ -392,76 +328,108 @@ export function Approvals() {
       )}
 
       {isLoading ? (
-        <>
-          <SkeletonRows rows={8} rowHeight={72} className="hidden md:block" />
-          <SkeletonRows rows={5} rowHeight={112} className="md:hidden" />
-        </>
+        <SkeletonRows rows={8} rowHeight={56} />
       ) : isError ? (
         <ErrorState
           title="Could not load the queue"
           message="The server did not answer. Nothing has been lost or approved."
           onRetry={() => refetch()}
         />
-      ) : rows.length === 0 ? (
-        filtered ? (
-          <EmptyState
-            size="region"
-            guide="approve-claims"
-            art="empty-queue"
-            icon={Inbox}
-            title="Nothing matches these filters"
-            message="Widen the search or clear the filters."
-          />
-        ) : (
-          // The answer above already says nothing is waiting: here is only the next step.
-          <div className="py-6">
-            <ComingUp desk="principal" />
-          </div>
-        )
       ) : (
-        <div className="space-y-10">
+        <>
           {data && data.total > rows.length && (
-            <Meta className="block">
+            <p className="text-sm text-fg-muted">
               Showing the first {rows.length} of {data.total}. Narrow the filters to see the rest.
-            </Meta>
+            </p>
           )}
-          {ready.length > 0 && (
-            <section aria-label="Ready to approve">
-              {laneHead("Ready to approve", ready)}
-              {lane(ready, true)}
-            </section>
+          <DeskTable
+            rows={ordered}
+            href={href}
+            id="approvals"
+            title="Approvals"
+            caption="Cleared claims waiting for approval, ready ones first"
+            active={activeRow}
+            onActive={setActiveRow}
+            selection={{
+              selected: new Set(selected.keys()),
+              onToggle: toggleSelected,
+              onToggleAll: () => toggleLane(ready),
+              allLabel: `Choose all ${ready.length} ready to approve`,
+              covers: isReady,
+            }}
+            status={{
+              header: "Checks",
+              text: statusText,
+              cell: (c) => <span className={isReady(c) ? "text-positive" : "text-caution"}>{statusText(c)}</span>,
+            }}
+            action={(c) =>
+              own(c) ? null : (
+                <>
+                  <Button kind="quiet" size="sm" onClick={() => ap.sendBack(c)}>
+                    Send back
+                  </Button>
+                  {isReady(c) && c.remuneration != null && !c.calc_error ? (
+                    <Button size="sm" onClick={() => ap.approveOne(c)} aria-label={`Approve: ${paperTitle(c.paper_title)}`}>
+                      Approve
+                    </Button>
+                  ) : (
+                    <Button size="sm" asChild>
+                      <Link to={href(c)}>Review</Link>
+                    </Button>
+                  )}
+                </>
+              )
+            }
+            empty={
+              filtered
+                ? {
+                    icon: Inbox,
+                    guide: "approve-claims",
+                    title: "Nothing matches these filters",
+                    message: "Widen the search or clear the filters.",
+                    action: (
+                      <Button kind="default" onClick={clear}>
+                        Clear filters
+                      </Button>
+                    ),
+                  }
+                : {
+                    icon: Inbox,
+                    guide: "approve-claims",
+                    title: "Nothing is waiting",
+                    message: "Claims the research office clears appear here for your approval.",
+                    action: (
+                      <Button kind="default" asChild>
+                        <Link to="/track">See where claims are</Link>
+                      </Button>
+                    ),
+                  }
+            }
+          />
+          {rows.length === 0 && !filtered && <ComingUp desk="principal" />}
+          {rows.length > 0 && (
+            <Details label="how this works">
+              <div className="max-w-prose space-y-3 pt-2 text-sm text-fg-muted">
+                <p>
+                  Ready means no open flag, no possible duplicate, nothing on hold and an amount worked out. Approving sends a claim
+                  to the Director to authorise, then Finance pays it. Each claim is checked again as it is approved.
+                </p>
+                <p>
+                  Days in amber have waited over 14 days; in red, over 30. Send back goes to the research office with your reason,
+                  never to the claimant.
+                </p>
+                <p>
+                  Keys: <Kbd>j</Kbd> <Kbd>k</Kbd> move, <Kbd>a</Kbd> approve, <Kbd>x</Kbd> choose one, <Kbd>r</Kbd> choose the ready,{" "}
+                  <Kbd>s</Kbd> send back, <Kbd>h</Kbd> hold, <Kbd>Enter</Kbd> open, <Kbd>/</Kbd> search.{" "}
+                  <button type="button" onClick={openShortcuts} className="underline underline-offset-2">
+                    All shortcuts
+                  </button>
+                </p>
+                <OwnPapersNote />
+              </div>
+            </Details>
           )}
-          {rest.length > 0 && (
-            <section aria-label="Needs a look">
-              {laneHead("Needs a look", rest, "Open each one to decide.")}
-              {lane(rest, false)}
-            </section>
-          )}
-          <Details label="how this works">
-            <div className="max-w-prose space-y-3 pt-2 text-sm text-fg-muted">
-              <p>
-                Ready means no open flag, no possible duplicate, nothing on hold and an amount worked out. Approving sends a claim to the
-                Director to authorise, then Finance pays it. Each claim is checked again as it is approved.
-              </p>
-              <p>
-                Days in amber have waited over 14 days; in red, over 30. Send back goes to the research office with your reason, never to the
-                claimant.
-              </p>
-              <p>
-                Keys: <Kbd>j</Kbd> <Kbd>k</Kbd> move, <Kbd>a</Kbd> approve, <Kbd>x</Kbd> choose one, <Kbd>r</Kbd> choose the ready,{" "}
-                <Kbd>s</Kbd> send back, <Kbd>h</Kbd> hold, <Kbd>Enter</Kbd> open, <Kbd>/</Kbd> search.{" "}
-                <button type="button" onClick={openShortcuts} className="underline underline-offset-2">
-                  All shortcuts
-                </button>
-              </p>
-              <OwnPapersNote />
-              <Button kind="default" size="sm" onClick={() => downloadApprovals(ordered)}>
-                <Download />
-                Download these {ordered.length} as CSV
-              </Button>
-            </div>
-          </Details>
-        </div>
+        </>
       )}
 
       <BulkHoldDialog
@@ -495,21 +463,4 @@ export function Approvals() {
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return <kbd className={cn("rounded border border-edge px-1 text-xs")}>{children}</kbd>
-}
-
-/** The approvals list as it is filtered on screen, for the Principal's own records. */
-function downloadApprovals(rows: QueueClaim[]) {
-  const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
-  const head = ["Claim no.", "Paper", "Claimant", "Department", "Journal", "Quartile", "Waiting days", "Amount (INR)"]
-  const lines = rows.map((c) =>
-    [c.ticket_number, c.paper_title, c.owner_name, c.owner_department, c.journal_title, c.quartile, c.waiting_days, c.remuneration]
-      .map(cell)
-      .join(",")
-  )
-  const blob = new Blob(["﻿" + [head.map(cell).join(","), ...lines].join("\r\n")], { type: "text/csv;charset=utf-8" })
-  const a = document.createElement("a")
-  a.href = URL.createObjectURL(blob)
-  a.download = `approvals-${new Date().toISOString().slice(0, 10)}.csv`
-  a.click()
-  URL.revokeObjectURL(a.href)
 }

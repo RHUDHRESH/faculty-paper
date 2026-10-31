@@ -12,9 +12,9 @@ import { Welcome, welcomeOnHome } from "@/app/welcome"
 import { FACULTY, fakeApi, renderWithProviders } from "@/test/harness"
 
 /**
- * The first-sign-in welcome is an inline note on Home, never a dialog. The
+ * The first-sign-in welcome is one thin info line on Home, never a dialog. The
  * shell mounts it only where `welcomeOnHome` says so, so the route rule is
- * asserted on that helper and the note itself is asserted as a plain section.
+ * asserted on that helper and the line itself is asserted as a plain section.
  */
 
 const UNSEEN = { ...FACULTY, welcome_seen: false }
@@ -33,11 +33,20 @@ function mount(route: string, me = UNSEEN) {
   )
 }
 
+function welcomePosts() {
+  return vi
+    .mocked(api)
+    .mock.calls.filter(([path, opts]) => path === "/api/auth/me/welcome-seen" && (opts as { method?: string })?.method === "POST")
+}
+
 describe("first-sign-in welcome", () => {
-  it("renders on Home for an account that has not seen it", async () => {
+  it("renders on Home for an account that has not seen it, as one line", async () => {
     mount("/")
-    expect(await screen.findByTestId("welcome")).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: /welcome, asha/i })).toBeInTheDocument()
+    const line = await screen.findByTestId("welcome")
+    expect(line).toHaveTextContent("Welcome, Asha.")
+    // One line: no list, no card heading, no second action beyond the guides link.
+    expect(line.querySelector("ol, ul, h2")).toBeNull()
+    expect(line.className).toContain("bg-accent-wash")
   })
 
   it("does not render on /papers", () => {
@@ -52,28 +61,28 @@ describe("first-sign-in welcome", () => {
     expect(screen.queryByRole("dialog")).toBeNull()
   })
 
-  it("hides on Got it and records the welcome once", async () => {
+  it("dismisses with the X and records the welcome once", async () => {
     const user = userEvent.setup()
     mount("/")
     await screen.findByTestId("welcome")
-    await user.click(screen.getByRole("button", { name: "Got it" }))
+    await user.click(screen.getByRole("button", { name: "Dismiss" }))
     expect(screen.queryByTestId("welcome")).toBeNull()
-    const posts = vi
-      .mocked(api)
-      .mock.calls.filter(([path, opts]) => path === "/api/auth/me/welcome-seen" && (opts as { method?: string })?.method === "POST")
-    expect(posts).toHaveLength(1)
+    expect(welcomePosts()).toHaveLength(1)
   })
 
-  it("offers the rest of the items behind a phone-only control", async () => {
+  it("links to the guides, and following the link records it too", async () => {
     const user = userEvent.setup()
     mount("/")
+    const guides = await screen.findByRole("link", { name: "See the guides" })
+    expect(guides).toHaveAttribute("href", "/help")
+    await user.click(guides)
+    expect(screen.queryByTestId("welcome")).toBeNull()
+    expect(welcomePosts()).toHaveLength(1)
+  })
+
+  it("has no phone-only collapse any more", async () => {
+    mount("/")
     await screen.findByTestId("welcome")
-    const showRest = screen.getByRole("button", { name: "Show the rest" })
-    expect(showRest).toBeInTheDocument()
-    const items = screen.getByTestId("welcome").querySelectorAll("li")
-    expect(items[1].className).toContain("hidden")
-    await user.click(showRest)
     expect(screen.queryByRole("button", { name: "Show the rest" })).toBeNull()
-    expect(screen.getByTestId("welcome").querySelectorAll("li")[1].className).not.toContain("hidden")
   })
 })

@@ -1,35 +1,31 @@
 import { Link } from "react-router-dom"
-import { AlertTriangle, Copy, Flag, Newspaper, UserRound, Users } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
-import { HOME_DATA } from "@/app/home-data"
+import { HOME_DATA, homeTrack } from "@/app/home-data"
+import { formatCount } from "@/lib/count"
 import { paperTitle } from "@/lib/names"
 import { useApi } from "@/lib/query"
-import { cn } from "@/lib/cn"
 import { ClaimNo, ClaimNoLegend, daysText, useHashScroll, Waited } from "@/pages/cell/parts"
-import { HomeTrack } from "@/pages/home-track"
 import { ComingUpEvents } from "@/pages/home-events"
-import { fromBefore, greeting, QueueRow, Waiting, YourPapers } from "@/pages/home-staff"
+import { fromBefore, greeting, YourPapers } from "@/pages/home-staff"
 import { AskTheData } from "@/pages/insights-link"
-import { homeTrack } from "@/app/home-data"
 import type { QueueClaim } from "@/pages/clearing-actions"
 import { isReady } from "@/pages/cell/clearing-rows"
 import type { TrackPayload, TrackStage } from "@/pages/track-data"
 import { PageHeader } from "@/ui/page-header"
-import { AnswerLine, AnswerWord } from "@/ui/answer"
+import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
-import { Avatar, initialsOf } from "@/ui/person"
-import { InlineError, Skeleton } from "@/ui/state"
-import { Meta, SectionTitle } from "@/ui/text"
+import { Section } from "@/ui/section"
+import { InlineError } from "@/ui/state"
+import { Table, type Column } from "@/ui/table"
 
 /**
  * The first desk's Home (research cell and research coordinator).
  *
- * One question: what do I do first today? The top answers it in four figures
- * (each a link to the list behind it) and one sentence about today's target.
- * The work follows: the claims given to me, then the oldest, then anything
- * that came back to the desk. Everything else the desk looks after is one
- * short list, and the whole-college picture is below the fold.
+ * One question: what do I do first today? Four figures answer it (waiting,
+ * ready, sent back, late), each a link to the list behind it. One table lists
+ * what needs the desk, oldest first, claims that came back included, with a
+ * Review button on each. The one primary button clears the ready claims.
  *
  * Server: /api/cell/today (backend/core/api/research_cell.py). The counts
  * here are the same numbers /coordination and /clearing print, because all
@@ -92,6 +88,11 @@ type Overview = {
   reviewers: { user_id: string; name: string; role_label: string; open: number; cleared_this_week: number; photo_url?: string | null; initials?: string }[]
 }
 
+/** One line of the main table: a claim waiting, or one that came back. */
+type Item = DeskRow & { back?: BackRow }
+
+const MAX_ROWS = 10
+
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en-IN")} ${n === 1 ? one : many}`
 
 const DESK_OF: Record<string, string> = { checked: "the Principal", approved: "the Director", authorised: "Finance" }
@@ -116,6 +117,20 @@ function monthName(ym: string): string {
   return new Date(y, (m || 1) - 1, 1).toLocaleDateString("en-IN", { month: "long" })
 }
 
+/** What the claim is doing at the desk, in words: it came back, or why it is flagged. */
+function statusText(r: Item, meId: string | undefined): string {
+  if (r.back) {
+    const who = r.back.kind === "fixed" ? "Fixed by the claimant" : `Returned by ${r.back.by_name ?? "the Principal"}`
+    return `${who}, ${r.back.since_days === 0 ? "today" : `${daysText(r.back.since_days)} ago`}`
+  }
+  const parts = [
+    r.watched_reason ? "Watched journal" : "",
+    r.on_hold ? "On hold" : "",
+    r.assigned_to ? (r.assigned_to.user_id === meId ? "Given to you" : `Given to ${r.assigned_to.name}`) : "",
+  ].filter(Boolean)
+  return parts.join(", ") || "Waiting"
+}
+
 export function CellHome() {
   const { me } = useAuth()
   const coordinator = me?.role === "RESEARCH_COORDINATOR"
@@ -137,21 +152,198 @@ export function CellHome() {
 
   const sla = d?.sla_days ?? 14
   const target = d?.target
-  const oldest = d ? Math.max(0, ...[...d.mine, ...d.rest].map((r) => r.waiting_days)) : 0
-
   const met = !!target && target.due > 0 && target.decided_by_desk >= target.due
 
-  // "Came back" is a link to a place lower on this page.
+  // The KPI "Sent back" is a link to the table below it.
   useHashScroll(!!d)
 
+  // Claims that came back first, then everything waiting, oldest first.
+  const items: Item[] = []
+  if (d) {
+    const seen = new Set<string>()
+    for (const b of d.came_back) {
+      seen.add(b.id)
+      items.push({ ...b, back: b })
+    }
+    const waiting = [...d.mine, ...d.rest].filter((r) => !seen.has(r.id)).sort((a, b) => b.waiting_days - a.waiting_days)
+    items.push(...waiting)
+  }
+  const rows = items.slice(0, MAX_ROWS)
+
+  const columns: Column<Item>[] = [
+    {
+      key: "paper",
+      header: "Claim",
+      exportValue: (r) => paperTitle(r.paper_title),
+      cell: (r) => (
+        <Link to={`/review/${r.id}?queue=clearing`} className="break-words font-medium text-fg underline-offset-4 hover:underline">
+          {paperTitle(r.paper_title)}
+        </Link>
+      ),
+    },
+    {
+      key: "owner",
+      header: "Claimant",
+      exportValue: (r) => [r.owner_name, r.owner_department].filter(Boolean).join(", "),
+      cell: (r) => [r.owner_name, r.owner_department].filter(Boolean).join(", "),
+    },
+    {
+      key: "number",
+      header: "Claim number",
+      exportValue: (r) => r.ticket_number ?? "",
+      cell: (r) => <ClaimNo ticket={r.ticket_number} origin={r.origin} />,
+    },
+    {
+      key: "status",
+      header: "Status",
+      exportValue: (r) => statusText(r, me?.id),
+      cell: (r) => (
+        <span>
+          {r.back ? (
+            <>
+              <span className={r.back.kind === "fixed" ? "font-medium text-positive" : "font-medium text-caution"}>
+                {r.back.kind === "fixed" ? "Fixed by the claimant" : `Returned by ${r.back.by_name ?? "the Principal"}`}
+              </span>
+              <span className="text-fg-muted">, {r.back.since_days === 0 ? "today" : `${daysText(r.back.since_days)} ago`}</span>
+              {r.back.note && (
+                <span className="block text-sm text-fg-muted">
+                  {r.back.kind === "fixed" ? "You asked: " : "Reason: "}
+                  {r.back.note}
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              {r.watched_reason && (
+                <span className="font-medium text-caution" title={r.watched_reason}>
+                  Watched journal
+                </span>
+              )}
+              {r.watched_reason && (r.on_hold || r.assigned_to) && ", "}
+              {r.on_hold && <span className="text-caution">On hold</span>}
+              {r.on_hold && r.assigned_to && ", "}
+              {r.assigned_to && (r.assigned_to.user_id === me?.id ? "Given to you" : `Given to ${r.assigned_to.name}`)}
+              {!r.watched_reason && !r.on_hold && !r.assigned_to && <span className="text-fg-muted">Waiting</span>}
+            </>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: "waiting",
+      header: "Waiting",
+      align: "right",
+      exportValue: (r) => r.waiting_days,
+      cell: (r) => <Waited days={r.waiting_days} sla={sla} />,
+    },
+    {
+      key: "action",
+      header: "Action",
+      label: "Review",
+      cell: (r) => (
+        <Button kind="default" size="sm" asChild>
+          <Link
+            to={`/review/${r.id}?queue=clearing`}
+            aria-label={`${r.back ? "Review again" : "Review"}: ${paperTitle(r.paper_title)}`}
+          >
+            {r.back ? "Review again" : "Review"}
+          </Link>
+        </Button>
+      ),
+    },
+  ]
+
+  type Also = { key: string; label: string; detail: string; to: string; count: number | null; loading: boolean }
+  const also: Also[] = [
+    {
+      key: "flags",
+      label: "Open flags",
+      detail: d ? fromBefore(d.flags.legacy ?? 0, "Questions on claims not yet paid") : "Questions on claims not yet paid",
+      to: "/flags",
+      count: d ? d.flags.open - (d.flags.legacy ?? 0) : null,
+      loading: q.isLoading,
+    },
+    {
+      key: "journals",
+      label: "Watched journals with claims waiting",
+      detail: "Look at the journal before you clear the claim",
+      to: "/journals",
+      count: d?.watched_waiting ?? null,
+      loading: q.isLoading,
+    },
+    {
+      key: "duplicates",
+      label: "Possible duplicate payments",
+      detail: fromBefore(duplicates.data?.summary.open_legacy ?? 0, "The same paper may have been paid twice"),
+      to: "/duplicates",
+      count: duplicates.data ? (duplicates.data.summary.open_actionable ?? duplicates.data.summary.open) : null,
+      loading: duplicates.isLoading,
+    },
+    {
+      key: "requests",
+      label: "Profile corrections",
+      detail: "Faculty asked for a change to their record",
+      to: "/requests",
+      count: requests.data?.pending ?? null,
+      loading: requests.isLoading,
+    },
+    {
+      key: "faults",
+      label: "Faults",
+      detail: fromBefore(faults.data?.legacy ?? 0, "Things the system could not finish"),
+      to: "/faults",
+      count: faults.data ? (faults.data.actionable ?? faults.data.total) : null,
+      loading: faults.isLoading,
+    },
+  ]
+  if (coordinator) {
+    also.push({ key: "projects", label: "Final-year project teams", detail: "Teams, mentors and claims", to: "/coordination?tab=research", count: null, loading: false })
+  }
+
+  const alsoColumns: Column<Also>[] = [
+    {
+      key: "label",
+      header: "Item",
+      exportValue: (r) => r.label,
+      cell: (r) => (
+        <Link to={r.to} className="font-medium text-fg underline-offset-4 hover:underline">
+          {r.label}
+        </Link>
+      ),
+    },
+    { key: "detail", header: "What it is", exportValue: (r) => r.detail, cell: (r) => r.detail },
+    {
+      key: "count",
+      header: "Count",
+      align: "right",
+      empty: "Open to see",
+      exportValue: (r) => r.count,
+      cell: (r) => (r.loading ? "Loading" : r.count === null ? "" : formatCount(r.count)),
+    },
+  ]
+
+  const reviewers = coordinator ? (overview.data?.reviewers ?? []).slice(0, 5) : []
+  const holdColumns: Column<NonNullable<Overview["reviewers"]>[number]>[] = [
+    { key: "name", header: "Reviewer", exportValue: (r) => r.name, cell: (r) => r.name },
+    { key: "role", header: "Role", exportValue: (r) => r.role_label, cell: (r) => r.role_label },
+    { key: "cleared", header: "Cleared this week", align: "right", exportValue: (r) => r.cleared_this_week, cell: (r) => formatCount(r.cleared_this_week) },
+    { key: "open", header: "Open", align: "right", exportValue: (r) => r.open, cell: (r) => formatCount(r.open) },
+  ]
+
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-8">
       <PageHeader
         title={greeting(me?.name, me?.placeholder)}
-        spot="spot-audit"
+        sub="The claims waiting at your desk, oldest first."
         action={
           <Button kind="primary" asChild>
-            <Link to="/clearing">{d && d.desk_open > 0 ? `Open the queue (${d.desk_open.toLocaleString("en-IN")})` : "Open the queue"}</Link>
+            <Link to="/clearing">
+              {readyN > 0
+                ? `Clear the ${formatCount(readyN)} ready`
+                : d && d.desk_open > 0
+                  ? `Open the queue (${d.desk_open.toLocaleString("en-IN")})`
+                  : "Open the queue"}
+            </Link>
           </Button>
         }
       />
@@ -160,328 +352,104 @@ export function CellHome() {
         <InlineError message="Could not load your desk. Nothing has changed." onRetry={() => void q.refetch()} />
       ) : (
         <>
-          {/* The answer: what is late, then where the rest of the chain is
-              stuck. Zero clicks (docs/ux/26, target T5). */}
-          <div className="space-y-4">
-            <AnswerLine>
-              {!d ? (
-                "What to do first today."
-              ) : d.desk_open === 0 ? (
-                "Nothing is waiting. The desk is clear."
-              ) : d.past_sla > 0 ? (
-                <>
-                  {plural(d.past_sla, "claim is", "claims are")} <AnswerWord tone="crimson">past {sla} days</AnswerWord>.
-                </>
-              ) : (
-                <>
-                  {plural(d.desk_open, "claim is", "claims are")} waiting, <AnswerWord tone="sage">none late</AnswerWord>.
-                </>
-              )}
-              {down && (
-                <>
-                  {" "}
-                  {down}
-                </>
-              )}
-            </AnswerLine>
-            {d && d.desk_open > 0 && (
-              <p className="max-w-[40rem] text-lead text-fg-muted">
-                {readyN > 0 ? (
-                  <>
-                    <Link to="/clearing" className="text-accent underline underline-offset-4">
-                      {plural(readyN, "claim is", "claims are")} ready
-                    </Link>{" "}
-                    to clear in one pass.{" "}
-                  </>
-                ) : null}
-                {d.mine_count > 0 ? (
-                  <Link to="/clearing?assigned=me" className="text-accent underline underline-offset-4">
-                    {plural(d.mine_count, "is", "are")} given to you.
+          <Answer
+            items={[
+              { value: d?.desk_open, label: "Waiting to clear", zero: "Nothing is waiting", to: "/clearing" },
+              { value: queue.data ? readyN : undefined, label: "Ready to clear", zero: "None ready", to: "/clearing" },
+              { value: d?.came_back_count, label: "Sent back to the desk", zero: "Nothing came back", to: "/#attention" },
+              { value: d?.past_sla, label: `Late, past ${sla} days`, zero: "None late", to: "/clearing", tone: "critical" },
+            ]}
+          />
+          {down && <p className="text-sm text-fg-muted">{down}</p>}
+
+          <Section
+            id="attention"
+            title="What needs your attention"
+            className="scroll-mt-6"
+            action={
+              <Link to="/clearing" className="text-sm text-accent underline-offset-4 hover:underline">
+                {d && d.desk_open > 0 ? `View all ${d.desk_open.toLocaleString("en-IN")}` : "View all"}
+              </Link>
+            }
+          >
+            <Table
+              rows={rows}
+              columns={columns}
+              getKey={(r) => r.id}
+              tools={{ id: "cell-home", title: "What needs your attention" }}
+              empty={
+                q.isLoading ? (
+                  <p className="py-6 text-base text-fg-muted">Loading the desk.</p>
+                ) : (
+                  <p className="py-6 text-base text-fg-muted">Nothing is waiting. The desk is clear.</p>
+                )
+              }
+            />
+            <ClaimNoLegend show={rows.some((r) => !!r.origin)} />
+            {d && (d.mine_count > 0 || (coordinator && d.unassigned > 0)) && (
+              <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                {d.mine_count > 0 && (
+                  <Link to="/clearing?assigned=me" className="text-accent underline-offset-4 hover:underline">
+                    {plural(d.mine_count, "claim is", "claims are")} given to you
                   </Link>
-                ) : null}{" "}
-                {coordinator && d.unassigned > 0 ? (
-                  <Link to="/coordination" className="text-accent underline underline-offset-4">
-                    {plural(d.unassigned, "is", "are")} not given to anyone.
+                )}
+                {coordinator && d.unassigned > 0 && (
+                  <Link to="/coordination" className="text-accent underline-offset-4 hover:underline">
+                    {plural(d.unassigned, "claim is", "claims are")} not given to anyone
                   </Link>
-                ) : null}
-                {oldest > 0 && <> The oldest has waited {daysText(oldest)}.</>}
+                )}
               </p>
             )}
-          </div>
-
-          <HomeTrack />
-
-          <AskTheData about="A question about the papers or the claims? Ask it in plain English." />
-
-          {target && d && d.desk_open > 0 && (
-            <p className="max-w-3xl text-base" role="status">
-              <span className="font-medium">Today&rsquo;s target:</span>{" "}
-              {target.due === 0
-                ? `nothing is close to ${sla} days. Keep the oldest moving.`
-                : `decide ${plural(target.due, "claim", "claims")} that ${target.due === 1 ? "is" : "are"} past ${sla} days or reach it today.`}{" "}
-              <span className={cn(met ? "text-positive" : "text-fg-muted")}>
-                You have decided {target.decided_by_me.toLocaleString("en-IN")} today, the desk {target.decided_by_desk.toLocaleString("en-IN")}
+            {target && d && d.desk_open > 0 && (
+              <p className="mt-2 text-sm text-fg-muted" role="status">
+                Today&rsquo;s target:{" "}
+                {target.due === 0
+                  ? `nothing is close to ${sla} days.`
+                  : `decide ${plural(target.due, "claim", "claims")} past ${sla} days or reaching it today.`}{" "}
+                You have decided {target.decided_by_me.toLocaleString("en-IN")} today, the desk{" "}
+                {target.decided_by_desk.toLocaleString("en-IN")}
                 {met ? ". Target met." : "."}
-              </span>
-            </p>
-          )}
+              </p>
+            )}
+          </Section>
         </>
       )}
 
-      {/* The work: mine first, then the oldest. */}
-      {d && d.mine.length > 0 && (
-        <Waiting>
-          <ListHead title="Given to you" note={`${d.mine_count} ${d.mine_count === 1 ? "claim" : "claims"}, oldest first`} to="/clearing?assigned=me" toLabel="Open all" />
-          <DeskList rows={d.mine} sla={sla} />
-        </Waiting>
-      )}
+      <Section title="Also needs a look">
+        <Table rows={also} columns={alsoColumns} getKey={(r) => r.key} tools={{ id: "cell-home-also", title: "Also needs a look" }} />
+      </Section>
 
-      <Waiting>
-        <ListHead
-          title={d && d.mine.length > 0 ? "Oldest waiting, not given to you" : "Oldest waiting"}
-          note={d && d.desk_open > 0 ? `Showing ${(d.rest.length).toLocaleString("en-IN")} of ${(d.desk_open - d.mine_count).toLocaleString("en-IN")}` : undefined}
-          to="/clearing"
-          toLabel={d && d.desk_open > 0 ? `Open the queue (${d.desk_open.toLocaleString("en-IN")})` : "Open the queue"}
-        />
-        {q.isLoading ? (
-          <ul className="divide-y divide-line">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <li key={i} className="h-[3.75rem] skeleton" />
-            ))}
-          </ul>
-        ) : d && d.rest.length === 0 ? (
-          <div className="border-y border-line py-6">
-            <p className="text-base text-fg-muted">
-              Nothing else is waiting. A claim appears here the moment a claimant files it. Your own papers are cleared by another officer, never by you.
-            </p>
-          </div>
-        ) : d ? (
-          <>
-            <DeskList rows={d.rest} sla={sla} />
-            <ClaimNoLegend show={[...d.mine, ...d.rest].some((r) => !!r.origin)} />
-          </>
-        ) : null}
-      </Waiting>
-
-      {/* What came back: a claim the claimant fixed, or the Principal returned. */}
-      <section id="came-back" aria-labelledby="came-back-h" className="scroll-mt-6 space-y-2">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-          <SectionTitle>
-            <span id="came-back-h">Came back to the desk</span>
-          </SectionTitle>
-          {d && d.came_back_count > 0 && <Meta>{plural(d.came_back_count, "claim", "claims")}, newest first</Meta>}
-        </div>
-        {q.isLoading ? (
-          <Skeleton className="h-14 w-full" />
-        ) : d && d.came_back.length === 0 ? (
-          <p className="text-base text-fg-muted">
-            Nothing has come back. A claim shows here when a claimant fixes one you sent back, or the Principal returns one with a reason.
-          </p>
-        ) : d ? (
-          <ul className="divide-y divide-line">
-            {d.came_back.map((r) => (
-              <li key={r.id} className="row grid grid-cols-[2.5rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 py-3 sm:grid-cols-[2.5rem_minmax(0,1fr)_auto] sm:gap-x-4 sm:px-2">
-                <Avatar
-                  size="md"
-                  person={{ name: r.owner_name, initials: r.owner_initials ?? initialsOf(r.owner_name), photo_url: r.owner_photo_url ?? null }}
-                />
-                <div className="min-w-0">
-                  <Link to={`/review/${r.id}?queue=clearing`} className="line-clamp-2 break-words text-base font-medium underline-offset-4 hover:underline">
-                    {paperTitle(r.paper_title)}
-                  </Link>
-                  <Meta className="block truncate">
-                    {[r.owner_name, r.owner_department].filter(Boolean).join(" · ")} · <ClaimNo ticket={r.ticket_number} origin={r.origin} />
-                  </Meta>
-                  <p className="mt-1 text-sm">
-                    <span className={cn("font-medium", r.kind === "fixed" ? "text-positive" : "text-caution")}>
-                      {r.kind === "fixed" ? "Fixed by the claimant" : `Returned by ${r.by_name ?? "the Principal"}`}
-                    </span>
-                    <span className="text-fg-muted"> · {r.since_days === 0 ? "today" : `${daysText(r.since_days)} ago`}</span>
-                  </p>
-                  {r.note && (
-                    <p className="mt-0.5 line-clamp-2 text-sm text-fg-muted">
-                      {r.kind === "fixed" ? "You asked: " : "Reason: "}
-                      {r.note}
-                    </p>
-                  )}
-                </div>
-                <Button kind="default" size="sm" asChild className="col-start-2 justify-self-start sm:col-start-auto">
-                  <Link to={`/review/${r.id}?queue=clearing`} aria-label={`Review again: ${paperTitle(r.paper_title)}`}>
-                    Review again
-                  </Link>
-                </Button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </section>
-
-      {coordinator && overview.data && overview.data.reviewers.length > 0 && (
-        <section aria-labelledby="who-h" className="space-y-2">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-            <SectionTitle>
-              <span id="who-h">Who holds what</span>
-            </SectionTitle>
+      {reviewers.length > 0 && (
+        <Section
+          title="Who holds what"
+          action={
             <Link to="/coordination" className="text-sm text-accent underline-offset-4 hover:underline">
               Open Coordination
             </Link>
-          </div>
-          <ul className="divide-y divide-line">
-            {overview.data.reviewers.slice(0, 5).map((r) => (
-              <li key={r.user_id} className="flex items-center gap-3 py-2.5 sm:px-2">
-                <Avatar size="sm" person={{ name: r.name, initials: r.initials ?? initialsOf(r.name), photo_url: r.photo_url ?? null }} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-base">{r.name}</span>
-                  <Meta className="block truncate">
-                    {r.role_label} · {plural(r.cleared_this_week, "claim", "claims")} cleared this week
-                  </Meta>
-                </span>
-                <span className="shrink-0 text-base tabular">
-                  <span className="font-semibold">{r.open.toLocaleString("en-IN")}</span> <span className="text-fg-muted">open</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
+          }
+        >
+          <Table rows={reviewers} columns={holdColumns} getKey={(r) => r.user_id} />
+        </Section>
       )}
-
-      {/* Everything else the desk looks after, one line each. */}
-      <section aria-labelledby="else-h" className="space-y-1">
-        <SectionTitle>
-          <span id="else-h">Also needs a look</span>
-        </SectionTitle>
-        <ul className="divide-y divide-line">
-          <QueueRow
-            icon={Flag}
-            label="Open flags"
-            count={d ? d.flags.open - (d.flags.legacy ?? 0) : null}
-            detail={d ? fromBefore(d.flags.legacy ?? 0, "Questions on claims not yet paid") : undefined}
-            to="/flags"
-            loading={q.isLoading}
-          />
-          <QueueRow
-            icon={Newspaper}
-            label="Watched journals with claims waiting"
-            count={d?.watched_waiting ?? null}
-            detail="Look at the journal before you clear the claim"
-            to="/journals"
-            tone="caution"
-            loading={q.isLoading}
-          />
-          <QueueRow
-            icon={Copy}
-            label="Possible duplicate payments"
-            count={duplicates.data ? (duplicates.data.summary.open_actionable ?? duplicates.data.summary.open) : null}
-            detail={fromBefore(duplicates.data?.summary.open_legacy ?? 0, "The same paper may have been paid twice")}
-            to="/duplicates"
-            loading={duplicates.isLoading}
-          />
-          <QueueRow
-            icon={UserRound}
-            label="Profile corrections"
-            count={requests.data?.pending ?? null}
-            detail="Faculty asked for a change to their record"
-            to="/requests"
-            loading={requests.isLoading}
-          />
-          <QueueRow
-            icon={AlertTriangle}
-            label="Faults"
-            count={faults.data ? (faults.data.actionable ?? faults.data.total) : null}
-            detail={fromBefore(faults.data?.legacy ?? 0, "Things the system could not finish")}
-            to="/faults"
-            loading={faults.isLoading}
-          />
-          {coordinator && (
-            <QueueRow icon={Users} label="Final-year project teams" count={null} detail="Teams, mentors and claims" to="/coordination?tab=research" />
-          )}
-        </ul>
-      </section>
 
       {d && (
-        <section aria-labelledby="month-h" className="space-y-1">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-            <SectionTitle>
-              <span id="month-h">{monthName(d.month.month)} so far</span>
-            </SectionTitle>
-            <Link to="/coordination?tab=report" className="text-sm text-accent underline-offset-4 hover:underline">
-              Monthly report
-            </Link>
-          </div>
-          <p className="max-w-3xl text-base text-fg-muted">
-            {plural(d.month.received, "claim", "claims")} came in. {d.month.cleared.toLocaleString("en-IN")} cleared, {d.month.sent_back.toLocaleString("en-IN")} sent back, {d.month.not_accepted.toLocaleString("en-IN")} not accepted.{" "}
-            {d.month.decided > 0
-              ? `${d.month.within_week.toLocaleString("en-IN")} of ${d.month.decided.toLocaleString("en-IN")} decisions took a week or less${d.month.median_days != null ? `, median ${d.month.median_days} days` : ""}.`
-              : "Nothing has been decided yet this month."}
-          </p>
-        </section>
+        <p className="text-sm text-fg-muted">
+          {monthName(d.month.month)} so far: {plural(d.month.received, "claim", "claims")} came in, {d.month.cleared.toLocaleString("en-IN")} cleared,{" "}
+          {d.month.sent_back.toLocaleString("en-IN")} sent back, {d.month.not_accepted.toLocaleString("en-IN")} not accepted.{" "}
+          {d.month.decided > 0
+            ? `${d.month.within_week.toLocaleString("en-IN")} of ${d.month.decided.toLocaleString("en-IN")} decisions took a week or less${d.month.median_days != null ? `, median ${d.month.median_days} days` : ""}.`
+            : "Nothing has been decided yet this month."}{" "}
+          <Link to="/coordination?tab=report" className="text-accent underline-offset-4 hover:underline">
+            Monthly report
+          </Link>
+        </p>
       )}
+
+      <AskTheData about="A question about the papers or the claims? Ask it in plain English." />
 
       <ComingUpEvents />
 
       {can(me?.role).fileOwnPapers && <YourPapers />}
     </div>
-  )
-}
-
-function ListHead({ title, note, to, toLabel }: { title: string; note?: string; to: string; toLabel: string }) {
-  return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-      <div className="flex flex-wrap items-baseline gap-x-3">
-        <SectionTitle>{title}</SectionTitle>
-        {note && <Meta>{note}</Meta>}
-      </div>
-      <Link to={to} className="text-sm text-accent underline-offset-4 hover:underline">
-        {toLabel}
-      </Link>
-    </div>
-  )
-}
-
-/** Claims at the desk as rows: face, paper, who and where from, days, next action. */
-function DeskList({ rows, sla }: { rows: DeskRow[]; sla: number }) {
-  return (
-    <ul className="divide-y divide-line">
-      {rows.map((r) => (
-        <li
-          key={r.id}
-          className="row grid grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 py-3 sm:grid-cols-[2.5rem_minmax(0,1fr)_5rem_auto] sm:gap-x-4 sm:px-2"
-        >
-          <Avatar
-            size="md"
-            person={{ name: r.owner_name, initials: r.owner_initials ?? initialsOf(r.owner_name), photo_url: r.owner_photo_url ?? null }}
-          />
-          <div className="min-w-0">
-            <Link to={`/review/${r.id}?queue=clearing`} className="line-clamp-2 break-words text-base font-medium underline-offset-4 hover:underline sm:line-clamp-1">
-              {paperTitle(r.paper_title)}
-            </Link>
-            <Meta className="block truncate">
-              {[r.owner_name, r.owner_department].filter(Boolean).join(" · ")} · <ClaimNo ticket={r.ticket_number} origin={r.origin} />
-            </Meta>
-            {(r.watched_reason || r.on_hold || r.assigned_to) && (
-              <Meta className="block truncate text-xs">
-                {r.watched_reason && (
-                  <span className="font-medium text-caution" title={r.watched_reason}>
-                    Watched journal
-                  </span>
-                )}
-                {r.watched_reason && (r.on_hold || r.assigned_to) && " · "}
-                {r.on_hold && <span className="text-caution">On hold</span>}
-                {r.on_hold && r.assigned_to && " · "}
-                {r.assigned_to && `Given to ${r.assigned_to.name}`}
-              </Meta>
-            )}
-          </div>
-          <div className="col-start-2 flex items-center justify-between gap-3 sm:contents">
-            <Waited days={r.waiting_days} sla={sla} className="w-20 shrink-0 max-sm:text-left" />
-            <Button kind="default" size="sm" asChild className="shrink-0">
-              <Link to={`/review/${r.id}?queue=clearing`} aria-label={`Review: ${paperTitle(r.paper_title)}`}>
-                Review
-              </Link>
-            </Button>
-          </div>
-        </li>
-      ))}
-    </ul>
   )
 }

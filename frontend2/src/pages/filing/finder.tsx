@@ -264,7 +264,7 @@ export function FoundCard({
       )}
 
       {failed.length > 0 && (
-        <p className="text-xs text-fg-subtle">{failed.map((s) => s.detail).join(" ")}</p>
+        <p className="text-sm text-fg-subtle">{failed.map((s) => s.detail).join(" ")}</p>
       )}
     </section>
   )

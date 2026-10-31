@@ -438,7 +438,7 @@ class Command(BaseCommand):
                         biometric_id=str(fm.biometric_id) if fm.biometric_id else biometric_id,
                         designation=fm.designation or designation,
                         scopus_author_id=fm.scopus_author_id or scopus_author_id,
-                        must_change_password=True,
+                        must_change_password=False,
                     )
                     return user
         if user:
@@ -475,7 +475,7 @@ class Command(BaseCommand):
             biometric_id=biometric_id,
             designation=designation,
             scopus_author_id=scopus_author_id,
-            must_change_password=True,
+            must_change_password=False,
             active=False,
         )
 

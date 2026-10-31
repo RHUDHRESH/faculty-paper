@@ -8,7 +8,6 @@ order and must not be casually reordered.
 from __future__ import annotations
 
 from core.api.common import (
-    _PASSWORD_CHANGE_EXEMPT,
     IMPERSONATOR_KEY,
     _high_value_threshold,
     _quartile_year_note,
@@ -71,7 +70,9 @@ def _user_dict(u: User) -> dict[str, Any]:
         "scopus_author_url": (u.scopus_author_url or "").strip()
         or author_profile_url(u.scopus_author_id),
         "scopus_author_id": u.scopus_author_id,
-        "must_change_password": u.must_change_password,
+        # Always False: the owner chose voluntary password changes only (from
+        # Profile settings), so the column is kept but never forces a screen.
+        "must_change_password": False,
         "active": u.active,
         "faculty_type": u.faculty_type,
         # The old papers-a-year rule. Read-only and decides nothing; shown as

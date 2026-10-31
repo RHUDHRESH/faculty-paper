@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Link, Navigate, useSearchParams } from "react-router-dom"
-import { ArrowDown, ArrowUp, Download, ExternalLink, Search, SearchX, Users } from "lucide-react"
+import { ExternalLink, Search, SearchX, Users } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
 import { api } from "@/lib/api"
@@ -16,7 +16,7 @@ import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { Avatar } from "@/ui/person"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
-import { AnswerLine, AnswerWord } from "@/ui/answer"
+import { Answer } from "@/ui/answer"
 import { Table, type Column } from "@/ui/table"
 import { Meta } from "@/ui/text"
 import {
@@ -49,33 +49,18 @@ const EXPORT_LIMIT = 5000
 const WIDE_QUERY = "(min-width: 1536px)"
 
 const TYPE_OPTIONS: ComboboxOption[] = [
-  { value: "", label: "All faculty" },
+  { value: "", label: "All faculty types" },
   { value: "REGULAR", label: "Regular faculty" },
   { value: "RESEARCH", label: "Research faculty" },
 ]
 
-const MISSING_OPTIONS: ComboboxOption[] = [
-  { value: "", label: "Any record" },
-  ...(Object.keys(MISSING_WORDS) as MissingKey[]).map((k) => ({ value: k, label: MISSING_WORDS[k] })),
-]
-
 const SCOPUS_OPTIONS: ComboboxOption[] = [
-  { value: "", label: "All faculty" },
+  { value: "", label: "Any Scopus status" },
   { value: "linked", label: "Linked to Scopus" },
   { value: "no_id", label: "No Scopus ID" },
   { value: "never_synced", label: "Never synced" },
   { value: "gap", label: "Papers missing from Scopus" },
-]
-
-const SORT_OPTIONS: ComboboxOption[] = [
-  { value: "name", label: "Name" },
-  { value: "department", label: "Department" },
-  { value: "papers", label: "Papers on record" },
-  { value: "citations", label: "Citations" },
-  { value: "h_index", label: "h-index" },
-  { value: "last_paper", label: "Last paper" },
-  { value: "claims", label: "Claims filed this year" },
-  { value: "completeness", label: "Profile completeness" },
+  { value: "disputed", label: "Profile disputed" },
 ]
 
 /** "12 Oct 2026" from an ISO time, or null when there is none. */
@@ -177,13 +162,11 @@ function Directory() {
   const year = data?.year ?? new Date().getFullYear()
   const rows = data?.results ?? []
   const summary = data?.scopus_summary
-  const noScopus = summary?.without_id ?? data?.counts.no_scopus ?? 0
   const filtered = Boolean(q || department || type || missing || scopus || noPapers || left)
   const office = can(me?.role).manageUsers
   // A head sees their own department only, so the list drops what is the same
   // on every row (the department) and what is not theirs to chase (claims).
   const headView = data?.scope === "department"
-  const sortOptions = headView ? SORT_OPTIONS.filter((o) => o.value !== "department" && o.value !== "claims") : SORT_OPTIONS
   const columns = facultyColumns({ year, money: Boolean(data?.money), head: headView, office, wide: isWide() })
 
   function clear() {
@@ -230,33 +213,24 @@ function Directory() {
     <div className="page space-y-6">
       <PageHeader
         title="Faculty"
-        sub={data ? `${count(data.counts.people)} ${seesEveryone ? "faculty at the college" : "faculty in your department"}.` : undefined}
-        spot="spot-people"
-        action={
-          <Button asChild kind="primary" size="md">
-            <a href={`/api/directory/faculty/export.csv?${filters.toString()}`} download>
-              <Download />
-              Export as CSV
-            </a>
-          </Button>
+        sub={
+          summary
+            ? `${count(summary.scopus_papers)} of ${count(summary.papers)} papers on record are Scopus-linked. Last synced ${syncedLabel(summary.last_synced_at) ?? "never"}.`
+            : data
+              ? `${count(data.counts.people)} ${seesEveryone ? "faculty at the college" : "faculty in your department"}.`
+              : undefined
         }
       />
 
       {summary && (
-        <div className="space-y-2">
-          <AnswerLine>
-            {count(summary.with_id)} of {count(summary.faculty)} faculty are linked to Scopus.{" "}
-            {summary.without_id > 0 ? (
-              <AnswerWord tone="amber">{count(summary.without_id)} are not</AnswerWord>
-            ) : (
-              <AnswerWord tone="sage">all linked</AnswerWord>
-            )}
-          </AnswerLine>
-          <p className="text-base text-fg-muted">
-            {count(summary.scopus_papers)} of {count(summary.papers)} papers on record are Scopus-linked. Last synced{" "}
-            {syncedLabel(summary.last_synced_at) ?? "never"}.
-          </p>
-        </div>
+        <Answer
+          items={[
+            { value: summary.with_id, label: "Linked to Scopus", to: "/faculty?scopus=linked" },
+            { value: summary.without_id, label: "Not linked", to: "/faculty?scopus=no_id", tone: summary.without_id > 0 ? "caution" : "neutral" },
+            { value: summary.scopus_papers, label: "Papers in Scopus" },
+            { value: summary.disputed ?? 0, label: "Profile disputed", to: "/faculty?scopus=disputed" },
+          ]}
+        />
       )}
 
       {missing && <MissingHint kind={missing} office={office} />}
@@ -286,23 +260,15 @@ function Directory() {
           value={type}
           onChange={(v) => set({ type: v || null })}
           options={TYPE_OPTIONS}
-          placeholder="All faculty"
+          placeholder="All faculty types"
           aria-label="Filter by faculty type"
           className="w-52"
-        />
-        <Combobox
-          value={missing}
-          onChange={(v) => set({ missing: v || null })}
-          options={MISSING_OPTIONS}
-          placeholder="Any record"
-          aria-label="Filter by what is missing"
-          className="w-48"
         />
         <Combobox
           value={scopus}
           onChange={(v) => set({ scopus: v || null })}
           options={SCOPUS_OPTIONS}
-          placeholder="All faculty"
+          placeholder="Any Scopus status"
           aria-label="Filter by Scopus"
           className="w-52"
         />
@@ -322,35 +288,12 @@ function Directory() {
             />
           </div>
         )}
-        <div className="flex items-center gap-1 sm:ml-auto">
-          <Combobox
-            value={sort}
-            onChange={(v) => sortBy(v)}
-            options={sortOptions}
-            aria-label="Sort by"
-            className="w-52"
-          />
-          <Button
-            kind="quiet"
-            size="icon"
-            aria-label={dir === "asc" ? "Sorted ascending. Reverse" : "Sorted descending. Reverse"}
-            onClick={() => set({ dir: dir === "asc" ? "desc" : null })}
-          >
-            {dir === "asc" ? <ArrowUp /> : <ArrowDown />}
+        {filtered && (
+          <Button kind="quiet" onClick={clear}>
+            Clear
           </Button>
-        </div>
+        )}
       </div>
-
-      {data && filtered && (
-        <p className="flex flex-wrap items-center gap-x-3 text-sm text-fg-muted" aria-live="polite">
-          <span>
-            {count(data.total)} of {count(data.counts.people)} faculty match.
-          </span>
-          <Button kind="quiet" size="sm" onClick={clear}>
-            Clear filters
-          </Button>
-        </p>
-      )}
 
       {list.isLoading ? (
         <SkeletonRows rows={8} rowHeight={64} />
@@ -382,11 +325,6 @@ function Directory() {
         />
       ) : (
         <>
-          {noScopus > 0 && (
-            <p className="text-base text-fg-muted">
-              {count(noScopus)} {noScopus === 1 ? "person has" : "faculty have"} no Scopus ID. Open a person to add it.
-            </p>
-          )}
           <Table<FacultyRow>
             caption="Faculty"
             rows={rows}
@@ -399,22 +337,21 @@ function Directory() {
             onSort={sortBy}
             tools={{ id: "faculty", title: "Faculty", subtitle, getAllRows: fetchAllRows }}
           />
-          <div className="flex items-center justify-end gap-2">
-            <Meta>Show</Meta>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Pagination
+              page={page}
+              pageSize={limit}
+              total={data?.total ?? 0}
+              onChange={(p) => set({ page: p ? String(p) : null })}
+            />
             <Combobox
               value={String(limit)}
               onChange={(v) => set({ limit: v === String(PAGE_SIZE) ? null : v, page: null })}
-              options={PAGE_SIZES.map((n) => ({ value: String(n), label: String(n) }))}
+              options={PAGE_SIZES.map((n) => ({ value: String(n), label: `${n} per page` }))}
               aria-label="Rows per page"
-              className="w-24"
+              className="w-36"
             />
           </div>
-          <Pagination
-            page={page}
-            pageSize={limit}
-            total={data?.total ?? 0}
-            onChange={(p) => set({ page: p ? String(p) : null })}
-          />
         </>
       )}
     </div>
@@ -455,6 +392,18 @@ function facultyColumns(o: { year: number; money: boolean; head: boolean; office
       exportValue: (r) => (r.scopus_author_id ? `Linked ${r.scopus_author_id}` : "No Scopus ID"),
       exportKind: "text",
       cell: (r) => <ScopusCell row={r} />,
+    },
+    {
+      // Hidden until chosen from the Columns menu; the export holds what is shown.
+      key: "profile_check",
+      header: "Profile check",
+      defaultHidden: true,
+      exportValue: (r) => profileCheckWords(r.scopus_profile_status),
+      exportKind: "text",
+      cell: (r) => {
+        const words = profileCheckWords(r.scopus_profile_status)
+        return words === "Disputed" ? <Chip tone="caution">Disputed</Chip> : <span className="text-fg-muted">{words}</span>
+      },
     },
     {
       key: "in_scopus",
@@ -629,6 +578,7 @@ function ScopusCell({ row: r }: { row: FacultyRow }) {
       ) : (
         <Chip tone="caution">No Scopus ID</Chip>
       )}
+      {r.scopus_profile_status === "wrong" && <Chip tone="caution">Profile disputed</Chip>}
       {r.orcid_id && (
         <a
           href={r.orcid_url ?? undefined}
@@ -642,6 +592,13 @@ function ScopusCell({ row: r }: { row: FacultyRow }) {
       )}
     </div>
   )
+}
+
+/** The words for what the person said about their Scopus profile. */
+function profileCheckWords(status: FacultyRow["scopus_profile_status"]): string {
+  if (status === "confirmed") return "Confirmed"
+  if (status === "wrong") return "Disputed"
+  return "Not answered"
 }
 
 function SyncedCell({ row: r }: { row: FacultyRow }) {

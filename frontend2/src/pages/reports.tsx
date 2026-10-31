@@ -25,7 +25,10 @@ import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle, SheetDescripti
 import { stickyHeadCell, Table, TableScroller, type Column } from "@/ui/table"
 import { ColumnLabel, Meta, SectionTitle, Sub } from "@/ui/text"
 import { PageHeader } from "@/ui/page-header"
-import { Answer, PrintButton, PrintStamp } from "./reports-print"
+import { Answer, PrintStamp } from "./reports-print"
+import { Answer as AnswerFigures } from "@/ui/answer"
+import { filterBar } from "@/ui/filter-bar"
+import { MoreMenu } from "@/pages/more-menu"
 
 /**
  * The college's oversight report — a small set of large figures, with the
@@ -484,31 +487,32 @@ function CollegeReports() {
     data && !Array.isArray(data.year_on_year) ? data.year_on_year : null
 
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-8">
       <PrintStamp title="College research report" scope={scopeLabel} />
       <PageHeader
         title="Analysis"
+        sub="Where the college's papers and money come from, and which way they are going."
         action={
           // One row per claim, not the charts on the page: the label says so,
           // because "Excel" under a report promised the report.
-          <span className="flex flex-wrap items-center gap-1 print:hidden">
-            <Button asChild>
+          <span className="flex flex-wrap items-center gap-2 print:hidden">
+            <MoreMenu
+              items={[
+                { label: "Download the claims as CSV", onSelect: () => { window.location.href = exportHref("csv") } },
+                { label: "Print this report", onSelect: () => window.print() },
+              ]}
+            />
+            <Button kind="primary" asChild>
               <a href={exportHref("xlsx")} download>
                 <Download />
                 Download the claims as Excel
               </a>
             </Button>
-            <Button kind="default" asChild>
-              <a href={exportHref("csv")} download>
-                CSV
-              </a>
-            </Button>
-            <PrintButton />
           </span>
         }
       />
 
-      <div className="flex flex-wrap items-center gap-3 print:hidden">
+      <div className={cn(filterBar, "print:hidden")} role="search">
         <Combobox
           value={year}
           onChange={(v) => setFilter("year", v)}
@@ -616,55 +620,36 @@ function CollegeReports() {
               </a>
             ))}
           </nav>
-          <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
-            <Headline
-              label="Papers"
-              value={data.totals.publications.toLocaleString("en-IN")}
-              hint={
-                data.totals.count_only
-                  ? `${data.totals.count_only.toLocaleString("en-IN")} counted without a payment`
-                  : undefined
-              }
-              onOpen={() => openDrill({ label: "All papers", filters: scope })}
-            />
-            <Headline
-              label="Paid"
-              value={money(Math.round(data.totals.paid_amount))}
-              hint={
-                data.totals.paid_claims
-                  ? `${data.totals.paid_claims.toLocaleString("en-IN")} payments${data.per_paper.median > 0 ? ` · typically ${money(data.per_paper.median)} each` : ""}`
-                  : "Nothing paid yet"
-              }
-              onOpen={() =>
-                openDrill({
-                  label: "Paid claims",
-                  filters: { ...scope, status: "PAID" },
-                })
-              }
-            />
-            <Headline
-              label="Awaiting payment"
-              value={money(data.totals.committed_amount)}
-              hint={
-                data.totals.awaiting_payment
-                  ? `${data.totals.awaiting_payment.toLocaleString("en-IN")} claims cleared or approved, not yet paid`
-                  : "Nothing waiting"
-              }
-              onOpen={() =>
-                openDrill({
+          <AnswerFigures
+            items={[
+              {
+                label: data.totals.count_only
+                  ? `Papers (${data.totals.count_only.toLocaleString("en-IN")} counted without a payment)`
+                  : "Papers",
+                value: data.totals.publications,
+                to: drillHref({ label: "All papers", filters: scope }),
+              },
+              {
+                label: data.totals.paid_claims
+                  ? `Paid, in ${data.totals.paid_claims.toLocaleString("en-IN")} payments${data.per_paper.median > 0 ? `, typically ${money(data.per_paper.median)} each` : ""}`
+                  : "Nothing paid yet",
+                value: money(Math.round(data.totals.paid_amount)),
+                to: drillHref({ label: "Paid claims", filters: { ...scope, status: "PAID" } }),
+              },
+              {
+                label: data.totals.awaiting_payment
+                  ? `Awaiting payment, in ${data.totals.awaiting_payment.toLocaleString("en-IN")} claims not yet paid`
+                  : "Nothing waiting",
+                value: money(data.totals.committed_amount),
+                tone: "caution" as const,
+                to: drillHref({
                   label: "Awaiting payment",
                   filters: scope,
-                  statuses: [
-                    "CLEARED",
-                    "PRINCIPAL_APPROVED",
-                    "DIRECTOR_APPROVED",
-                    "RESEARCH_APPROVED",
-                    "FINANCE_APPROVED",
-                  ],
-                })
-              }
-            />
-          </section>
+                  statuses: ["CLEARED", "PRINCIPAL_APPROVED", "DIRECTOR_APPROVED", "RESEARCH_APPROVED", "FINANCE_APPROVED"],
+                }),
+              },
+            ]}
+          />
 
           {data.month_unrecorded && data.month_unrecorded.count > 0 && (
             <p className="text-sm text-fg-muted">
@@ -1495,41 +1480,6 @@ function DirectionPanel({
  *  the one number on the page a reader's eye should land on first. Clickable
  *  when there is somewhere for it to open; a plain figure otherwise, since a
  *  button that opens nothing is worse than no button. */
-function Headline({
-  label,
-  value,
-  hint,
-  onOpen,
-}: {
-  label: string
-  value: string
-  hint?: string
-  onOpen?: () => void
-}) {
-  const content = (
-    <>
-      <p className="text-sm text-fg-muted">{label}</p>
-      <p className="mt-1 text-3xl font-semibold tabular">{value}</p>
-      {hint && <p className="mt-1 text-sm text-fg-muted">{hint}</p>}
-    </>
-  )
-  if (!onOpen) {
-    return <div className="-mx-4 rounded-lg px-4 py-4">{content}</div>
-  }
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={cn(
-        "-mx-4 rounded-lg px-4 py-4 text-left",
-        "transition-colors duration-[var(--dur-1)] ease-out hover:bg-hover"
-      )}
-    >
-      {content}
-    </button>
-  )
-}
-
 /**
  * One active filter, with the way out of it attached.
  *

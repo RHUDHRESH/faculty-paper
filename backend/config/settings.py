@@ -625,8 +625,11 @@ LOGGING = {
     },
     "loggers": {
         "core": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO")},
-        "core.api": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO")},
-        "core.log": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO")},
+        # These two carry the console handler of their own, so they must not
+        # also pass records up to "core": it has the same handler, and every
+        # request line came out twice.
+        "core.api": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO"), "propagate": False},
+        "core.log": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO"), "propagate": False},
     },
 }
 

@@ -21,7 +21,10 @@ import { HomeTrack } from "@/pages/home-track"
 import { CellHome } from "@/pages/home-cell"
 import { Button } from "@/ui/button"
 import { Avatar, initialsOf } from "@/ui/person"
-import { Picture } from "@/ui/picture"
+import { Answer } from "@/ui/answer"
+import { PageHeader } from "@/ui/page-header"
+import { Section } from "@/ui/section"
+import { Table, type Column } from "@/ui/table"
 import { Plate } from "@/ui/plate"
 import type { IllustrationName } from "@/ui/illustration"
 import { money, Stage, stageOf } from "@/ui/paper"
@@ -403,86 +406,124 @@ function AdminHome() {
 
   const waiting = counts.data?.counts.filed ?? null
   const isAdmin = me?.role === "SUPER_ADMIN"
-  const queueRows = clearing.data ?? []
+  const queueRows = (clearing.data ?? [])
+    .filter((c) => !me?.id || c.owner_id !== me.id)
+    .slice()
+    .sort((a, b) => (b.waiting_days ?? 0) - (a.waiting_days ?? 0))
+    .slice(0, 10)
 
-  // The rest of what waits on the office, said in one line. The super admin's
-  // health panel already carries these, so only the desk roles get the line.
-  const also = [
-    { n: requests.data?.pending ?? 0, one: "profile correction", many: "profile corrections", to: "/requests" },
+  const columns: Column<Claim>[] = [
     {
-      n: duplicates.data?.summary.open_actionable ?? duplicates.data?.summary.open ?? 0,
-      one: "possible duplicate payment", many: "possible duplicate payments", to: "/duplicates",
+      key: "paper",
+      header: "Claim",
+      exportValue: (c) => paperTitle(c.paper_title),
+      cell: (c) => (
+        <Link to={`/papers/${c.id}`} className="font-medium text-fg underline-offset-4 hover:underline">
+          {paperTitle(c.paper_title)}
+        </Link>
+      ),
     },
-    { n: faults.data?.actionable ?? faults.data?.total ?? 0, one: "fault", many: "faults", to: "/faults" },
-  ].filter((x) => x.n > 0)
-  const before = (duplicates.data?.summary.open_legacy ?? 0) + (faults.data?.legacy ?? 0)
+    {
+      key: "owner",
+      header: "Claimant",
+      exportValue: (c) => [c.owner_name, c.owner_department].filter(Boolean).join(", "),
+      cell: (c) => [c.owner_name, c.owner_department].filter(Boolean).join(", "),
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      align: "right",
+      exportKind: "money",
+      exportValue: (c) => c.remuneration ?? null,
+      cell: (c) => (c.remuneration ? money(c.remuneration) : ""),
+      empty: "No amount yet",
+    },
+    {
+      key: "waiting",
+      header: "Waiting",
+      align: "right",
+      exportValue: (c) => c.waiting_days ?? null,
+      cell: (c) => {
+        const d = c.waiting_days ?? null
+        return (
+          <span className={cn(d != null && d > 30 && "font-medium text-critical", d != null && d > 14 && d <= 30 && "text-caution")}>
+            {daysLabel(d)}
+          </span>
+        )
+      },
+    },
+    {
+      key: "action",
+      header: "Action",
+      label: "Check",
+      cell: (c) => (
+        <Button kind="default" size="sm" asChild>
+          <Link to="/clearing" aria-label={`Check: ${paperTitle(c.paper_title)}`}>
+            Check
+          </Link>
+        </Button>
+      ),
+    },
+  ]
+
+  // Every count the desk answers for, in the one row; legacy ones are said quietly in their list.
+  const pendingRequests = requests.data?.pending
+  const openDuplicates = duplicates.data ? (duplicates.data.summary.open_actionable ?? duplicates.data.summary.open) : undefined
+  const openFaults = faults.data ? (faults.data.actionable ?? faults.data.total) : undefined
 
   return (
-    <div className="page space-y-10">
-      <HomeHead
-        name={me?.name}
-        placeholder={me?.placeholder}
-        picture={isAdmin ? "spot-home-admin" : "spot-audit"}
-        sentence={
+    <div className="page space-y-8">
+      <PageHeader
+        title={greeting(me?.name, me?.placeholder)}
+        sub={
           isAdmin
             ? "Whether everything is healthy, and what is waiting at the desks."
             : "What is waiting on you to clear, oldest first."
         }
+        action={
+          <Button kind="primary" asChild>
+            <Link to="/clearing">{waiting ? `Open Claims (${waiting.toLocaleString("en-IN")})` : "Open Claims"}</Link>
+          </Button>
+        }
       />
 
-      <Waiting>
-        <div className="flex items-baseline justify-between gap-3">
-          <SectionTitle>Waiting on you to clear</SectionTitle>
+      <Answer
+        items={[
+          { value: waiting, label: "Waiting to clear", zero: "Nothing is waiting", to: "/clearing" },
+          { value: pendingRequests, label: "Profile corrections", zero: "None asked", to: "/requests", tone: "caution" },
+          { value: openDuplicates, label: "Possible duplicate payments", zero: "None found", to: "/duplicates", tone: "caution" },
+          { value: openFaults, label: "Faults", zero: "No faults", to: "/faults", tone: "critical" },
+        ]}
+      />
+
+      <Section
+        title="Waiting on you to clear"
+        action={
           <Link to="/clearing" className="text-sm text-accent underline-offset-4 hover:underline">
-            Open Claims{waiting ? ` (${waiting.toLocaleString("en-IN")})` : ""}
+            View all{waiting ? ` ${waiting.toLocaleString("en-IN")}` : ""}
           </Link>
-        </div>
-        {clearing.isLoading ? (
-          <ul className="divide-y divide-line border-y border-line">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <li key={i} className="h-[3.75rem] animate-pulse bg-sunken" />
-            ))}
-          </ul>
-        ) : clearing.isError ? (
+        }
+      >
+        {clearing.isError ? (
           <InlineError message="Could not load the clearing queue." onRetry={() => void clearing.refetch()} />
-        ) : queueRows.length === 0 ? (
-          <div className="flex items-center gap-5 border-y border-line py-6">
-            <Picture name="spot-approvals" className="w-24 shrink-0" />
-            <p className="text-base text-fg-muted">
-              Nothing is waiting to be cleared. A paper appears here the moment a claimant files
-              it. Your own papers are cleared by another officer, never by you.
-            </p>
-          </div>
         ) : (
-          <DeskQueue claims={queueRows} meId={me?.id} action="Check" to="/clearing" limit={5} />
+          <Table
+            rows={queueRows}
+            columns={columns}
+            getKey={(c) => c.id}
+            tools={{ id: "office-home", title: "Waiting on you to clear" }}
+            empty={
+              clearing.isLoading ? (
+                <p className="py-6 text-base text-fg-muted">Loading the claims.</p>
+              ) : (
+                <p className="py-6 text-base text-fg-muted">Nothing is waiting to be cleared. A paper appears here the moment a claimant files it.</p>
+              )
+            }
+          />
         )}
-      </Waiting>
+      </Section>
 
       <HomeTrack />
-
-      {!isAdmin && also.length > 0 && (
-        <p className="text-base text-fg-muted">
-          Also waiting:{" "}
-          {also.map((x, i) => (
-            <span key={x.to}>
-              {i > 0 && (i === also.length - 1 ? " and " : ", ")}
-              <Link to={x.to} className="text-accent underline-offset-4 hover:underline">
-                {x.n.toLocaleString("en-IN")} {x.n === 1 ? x.one : x.many}
-              </Link>
-            </span>
-          ))}
-          .
-          {before > 0 && (
-            <span className="text-sm">
-              {" "}
-              <Link to="/faults" className="underline-offset-4 hover:underline">
-                {before.toLocaleString("en-IN")} from before this system
-              </Link>
-              .
-            </span>
-          )}
-        </p>
-      )}
 
       {faults.isError && (
         <InlineError

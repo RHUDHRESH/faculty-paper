@@ -10,8 +10,8 @@ The rules live here so the two cannot drift apart:
 - The account issuing them, holding records (`@saveetha.invalid`) and, unless
   named one by one, other super admins are never touched.
 - Accounts that have left are left alone unless asked for.
-- Every issued password is flagged `must_change_password`, so it lasts until
-  the person signs in once. A locked account is unlocked with it.
+- Nothing forces a change of an issued password:
+  people change theirs in Profile settings. A locked account is unlocked with it.
 - The passwords exist only in the returned rows. They are not stored, not
   logged and not written to the audit row.
 """
@@ -124,7 +124,7 @@ def issue(qs: QuerySet[User], *, limit: int = 0) -> list[dict]:
         for user in users:
             pw = new_password()
             user.password = make_password(pw, hasher=HASHER)
-            user.must_change_password = True
+            user.must_change_password = False
             rows.append(
                 {
                     "email": user.email,

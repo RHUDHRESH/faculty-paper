@@ -43,13 +43,16 @@ class MoneyAlertTests(MoneyBase):
     def test_paid_names_the_amount_in_the_app_and_by_email(self):
         claim = self._authorised("MA-P")
         self._clean_slate()
-        r = self._post(self.finance, f"/api/claims/{claim.id}/mark-paid",
-                       {"expected_amount": claim.remuneration})
+        with self.captureOnCommitCallbacks(execute=True):
+            r = self._post(self.finance, f"/api/claims/{claim.id}/mark-paid",
+                           {"expected_amount": claim.remuneration})
         self.assertEqual(r.status_code, 200, r.content)
         claim.refresh_from_db()
         self.assertGreater(claim.remuneration, 0)
         figure = f"₹{claim.remuneration:,.0f}"
-        [note] = self._told()
+        # Running the after-commit work also runs the badge check, which may
+        # add its own line; this test is about the payment's.
+        [note] = [n for n in self._told() if n.kind == "claim_paid"]
         self.assertEqual(note.kind, "claim_paid")
         self.assertEqual(note.title, "MA-P · Paid")
         self.assertIn(figure, note.body)
@@ -75,7 +78,8 @@ class MoneyAlertTests(MoneyBase):
         claim = self._claim(ClaimStatus.CLEARED, ticket="MA-S")
         self._clean_slate()
         reason = "Attach the published version, not the preprint"
-        self._post(self.principal, f"/api/claims/{claim.id}/return-to-faculty", {"note": reason})
+        with self.captureOnCommitCallbacks(execute=True):
+            self._post(self.principal, f"/api/claims/{claim.id}/return-to-faculty", {"note": reason})
         [note] = self._told()
         self.assertEqual(note.kind, "claim_sent_back")
         self.assertIn(reason, note.body)
@@ -145,8 +149,9 @@ class WhatsAppTests(MoneyBase):
 
     def _pay(self, ticket):
         claim = self._authorised(ticket)
-        self._post(self.finance, f"/api/claims/{claim.id}/mark-paid",
-                   {"expected_amount": claim.remuneration})
+        with self.captureOnCommitCallbacks(execute=True):
+            self._post(self.finance, f"/api/claims/{claim.id}/mark-paid",
+                       {"expected_amount": claim.remuneration})
         return claim
 
     def test_nothing_goes_without_the_persons_opt_in(self):
@@ -168,7 +173,8 @@ class WhatsAppTests(MoneyBase):
     def test_other_kinds_never_go_to_whatsapp(self):
         SocialSettings.objects.create(user=self.faculty, whatsapp_opt_in=True)
         claim = self._claim(ClaimStatus.SUBMITTED, ticket="WA-3")
-        self._post(self.cell, f"/api/claims/{claim.id}/hold", {"reason": "Waiting on the publisher erratum"})
+        with self.captureOnCommitCallbacks(execute=True):
+            self._post(self.cell, f"/api/claims/{claim.id}/hold", {"reason": "Waiting on the publisher erratum"})
         self.sent.assert_not_called()
 
     @override_settings(WHATSAPP_TOKEN="", WHATSAPP_PHONE_ID="")

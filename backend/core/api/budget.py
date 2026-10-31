@@ -18,6 +18,7 @@ from typing import Any, Optional
 from django.db.models import Sum
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 from core.models import AuditLog, Budget, ClaimStatus, PaidLedger, Role, User
@@ -151,7 +152,7 @@ def _budget_status(fy: str, user: User) -> dict[str, Any]:
         "departments": [slice_for(d) for d in departments],
         "years_on_record": sorted(
             {b.financial_year for b in Budget.objects.all()}
-            | {financial_year_of(date.today())},
+            | {financial_year_of(timezone.localdate())},
             reverse=True,
         ),
     }
@@ -162,7 +163,7 @@ def budget_status(request: HttpRequest, financial_year: Optional[str] = None):
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
-    fy = financial_year or financial_year_of(date.today())
+    fy = financial_year or financial_year_of(timezone.localdate())
     if not re.fullmatch(r"\d{4}-\d{2}", fy):
         raise HttpError(400, "Financial year must look like 2026-27")
     return _budget_status(fy, user)

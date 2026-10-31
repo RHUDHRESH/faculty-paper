@@ -97,7 +97,7 @@ export function FiledReceipt({
             <dd className="figure mt-1 text-figure tabular">
               {countOnly ? "Counted only, no payment" : estimate != null ? money(estimate) : "Worked out on review"}
             </dd>
-            {!countOnly && <dd className="text-xs text-fg-muted">An estimate. The amount is fixed when the claim is checked.</dd>}
+            {!countOnly && <dd className="text-sm text-fg-muted">An estimate. The amount is fixed when the claim is checked.</dd>}
             {!countOnly && thresholdNote && (
               <dd className="mt-1 text-sm text-fg" data-testid="filed-threshold">
                 {thresholdNote}
@@ -108,7 +108,7 @@ export function FiledReceipt({
             <dt className="text-fg-muted">What you confirmed</dt>
             <dd className="mt-1 text-fg">
               The article is indexed, no claim was filed for it before, and the files were ready.
-              <span className="block text-xs text-fg-muted">
+              <span className="block text-sm text-fg-muted">
                 {confirmedAt ? `Each box ticked by you, the last at ${fmt(confirmedAt)}. ` : ""}Stored with the claim.
               </span>
             </dd>

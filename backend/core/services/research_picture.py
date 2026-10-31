@@ -114,20 +114,10 @@ _MAX_AGE = 600.0
 
 def _signature() -> tuple:
     """Cheap fingerprint of what `_College` is built from: a harvest, a match
-    or a citation refresh changes it."""
-    from django.db.models import Max, Sum
+    or a citation refresh changes it. One query, and once per read request."""
+    from core.services.aggregate_cache import record_version
 
-    linked = Authorship.objects.filter(user__isnull=False)
-    pubs = Publication.objects.aggregate(c=Sum("citations"), last=Max("id"))
-    return (
-        Publication.objects.count(),
-        Authorship.objects.count(),
-        linked.count(),
-        pubs["c"] or 0,
-        pubs["last"],
-        Authorship.objects.aggregate(last=Max("id"))["last"],
-        linked.aggregate(u=Max("user_id"))["u"],
-    )
+    return record_version()
 
 
 _REBUILD = threading.Lock()

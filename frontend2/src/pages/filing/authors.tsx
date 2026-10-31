@@ -68,13 +68,13 @@ export function AuthorList({
                     <span className="tabular text-fg-muted">{a.position}.</span> {a.name || "Unnamed author"}
                   </span>
                   {a.college === "yes" ? (
-                    <span className="mt-0.5 block text-xs text-positive">{collegeName}</span>
+                    <span className="mt-0.5 block text-sm text-positive">{collegeName}</span>
                   ) : a.college === "other" ? (
-                    <span className="mt-0.5 block text-xs text-caution">
+                    <span className="mt-0.5 block text-sm text-caution">
                       Not {collegeName} — an institution with a similar name
                     </span>
                   ) : a.college === "no" ? (
-                    <span className="mt-0.5 block text-xs text-fg-subtle">another institution</span>
+                    <span className="mt-0.5 block text-sm text-fg-subtle">another institution</span>
                   ) : null}
                 </span>
                 {me && (

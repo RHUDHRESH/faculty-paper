@@ -132,7 +132,7 @@ export function SheetTitle({
   className,
   ...props
 }: React.ComponentProps<typeof RadixDialog.Title>) {
-  return <RadixDialog.Title className={cn("display text-lg", className)} {...props} />
+  return <RadixDialog.Title className={cn("text-lg font-semibold text-fg", className)} {...props} />
 }
 
 export function SheetDescription({

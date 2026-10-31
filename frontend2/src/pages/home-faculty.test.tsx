@@ -143,31 +143,39 @@ describe("homeSentence", () => {
   })
 })
 
+/** The h-index figure shows once the record has loaded. */
+const ready = () => screen.findByRole("link", { name: /^3 h-index/ })
+
 describe("FacultyHome", () => {
-  it("answers first, then shows the money as linked figures", async () => {
+  it("opens with four linked numbers", async () => {
     mount([claim(), approved()])
-    expect(await screen.findByTestId("home-answer")).toHaveTextContent(
-      /Nothing needs you; ₹23,000 is on its way, expected in October\./
-    )
+    await ready()
+    const glance = screen.getByRole("group", { name: "At a glance" })
+    expect(within(glance).getAllByRole("link")).toHaveLength(4)
+    expect(within(glance).getByRole("link", { name: /1 claim in progress/ })).toHaveAttribute("href", "/papers/claims")
+    expect(within(glance).getByRole("link", { name: /3 h-index/ })).toHaveTextContent("46 citations on 20 papers")
     const money = screen.getByRole("region", { name: "Your money" })
-    expect(within(money).getByRole("link", { name: /₹52,377.50/ })).toHaveAttribute("href", "/papers/statement")
-    expect(within(money).getByRole("link", { name: /₹23,000/ })).toHaveAttribute("href", "/papers/claims")
-    // The payment-run sentence is behind "when the next payment is".
-    expect(within(money).getByRole("button", { name: /when the next payment is/ })).toBeInTheDocument()
+    expect(money).toHaveTextContent("₹52,377.50 paid to you so far")
+    expect(money).toHaveTextContent("the next is expected in October 2026")
+    expect(within(money).getByRole("link", { name: "Payment statement" })).toHaveAttribute("href", "/papers/statement")
   })
 
-  it("shows one paper count from the record, with citations and h-index", async () => {
+  it("has one table of claims with an Export control", async () => {
+    mount([approved()])
+    const claims = await screen.findByRole("region", { name: "Your claims" })
+    expect(within(claims).getByRole("button", { name: /export/i })).toBeInTheDocument()
+    expect(within(claims).getByRole("link", { name: /View all/ })).toHaveAttribute("href", "/papers/claims")
+  })
+
+  it("shows the h-index and citations from the record without a department rank or search box", async () => {
     mount([claim()])
-    expect(await screen.findByRole("button", { name: "20 papers" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "46 citations" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "3 h-index" })).toBeInTheDocument()
-    // The old page also drew a department rank and a search box; neither is Home's job.
+    expect(await ready()).toHaveAttribute("href", "/research#metrics")
     expect(screen.queryByRole("search")).toBeNull()
   })
 
   it("asks the server for the record once, in one light request", async () => {
     mount([claim()])
-    await screen.findByRole("button", { name: "20 papers" })
+    await ready()
     const paths = vi.mocked(api).mock.calls.map(([p]) => String(p))
     expect(paths.filter((p) => p === "/api/me/home")).toHaveLength(1)
     expect(paths).not.toContain("/api/me/summary")
@@ -176,8 +184,7 @@ describe("FacultyHome", () => {
 
   it("says the record is empty only when the server said it is empty", async () => {
     mount([])
-    expect(await screen.findByText("File your first paper", { selector: "h2" })).toBeInTheDocument()
-    expect(await screen.findByTestId("home-answer")).toHaveTextContent("You have not filed a claim yet.")
+    expect(await screen.findByText("You have not filed a claim yet")).toBeInTheDocument()
     expect(screen.getAllByText("₹0").length).toBeGreaterThan(0)
     expect(screen.queryByRole("alert")).toBeNull()
   })
@@ -203,39 +210,42 @@ describe("FacultyHome", () => {
         }),
     })
     expect(await screen.findByText("An unfiled lattice paper")).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "File it" })).toHaveAttribute("href", "/papers/new?publication=p1")
+    expect(screen.getByRole("link", { name: /File it/ })).toHaveAttribute("href", "/papers/new?publication=p1")
     expect(screen.getByRole("link", { name: /all 10 unfiled papers/i })).toHaveAttribute("href", "/papers?filter=unclaimed")
+    const papers = screen.getByRole("region", { name: "Papers you can still file" })
+    expect(within(papers).getByRole("button", { name: /export/i })).toBeInTheDocument()
+    expect(within(screen.getByRole("group", { name: "At a glance" })).getByRole("link", { name: /10 papers you can still file/ })).toBeInTheDocument()
   })
 
-  it("puts what is coming up, and what the college published, after the jobs", async () => {
+  it("puts what is coming up after the tables", async () => {
     mount([claim()], [], {
       "/api/events/summary": () => summary([SEMINAR, WORKSHOP]),
       "/api/research/highlights": () => highlights({ period: "month", label: "Past month" }),
     })
     const coming = await screen.findByRole("region", { name: "Coming up" })
-    const month = await screen.findByRole("region", { name: "In the college this month" })
-    const research = screen.getByRole("heading", { name: "Your research" })
+    const claims = screen.getByRole("region", { name: "Your claims" })
     const after = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
-    expect(after(research, coming)).toBe(true)
-    expect(after(research, month)).toBe(true)
-    expect(within(coming).getAllByRole("link", { name: /Seminar Hall 2|Library/ })).toHaveLength(2)
+    expect(after(claims, coming)).toBe(true)
+    // The block is a plain table now: each event is one link, by its title.
+    expect(
+      within(coming).getAllByRole("link", { name: /Power electronics for electric vehicles|Writing for Q1 journals/ })
+    ).toHaveLength(2)
   })
 
-  it("draws neither card, and no error, when nothing is coming and nothing is new", async () => {
+  it("draws no events card, and no error, when nothing is coming", async () => {
     mount([claim()], [], {
       "/api/events/summary": () => summary([]),
       "/api/research/highlights": () => NOTHING_NEW,
     })
-    await screen.findByRole("button", { name: "20 papers" })
+    await ready()
     await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith(expect.stringContaining("/api/events/summary")))
     expect(screen.queryByRole("region", { name: "Coming up" })).toBeNull()
-    expect(screen.queryByRole("region", { name: "In the college this month" })).toBeNull()
     expect(screen.queryByRole("alert")).toBeNull()
   })
 
   it("keeps Home whole when the events request fails", async () => {
     mount([claim()], [], { "/api/events/summary": failing(500), "/api/research/highlights": failing(500) })
-    await screen.findByRole("button", { name: "20 papers" })
+    await ready()
     await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith(expect.stringContaining("/api/events/summary")))
     expect(screen.queryByRole("region", { name: "Coming up" })).toBeNull()
     expect(screen.queryByRole("alert")).toBeNull()
@@ -271,9 +281,8 @@ describe("FacultyHome", () => {
 
   it("says how far a claim has come and how long it has waited, never whose desk", async () => {
     mount([approved({ status: "PRINCIPAL_APPROVED", remuneration: 105_000, submitted_at: null, waiting_days: 21 })])
-    const section = await screen.findByRole("region", { name: "Claims on the way" })
+    const section = await screen.findByRole("region", { name: "Your claims" })
     expect(within(section).getByText(/Being checked · Filed 21 days ago/)).toBeInTheDocument()
-    expect(within(section).getByText(/Filed 21 days ago/)).toBeInTheDocument()
     expect(within(section).getByText("₹1,05,000")).toBeInTheDocument()
     expect(within(section).getByText(/Taking longer than usual/)).toBeInTheDocument()
     // The college's rule: a claimant is never told which desk holds it.
@@ -285,7 +294,7 @@ describe("FacultyHome", () => {
 
   it("does not show a legacy ERP number as a claim number", async () => {
     mount([approved({ ticket_number: "ERP-RAW-3" })])
-    const section = await screen.findByRole("region", { name: "Claims on the way" })
+    const section = await screen.findByRole("region", { name: "Your claims" })
     expect(section.textContent).not.toContain("ERP-RAW")
   })
 
@@ -293,7 +302,8 @@ describe("FacultyHome", () => {
     mount([claim({ status: "DRAFT", ticket_number: null, remuneration: 0, remuneration_is_estimate: true, paid_at: null })])
     expect(await screen.findByText(/last edited/i)).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Finish and file" })).toHaveAttribute("href", "/papers/c1/edit")
-    expect(screen.getByTestId("home-answer")).toHaveTextContent("1 draft is not filed")
+    expect(screen.getByText("Not worked out yet")).toBeInTheDocument()
+    expect(screen.queryByText("₹0", { selector: "td *" })).toBeNull()
   })
 
   it("puts a claim that was sent back first, with the reason and a way to fix it", async () => {
@@ -302,14 +312,15 @@ describe("FacultyHome", () => {
     expect(screen.getByText("Attach the SEC reference PDFs")).toBeInTheDocument()
     // The fix view lives on the claim page.
     expect(screen.getByRole("link", { name: /fix this claim/i })).toHaveAttribute("href", "/papers/c1#fix")
-    expect(screen.getByTestId("home-answer")).toHaveTextContent("1 claim needs a fix from you")
+    // A claim sent back counts as in progress, in the amber figure.
+    expect(screen.getByRole("link", { name: /1 claim in progress/ })).toBeInTheDocument()
   })
 
-  it("adds nothing under Needs you when nothing is needed", async () => {
+  it("says nothing needs you when nothing is needed", async () => {
     mount([claim()])
-    await screen.findByRole("button", { name: "20 papers" })
-    expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull()
-    expect(screen.getByTestId("home-answer")).toHaveTextContent("Nothing needs you")
+    await ready()
+    expect(screen.getByText("Nothing needs you")).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /fix this claim/i })).toBeNull()
   })
 
   it("draws the research threshold in the money section for research faculty", async () => {
@@ -334,51 +345,11 @@ describe("FacultyHome", () => {
     expect(screen.queryByTestId("research-threshold")).toBeNull()
   })
 
-  it("offers one colleague to write with, with a face and a link", async () => {
-    mount([claim()], [], {
-      "/api/discover/next": () => ({
-        people: [
-          {
-            id: "u9",
-            name: "Dr. Uma Rani V",
-            initials: "UV",
-            photo_url: null,
-            department: "CSE",
-            designation: "Associate Professor",
-            papers: 29,
-            reasons: ["Works in Computer Science, as you do."],
-          },
-        ],
-        journals: [],
-      }),
-    })
-    const link = await screen.findByRole("link", { name: "Dr. Uma Rani V" })
-    expect(link).toHaveAttribute("href", "/u/u9")
-    expect(screen.getByText("UV")).toBeInTheDocument()
-    expect(screen.getByText(/Works in Computer Science/)).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Who to work with" })).toHaveAttribute("href", "/collaborate")
-  })
-
-  it("draws no suggestion, and no error, when there is nothing to suggest", async () => {
+  it("draws no suggestion card, and no error", async () => {
     mount([claim()], [], { "/api/discover/next": failing(500) })
-    await screen.findByRole("button", { name: "20 papers" })
+    await ready()
     expect(screen.queryByText("Something to try next")).toBeNull()
     expect(screen.queryByRole("alert")).toBeNull()
-  })
-
-  it("says a celebration in one quiet line, not a card", async () => {
-    mount([claim()], [], {
-      "/api/me/celebrations": () => ({
-        celebrations: [
-          { id: "1", kind: "BADGE", title: "New badge: First author", body: "A long body", created_at: "2026-09-01T00:00:00Z", badge: null },
-          { id: "2", kind: "BADGE", title: "New badge: Six semesters", body: "Another", created_at: "2026-09-01T00:00:00Z", badge: null },
-        ],
-      }),
-    })
-    const line = await screen.findByRole("region", { name: "Something to celebrate" })
-    expect(line).toHaveTextContent("New badge: First author and 1 more")
-    expect(line.textContent).not.toContain("A long body")
-    expect(within(line).getByRole("link", { name: "See your badges" })).toHaveAttribute("href", "/me#badges")
   })
 
   it("offers a retry rather than leaving the reader to reload the page", async () => {
@@ -410,17 +381,7 @@ describe("what the reason is", () => {
 })
 
 describe("the record and the end of the journey", () => {
-  it("draws the papers as a dot field by quartile, with real counts", async () => {
-    mount([claim()], [], {
-      "/api/me/home": () => record({ papers: 20, quartiles: { Q1: 3, Q2: 4, Q3: 2, Q4: 1, none: 10 } }),
-    })
-    const field = await screen.findByRole("img", {
-      name: /20 papers: 3 in Q1 journals, 7 in Q2 to Q4 journals, 10 with no quartile/,
-    })
-    expect(field).toBeInTheDocument()
-  })
-
-  it("stamps money that reached the person this month or last, from the ledger", async () => {
+  it("says money that reached the person this month or last, from the ledger", async () => {
     const now = new Date()
     const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
     const paid = claim({ id: "c9" })
@@ -443,7 +404,6 @@ describe("the record and the end of the journey", () => {
     const box = await screen.findByTestId("just-paid")
     expect(box).toHaveTextContent("₹9,000")
     expect(box).toHaveTextContent(/reached you in/)
-    expect(within(box).getByRole("img", { name: /^Paid/ })).toBeInTheDocument()
   })
 
   it("says nothing about a payment that is more than a month old", async () => {

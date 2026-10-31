@@ -21,7 +21,6 @@ import {
 import { firstName, HowConnected, WhyTheyMatter } from "@/pages/person-context"
 import { Chip } from "@/ui/chip"
 import { initialsOf } from "@/ui/person"
-import { Picture, topicPicture } from "@/ui/picture"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/ui/sheet"
 
 import { CollabDialog } from "@/pages/chat"
@@ -61,7 +60,11 @@ import { Checkbox, Field, Input, Textarea } from "@/ui/field"
 import { Pagination } from "@/ui/pagination"
 import { Avatar, PersonLink, type PersonBrief } from "@/ui/person"
 import { EmptyState, ErrorState, InlineError, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
-import { Figure, Meta, PageTitle, SectionTitle } from "@/ui/text"
+import { Figure, Meta, SectionTitle } from "@/ui/text"
+import { Answer } from "@/ui/answer"
+import { filterBar } from "@/ui/filter-bar"
+import { PageHeader } from "@/ui/page-header"
+import { Table, type Column } from "@/ui/table"
 import { toast } from "@/ui/toast"
 import { unshout } from "@/lib/names"
 
@@ -262,26 +265,22 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
 
   return (
     <div data-area="people" className="page space-y-6">
-      <header className="grid gap-6 border-b border-line pb-8 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-10">
-        <Avatar
-          person={person}
-          size="xl"
-          className="size-36 rounded-2xl text-5xl sm:size-48"
-        />
+      <header className="flex flex-col gap-5 border-b border-line pb-6 sm:flex-row sm:items-start sm:gap-6">
+        <Avatar person={person} size="xl" className="size-28 shrink-0 rounded-2xl text-4xl sm:size-32" />
         <div className="min-w-0 space-y-4">
           <div>
-            <h1 className="honour text-[2rem] leading-[1.15] sm:text-honour">{person.name}</h1>
-            <p className="mt-1.5 text-base text-fg-muted">
+            <h1 className="text-balance text-2xl font-semibold leading-8 text-fg">{person.name}</h1>
+            <p className="mt-1 text-base text-fg-muted">
               {[person.designation, person.department].filter(Boolean).join(", ") || person.role_label}
               {person.research_faculty && (
-                <span className="ml-2 inline-flex items-center rounded-sm bg-accent-wash px-1.5 py-0.5 align-middle text-xs font-medium text-fg">
+                <span className="ml-2 inline-flex items-center rounded-sm bg-accent-wash px-2 py-0.5 align-middle text-sm font-medium text-fg">
                   Research faculty
                 </span>
               )}
             </p>
           </div>
           {person.bio && (
-            <p className="max-w-[62ch] whitespace-pre-wrap text-[15px] leading-relaxed text-fg">{person.bio}</p>
+            <p className="max-w-[62ch] whitespace-pre-wrap text-base leading-relaxed text-fg">{person.bio}</p>
           )}
           <ProfileLinks person={person} />
           {person.interests.length > 0 && (
@@ -290,7 +289,7 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
                 <Link
                   key={i}
                   to={`/search?scope=people&q=${encodeURIComponent(i)}`}
-                  className="rounded-full bg-sunken px-2.5 py-1 text-xs font-medium text-fg-muted ring-1 ring-inset ring-transparent hover:bg-hover hover:text-fg hover:ring-edge active:bg-active"
+                  className="rounded-full bg-sunken px-3 py-1 text-sm font-medium text-fg-muted ring-1 ring-inset ring-transparent hover:bg-hover hover:text-fg hover:ring-edge active:bg-active"
                 >
                   {i}
                 </Link>
@@ -301,24 +300,17 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
         </div>
       </header>
 
-      <dl className="flex flex-wrap gap-x-10 gap-y-4" aria-label="Record">
-        {[
+      <Answer
+        items={[
           { label: "Papers", value: m ? m.total_publications : data.counts.papers },
           { label: "Citations", value: m ? (m.total_citations ?? 0) : metrics.isLoading ? null : "Not yet" },
           { label: "h-index", value: m ? (m.h_index ?? 0) : metrics.isLoading ? null : "Not yet" },
           { label: "i10-index", value: m ? (m.i10_index ?? 0) : metrics.isLoading ? null : "Not yet" },
-        ].map((x) => (
-          <div key={x.label} className="flex flex-col-reverse">
-            <dt className="text-sm text-fg-muted">{x.label}</dt>
-            <dd className="honour tabular text-[1.75rem] leading-tight text-fg">
-              {x.value === null ? <Skeleton className="h-7 w-12" /> : x.value}
-            </dd>
-          </div>
-        ))}
-      </dl>
+        ]}
+      />
 
       {data.completeness && data.completeness.score < 100 && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sunken px-4 py-2 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sunken px-4 py-3 text-base">
           <span className="text-fg-muted">
             <span className="font-medium text-fg">Profile {data.completeness.score}%</span>
             {(() => {
@@ -326,14 +318,14 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
               return missing.length ? ` · still to add: ${missing.slice(0, 3).join(", ")}` : ""
             })()}
           </span>
-          <Button kind="default" size="sm" onClick={() => setFinishing(true)}>
+          <Button kind="default" onClick={() => setFinishing(true)}>
             Finish profile
             <ArrowRight />
           </Button>
         </div>
       )}
 
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="space-y-8">
         <div className="min-w-0 space-y-6">
           {data.research_post && (
             <ResearchPostPanel personId={person.id} name={person.name} routeId={routeId} post={data.research_post} isMe={data.is_me} />
@@ -350,7 +342,7 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
                 aria-selected={tab === t.id}
                 onClick={() => setTab(t.id)}
                 className={cn(
-                  "-mb-px h-11 rounded-t-control border-b-[3px] px-3 text-sm transition-colors duration-[var(--dur-1)]",
+                  "-mb-px h-12 rounded-t-control border-b-[3px] px-4 text-base transition-colors duration-[var(--dur-1)]",
                   tab === t.id
                     ? "border-(--area) bg-hover/60 font-semibold text-fg"
                     : "border-transparent font-medium text-fg-muted hover:border-control-edge hover:bg-hover/60 hover:text-fg active:bg-active"
@@ -405,12 +397,12 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
           {tab === "activity" && <Posts data={data} />}
         </div>
 
-        <aside className="flex min-w-0 flex-col gap-6">
+        <aside className="flex min-w-0 max-w-3xl flex-col gap-6">
           {!data.is_me && viewerId && (
             <RailCard title="How you're connected" icon={Waypoints}>
               <HowConnected stacked meId={viewerId} target={person.id} name={person.name} messageTo={`/messages?to=${person.id}`} />
               <details className="group mt-3">
-                <summary className="cursor-pointer text-sm text-accent">Why {firstName(person.name)} matters to you</summary>
+                <summary className="cursor-pointer text-base text-accent">Why {firstName(person.name)} matters to you</summary>
                 <div className="mt-2">
                   <WhyTheyMatter target={person.id} name={person.name} />
                 </div>
@@ -420,13 +412,13 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
           <RailCard title="Co-authors" icon={UsersRound}>
             <CoauthorRail query={coauthors} fallback={data.coauthors} />
           </RailCard>
-          <RailCard title="Citations per year" icon={Quote} className="lg:order-first">
+          <RailCard title="Citations per year" icon={Quote}>
             {record.isLoading ? (
               <Skeleton className="h-24 w-full" />
             ) : cites && cites.length > 0 ? (
               <CitationBars rows={cites} />
             ) : (
-              <p className="text-sm text-fg-muted">No citations on {firstName(person.name)}'s record yet.</p>
+              <p className="text-base text-fg-muted">No citations on {firstName(person.name)}'s record yet.</p>
             )}
           </RailCard>
           <div id="skills">
@@ -441,7 +433,7 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
           </div>
           {data.stats && (
             <details className="panel px-4 py-3">
-              <summary className="cursor-pointer text-sm font-medium text-fg">Only you see this</summary>
+              <summary className="cursor-pointer text-base font-medium text-fg">Only you see this</summary>
               <div className="mt-3">
                 <StatsCard stats={data.stats} />
               </div>
@@ -490,7 +482,7 @@ function ProfileLinks({ person }: { person: Profile["person"] }) {
             rel="noreferrer"
             title={l.label}
             aria-label={`${l.label} (opens in a new tab)`}
-            className="group inline-flex h-8 items-center gap-1.5 rounded-full border border-line px-2.5 text-xs text-fg-muted hover:border-fg-subtle hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className="group inline-flex h-8 items-center gap-1.5 rounded-full border border-line px-2.5 text-sm text-fg-muted hover:border-fg-subtle hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             <span className="font-semibold tracking-tight text-fg">{l.mark}</span>
             <span className="max-sm:sr-only">{l.label.split(" ")[0] === "Google" ? "Scholar" : l.label.split(" ")[0]}</span>
@@ -515,7 +507,7 @@ function RailCard({
 }) {
   return (
     <section className={cn("panel space-y-3 p-4", className)}>
-      <h2 className="flex items-center gap-1.5 text-sm font-medium text-fg-muted">
+      <h2 className="flex items-center gap-1.5 text-base font-semibold text-fg">
         <Icon aria-hidden className="size-4 text-(--area)" strokeWidth={1.75} />
         {title}
       </h2>
@@ -562,12 +554,12 @@ function CitationBars({ rows }: { rows: ReturnType<typeof citationsByYear> }) {
           </button>
         ))}
       </div>
-      <div className="mt-1 flex justify-between text-xs tabular text-fg-subtle">
+      <div className="mt-1 flex justify-between text-sm tabular text-fg-subtle">
         <span>{rows[0]?.year}</span>
         <span>{rows.at(-1)?.year}</span>
       </div>
       {picked && (
-        <div className="mt-2 rounded-md bg-sunken p-2 text-xs">
+        <div className="mt-2 rounded-md bg-sunken p-2 text-sm">
           <p className="font-medium text-fg">
             {picked.year} · {picked.citations} citations
           </p>
@@ -623,7 +615,7 @@ function CoauthorRail({
   return (
     <div className="space-y-2">
       {inside && (
-        <p className="text-xs text-fg-muted">
+        <p className="text-sm text-fg-muted">
           {inside.length} at the college · {outside.length} outside
         </p>
       )}
@@ -644,7 +636,7 @@ function CoauthorRail({
                   {c.name}
                 </Link>
               )}
-              <span className="block truncate text-xs text-fg-muted">
+              <span className="block truncate text-sm text-fg-muted">
                 {[c.where, `${c.papers} paper${c.papers === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
               </span>
             </span>
@@ -783,65 +775,63 @@ function Counts({ counts }: { counts: Profile["counts"] }) {
 
 const RECORD_STEP = 10
 
+function titleLink(title: string, doi: string | null | undefined) {
+  return doi ? (
+    <a
+      href={`https://doi.org/${doi}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-base font-medium leading-snug underline-offset-4 hover:text-accent hover:underline"
+    >
+      {unshout(title)}
+    </a>
+  ) : (
+    <span className="text-base font-medium leading-snug">{title}</span>
+  )
+}
+
 /**
  * The full publication record (GET /api/people/{id}/publications), newest
- * year first, grouped by year: 10 at a time, then "Show more". Never money.
+ * year first, as one table: 10 at a time, then "Show more". Never money.
  */
 export function PublishedWork({ papers }: { papers: RecordPaper[] }) {
   const [shown, setShown] = useState(RECORD_STEP)
-  const groups: { year: string; rows: RecordPaper[] }[] = []
-  for (const p of papers.slice(0, shown)) {
-    const year = p.year ? String(p.year) : "Undated"
-    const last = groups[groups.length - 1]
-    if (last && last.year === year) last.rows.push(p)
-    else groups.push({ year, rows: [p] })
-  }
+  const columns: Column<RecordPaper>[] = [
+    {
+      key: "title",
+      header: "Paper",
+      exportValue: (p) => p.title,
+      cell: (p) => titleLink(p.title, p.doi),
+    },
+    { key: "year", header: "Year", exportKind: "number", exportValue: (p) => p.year ?? null, empty: "Undated", cell: (p) => p.year },
+    { key: "venue", header: "Journal", exportValue: (p) => p.venue ?? null, cell: (p) => p.venue },
+    { key: "quartile", header: "Quartile", exportValue: (p) => p.quartile ?? null, cell: (p) => p.quartile },
+    {
+      key: "citations",
+      header: "Citations",
+      align: "right",
+      exportKind: "number",
+      exportValue: (p) => p.citations ?? null,
+      empty: "None yet",
+      cell: (p) => (p.citations ? p.citations : null),
+    },
+  ]
   return (
     <section className="space-y-3">
       <div className="flex items-baseline gap-3">
-        <SectionTitle>Published work</SectionTitle>
+        <SectionTitle className="text-lg">Published work</SectionTitle>
         <Meta>{papers.length === 1 ? "1 paper" : `${papers.length} papers`}</Meta>
       </div>
-      {groups.map((g) => (
-        <div key={g.year} className="space-y-1">
-          <h3 className="text-sm font-semibold text-fg-muted">{g.year}</h3>
-          <ul className="divide-y divide-line border-y border-line">
-            {g.rows.map((p) => (
-              <li key={p.id} className="flex min-w-0 items-start gap-4 py-3">
-                {(() => {
-                  const pic = topicPicture(p.title, p.venue)
-                  return pic ? (
-                    <Picture name={pic} className="size-14 shrink-0 rounded-md object-cover max-sm:hidden" />
-                  ) : (
-                    <span className="size-14 shrink-0 rounded-md bg-sunken max-sm:hidden" aria-hidden />
-                  )
-                })()}
-                <div className="min-w-0 flex-1 space-y-0.5">
-                <p className="text-base break-words">
-                  {p.doi ? (
-                    <a
-                      href={`https://doi.org/${p.doi}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline-offset-4 hover:underline"
-                    >
-                      {unshout(p.title)}
-                    </a>
-                  ) : (
-                    p.title
-                  )}
-                </p>
-                <Meta className="block">
-                  {[p.venue, p.quartile, p.citations ? `${p.citations} citation${p.citations === 1 ? "" : "s"}` : null].filter(Boolean).join(" · ")}
-                </Meta>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
+      <Table
+        rows={papers.slice(0, shown)}
+        columns={columns}
+        getKey={(p) => p.id}
+        maxHeight="none"
+        caption="Published work"
+        tools={{ id: "person-published-work", title: "Published work", getAllRows: async () => papers }}
+      />
       {papers.length > shown && (
-        <Button kind="quiet" size="sm" onClick={() => setShown((n) => n + RECORD_STEP)}>
+        <Button kind="default" onClick={() => setShown((n) => n + RECORD_STEP)}>
           Show more ({papers.length - shown} left)
         </Button>
       )}
@@ -858,78 +848,66 @@ export function PublishedWork({ papers }: { papers: RecordPaper[] }) {
 export function Papers({ papers, isMe, name }: { papers: ProfilePaper[]; isMe: boolean; name: string }) {
   const [all, setAll] = useState(false)
   const shown = all ? papers : papers.slice(0, PAPERS_SHOWN)
+  const columns: Column<ProfilePaper>[] = [
+    {
+      key: "title",
+      header: "Paper",
+      exportValue: (p) => p.title,
+      cell: (p) => (
+        <span className="block">
+          {titleLink(p.title, p.doi)}
+          {p.coauthors.length > 0 && (
+            <span className="mt-0.5 block text-sm text-fg-muted">
+              With{" "}
+              {p.coauthors.map((c, i) => (
+                <span key={c.id}>
+                  {i > 0 ? ", " : ""}
+                  <PersonLink id={c.id} name={c.name} className="font-normal text-fg-muted" />
+                </span>
+              ))}
+            </span>
+          )}
+        </span>
+      ),
+    },
+    { key: "journal", header: "Journal", exportValue: (p) => p.journal_title ?? null, cell: (p) => p.journal_title },
+    { key: "year", header: "Year", exportKind: "number", exportValue: (p) => p.publication_year ?? null, cell: (p) => p.publication_year },
+    { key: "quartile", header: "Quartile", exportValue: (p) => p.quartile ?? null, cell: (p) => p.quartile },
+    {
+      key: "position",
+      header: "Author",
+      exportValue: (p) => (p.author_position && p.total_authors ? `${p.author_position} of ${p.total_authors}` : null),
+      cell: (p) => (p.author_position && p.total_authors ? `${p.author_position} of ${p.total_authors}` : null),
+    },
+  ]
 
   return (
     <section className="space-y-3">
-      <SectionTitle>Published work</SectionTitle>
-      {papers.length === 0 ? (
-        <EmptyState
-          icon={FileText}
-          title={isMe ? "Nothing filed yet" : "Nothing filed here yet"}
-          message={
-            isMe
-              ? "Papers you file appear here for colleagues to see: title, journal and year, never what they paid."
-              : `When ${name} files a paper with the college it appears here.`
-          }
-          action={
-            isMe ? (
-              <Button kind="primary" size="sm" asChild>
-                <Link to="/papers/new">File a paper</Link>
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <>
-          <ul className="divide-y divide-line border-y border-line">
-            {shown.map((p) => (
-              <li key={p.id} className="space-y-0.5 py-3">
-                <p className="text-base">
-                  {p.doi ? (
-                    <a
-                      href={`https://doi.org/${p.doi}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline-offset-4 hover:underline"
-                    >
-                      {unshout(p.title)}
-                    </a>
-                  ) : (
-                    p.title
-                  )}
-                </p>
-                <Meta className="block">
-                  {[
-                    p.journal_title,
-                    p.publication_year,
-                    p.quartile,
-                    p.author_position && p.total_authors
-                      ? `author ${p.author_position} of ${p.total_authors}`
-                      : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </Meta>
-                {p.coauthors.length > 0 && (
-                  <Meta className="block text-xs">
-                    With{" "}
-                    {p.coauthors.map((c, i) => (
-                      <span key={c.id}>
-                        {i > 0 ? ", " : ""}
-                        <PersonLink id={c.id} name={c.name} className="font-normal text-fg-muted" />
-                      </span>
-                    ))}
-                  </Meta>
-                )}
-              </li>
-            ))}
-          </ul>
-          {papers.length > PAPERS_SHOWN && (
-            <Button kind="quiet" size="sm" onClick={() => setAll((a) => !a)}>
-              {all ? "Show fewer" : `Show all ${papers.length}`}
+      <SectionTitle className="text-lg">Published work</SectionTitle>
+      <Table
+        rows={shown}
+        columns={columns}
+        getKey={(p) => p.id}
+        maxHeight="none"
+        caption="Published work"
+        tools={{ id: "person-papers", title: "Published work", getAllRows: async () => papers }}
+        empty={{
+          icon: FileText,
+          title: isMe ? "Nothing filed yet" : "Nothing filed here yet",
+          message: isMe
+            ? "Papers you file appear here for colleagues to see: title, journal and year, never what they paid."
+            : `When ${name} files a paper with the college it appears here.`,
+          action: isMe ? (
+            <Button kind="primary" asChild>
+              <Link to="/papers/new">File a paper</Link>
             </Button>
-          )}
-        </>
+          ) : undefined,
+        }}
+      />
+      {papers.length > PAPERS_SHOWN && (
+        <Button kind="default" onClick={() => setAll((a) => !a)}>
+          {all ? "Show fewer" : `Show all ${papers.length}`}
+        </Button>
       )}
     </section>
   )
@@ -1245,22 +1223,87 @@ export function PeopleDirectory() {
 
   const filtered = !!(q || department || interest)
 
+  async function allRows(): Promise<PersonCard[]> {
+    const out: PersonCard[] = []
+    for (let guard = 0; guard < 100; guard++) {
+      const pq = new URLSearchParams(query)
+      pq.set("limit", "200")
+      pq.set("offset", String(out.length))
+      const res = await api<Directory>(`/api/people?${pq}`)
+      out.push(...res.results)
+      if (out.length >= res.total || res.results.length === 0) break
+    }
+    return out
+  }
+
+  const columns: Column<PersonCard>[] = [
+    {
+      key: "name",
+      header: "Name",
+      exportValue: (p) => p.name,
+      cell: (p) => (
+        <span className="flex items-center gap-3">
+          <Avatar person={p} size="md" />
+          <span className="min-w-0">
+            <Link to={`/u/${p.id}`} className="text-base font-medium leading-snug hover:text-accent">
+              {p.name}
+            </Link>
+            {p.following && <span className="block text-sm text-fg-muted">Following</span>}
+          </span>
+        </span>
+      ),
+    },
+    { key: "department", header: "Department", exportValue: (p) => p.department ?? null, cell: (p) => p.department },
+    { key: "designation", header: "Designation", exportValue: (p) => p.designation ?? null, cell: (p) => p.designation },
+    {
+      key: "papers",
+      header: "Papers",
+      align: "right",
+      exportKind: "number",
+      exportValue: (p) => p.papers,
+      empty: "None yet",
+      cell: (p) => (p.papers ? p.papers : null),
+    },
+    {
+      key: "interests",
+      header: "Research interests",
+      empty: "None listed",
+      exportValue: (p) => p.interests.join(", "),
+      cell: (p) => (p.interests.length ? p.interests.join(", ") : null),
+    },
+    {
+      key: "skills",
+      header: "Skills",
+      empty: "None listed",
+      defaultHidden: true,
+      exportValue: (p) => (p.skills ?? []).join(", "),
+      cell: (p) => (p.skills?.length ? p.skills.join(", ") : null),
+    },
+  ]
+
   return (
     <div className="page space-y-6">
-      <header>
-        <PageTitle>People</PageTitle>
-      </header>
+      <PageHeader title="People" sub="Find a colleague by name, department or research interest." />
 
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-        <div className="relative w-full sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" aria-hidden />
+      <Answer
+        items={[
+          {
+            value: people.data?.total ?? null,
+            label: filtered ? "People match" : "People at the college",
+          },
+        ]}
+      />
+
+      <div className={filterBar} role="search">
+        <div className="relative sm:w-72">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" aria-hidden />
           <Input
             type="search"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Name, department or research interest"
             aria-label="Search people"
-            className="pl-8"
+            className="pl-9"
           />
         </div>
         <Combobox
@@ -1274,8 +1317,19 @@ export function PeopleDirectory() {
           className="w-full sm:w-60"
         />
         {interest && (
-          <Button kind="quiet" size="md" onClick={() => set({ interest: "", page: "" })}>
+          <Button kind="quiet" onClick={() => set({ interest: "", page: "" })}>
             Interested in {interest} ×
+          </Button>
+        )}
+        {filtered && (
+          <Button
+            kind="quiet"
+            onClick={() => {
+              setDraft("")
+              setParams(new URLSearchParams())
+            }}
+          >
+            Clear
           </Button>
         )}
       </div>
@@ -1288,40 +1342,21 @@ export function PeopleDirectory() {
           message="The server did not answer. Nothing has changed."
           onRetry={() => void people.refetch()}
         />
-      ) : people.data.results.length === 0 ? (
-        <EmptyState
-          icon={Users}
-          title={filtered ? "Nobody matches that" : "Nobody here yet"}
-          message={filtered ? "Try part of a name, or clear the department." : "Accounts appear here as the office adds them."}
-        />
       ) : (
         <>
-          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {people.data.results.map((p) => (
-              <li key={p.id}>
-                <Link
-                  to={`/u/${p.id}`}
-                  className={cn("panel flex h-full items-start gap-3 px-3 py-3 hover:bg-hover")}
-                >
-                  <Avatar person={p} size="md" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-base font-medium">{p.name}</span>
-                    <Meta className="block truncate text-xs">
-                      {[p.designation, p.department].filter(Boolean).join(" · ")}
-                    </Meta>
-                    <Meta className="mt-1 block truncate text-xs">
-                      {p.papers} paper{p.papers === 1 ? "" : "s"}
-                      {p.interests.length > 0 ? ` · ${p.interests.join(", ")}` : ""}
-                      {p.following ? " · following" : ""}
-                    </Meta>
-                    {p.skills && p.skills.length > 0 && (
-                      <Meta className="block truncate text-xs">Skills: {p.skills.join(", ")}</Meta>
-                    )}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <Table
+            rows={people.data.results}
+            columns={columns}
+            getKey={(p) => p.id}
+            maxHeight="none"
+            caption="People at the college"
+            tools={{ id: "people-directory", title: "People at the college", getAllRows: allRows }}
+            empty={{
+              icon: Users,
+              title: filtered ? "Nobody matches that" : "Nobody here yet",
+              message: filtered ? "Try part of a name, or clear the department." : "Accounts appear here as the office adds them.",
+            }}
+          />
           <Pagination
             page={page - 1}
             pageSize={limit}

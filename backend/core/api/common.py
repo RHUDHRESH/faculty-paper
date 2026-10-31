@@ -163,8 +163,6 @@ IMPERSONATOR_KEY = "impersonator_id"
 #: here: it spends the viewed person's AI allowance and writes the audit).
 _WRITES_ALLOWED_WHILE_VIEWING = {"/api/admin/stop-impersonating", "/api/calculate", "/api/insights/run"}
 
-_PASSWORD_CHANGE_EXEMPT = {"/api/auth/change-password", "/api/auth/me"}
-
 #: The expensive endpoints run under a per-account fixed-window cap. The
 #: numbers come from settings (AI_DAILY_LIMIT and friends); the counter
 #: lives in the process cache. Gunicorn runs one worker on Cloud Run, so
@@ -656,7 +654,8 @@ def _needs_second_approval(claim: Claim, threshold: float | None = None) -> bool
     # threshold: somebody decided the college has not already paid for this
     # paper, and that decision is worth a second reader however small it is.
     if claim.duplicate_warning and claim.override_duplicate:
-        return not seconded
+        # ...and the second reader is not the person who set the warning aside.
+        return not (seconded and claim.second_approved_by_id != claim.override_by_id)
 
     limit = threshold if threshold is not None else _high_value_threshold()
     if limit <= 0:
@@ -688,7 +687,6 @@ def _hod_scope(user: User):
 __all__ = [
     'IMPERSONATOR_KEY',
     'ViewerAwareRenderer',
-    '_PASSWORD_CHANGE_EXEMPT',
     '_THRESHOLD_CACHE',
     '_THRESHOLD_TTL_SECONDS',
     '_invalidate_threshold_cache',
@@ -750,17 +748,8 @@ def require_user(request: HttpRequest) -> User:
     user: User = request.user  # type: ignore
     if not user.active:
         raise HttpError(403, "Inactive")
-    # must_change_password used to be advertised in the profile payload and
-    # enforced only by the frontend, so an API client could ignore it entirely.
-    # A super admin viewing as somebody is not that person, and cannot change
-    # their password anyway (impersonation is read-only below): holding the
-    # view hostage to it made every account nobody had signed in to yet blank.
-    if (
-        user.must_change_password
-        and not request.session.get(IMPERSONATOR_KEY)
-        and request.path not in _PASSWORD_CHANGE_EXEMPT
-    ):
-        raise HttpError(403, "Set a new password before continuing")
+    # No forced password change: the owner chose voluntary changes only (Profile
+    # settings). The must_change_password column is kept but is inert here.
     # Impersonation is for seeing, not for doing. Enforced here rather than on
     # each route, because "we forgot to guard that one endpoint" is exactly how
     # a read-only mode stops being read-only.

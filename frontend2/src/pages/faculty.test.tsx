@@ -128,7 +128,9 @@ describe("the faculty directory", () => {
     expect(scopus).toHaveAttribute("href", expect.stringContaining("authorId=57200597022"))
     expect(within(item).getAllByText("63").length).toBeGreaterThan(0)
     expect(within(item).getAllByText("₹70,382").length).toBeGreaterThan(0)
-    expect(screen.getByRole("link", { name: /Export as CSV/ }).getAttribute("href")).toContain("/api/directory/faculty/export.csv")
+    // One Export menu on the table; no second CSV button in the header.
+    expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /Export as CSV/ })).toBeNull()
   })
 
   it("draws the list as a table with a header row of column names", async () => {
@@ -213,8 +215,7 @@ describe("the faculty directory", () => {
     expect(within(b).getAllByText("No Scopus ID")).toHaveLength(1)
     expect(within(c).queryByText("No Scopus ID")).toBeNull()
     expect(within(a).queryByRole("link", { name: "Fix on the account" })).toBeNull()
-    expect(screen.getAllByText(/have no Scopus ID\. Open a person to add it\./)).toHaveLength(1)
-    expect(screen.getByText("25 faculty have no Scopus ID. Open a person to add it.")).toBeInTheDocument()
+    expect(screen.queryByText(/Open a person to add it/)).toBeNull()
   })
 
   it("sends the page size to the server and goes back to page one when it changes", async () => {
@@ -222,7 +223,7 @@ describe("the faculty directory", () => {
     const user = userEvent.setup()
     await screen.findByRole("table", { name: "Faculty" })
     await user.click(screen.getByRole("button", { name: "Rows per page" }))
-    await user.click(within(screen.getByRole("listbox")).getByRole("option", { name: "100" }))
+    await user.click(within(screen.getByRole("listbox")).getByRole("option", { name: "100 per page" }))
     await waitFor(() => expect(vi.mocked(api).mock.calls.some(([p]) => String(p).includes("limit=100"))).toBe(true))
     const last = vi.mocked(api).mock.calls.map(([p]) => String(p)).filter((p) => p.includes("/api/directory/faculty?")).at(-1)!
     expect(last).toContain("offset=0")
@@ -243,8 +244,10 @@ describe("the faculty directory", () => {
 
   it("answers how many faculty are linked to Scopus, from the summary", async () => {
     mountDirectory(OFFICE, [row()], true, "/faculty", withSummary([row()], SUMMARY))
-    expect(await screen.findByText("134 of 159 faculty are linked to Scopus.")).toBeInTheDocument()
-    expect(screen.getByText("25 are not")).toBeInTheDocument()
+    const glance = await screen.findByRole("group", { name: "At a glance" })
+    expect(within(glance).getByRole("link", { name: "134 Linked to Scopus" })).toHaveAttribute("href", "/faculty?scopus=linked")
+    expect(within(glance).getByRole("link", { name: "25 Not linked" })).toHaveAttribute("href", "/faculty?scopus=no_id")
+    expect(within(glance).getByText("610 Papers in Scopus")).toBeInTheDocument()
     expect(screen.getByText(/610 of 900 papers on record are Scopus-linked\. Last synced 12 Oct 2026\./)).toBeInTheDocument()
   })
 
@@ -281,6 +284,29 @@ describe("the faculty directory", () => {
     await waitFor(() =>
       expect(vi.mocked(api).mock.calls.some(([p]) => String(p).includes("scopus=no_id"))).toBe(true)
     )
+  })
+
+  it("marks a disputed Scopus profile with an amber chip, offers the filter, and says how many", async () => {
+    const rows = [
+      row({ id: "a", name: "Dr Disputed", scopus_profile_status: "wrong" }),
+      row({ id: "b", name: "Dr Fine", scopus_profile_status: "confirmed" }),
+    ]
+    mountDirectory(OFFICE, rows, true, "/faculty", withSummary(rows, { ...SUMMARY, disputed: 2 }))
+    const table = await screen.findByRole("table", { name: "Faculty" })
+    const [disputed, fine] = bodyRows(table)
+    expect(within(disputed).getByText("Profile disputed")).toBeInTheDocument()
+    expect(within(fine).queryByText("Profile disputed")).toBeNull()
+    expect(within(screen.getByRole("group", { name: "At a glance" })).getByRole("link", { name: "2 Profile disputed" })).toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("button", { name: "Filter by Scopus" }))
+    expect(within(screen.getByRole("listbox")).getByRole("option", { name: "Profile disputed" })).toBeInTheDocument()
+  })
+
+  it("says nothing about disputes when nobody has disputed a profile", async () => {
+    mountDirectory(OFFICE, [row()], true, "/faculty", withSummary([row()], { ...SUMMARY, disputed: 0 }))
+    await screen.findByRole("table", { name: "Faculty" })
+    expect(screen.queryByText(/is not theirs/)).toBeNull()
   })
 
   it("still renders when the summary and the new row fields are missing", async () => {
@@ -468,7 +494,7 @@ describe("the faculty record", () => {
     expect(screen.getByRole("link", { name: /Scopus author page/ })).toHaveAttribute("href", expect.stringContaining("57200597022"))
     expect(screen.getByRole("link", { name: /ORCID page/ })).toHaveAttribute("href", "https://orcid.org/0000-0002-1825-0097")
     expect(screen.getByText("k@example.edu")).toBeInTheDocument()
-    const papers = screen.getByRole("list", { name: "Papers" })
+    const papers = screen.getByRole("table", { name: "Papers" })
     expect(within(papers).getByText("A paid paper")).toBeInTheDocument()
     expect(within(papers).getByText("₹5,162")).toBeInTheDocument()
     expect(within(papers).getByText("Too many authors to claim")).toBeInTheDocument()
@@ -481,9 +507,9 @@ describe("the faculty record", () => {
     const user = userEvent.setup()
     await screen.findByRole("heading", { name: "Dr K R Devabalaji" })
     await user.click(screen.getByRole("tab", { name: /Claims/ }))
-    expect(within(screen.getByRole("list", { name: "Claims" })).getByRole("link", { name: /FP-2026-000001/ })).toHaveAttribute("href", "/review/c1")
+    expect(within(screen.getByRole("table", { name: "Claims" })).getByRole("link", { name: /FP-2026-000001/ })).toHaveAttribute("href", "/review/c1")
     await user.click(screen.getByRole("tab", { name: "Payments" }))
-    expect(screen.getByRole("list", { name: "Payments" })).toBeInTheDocument()
+    expect(screen.getByRole("table", { name: "Payments" })).toBeInTheDocument()
     await user.click(screen.getByRole("tab", { name: "Details" }))
     expect(screen.getByText("Works on power electronics.")).toBeInTheDocument()
   })

@@ -10,11 +10,14 @@ import { useApi } from "@/lib/query"
 import { RankedBars, MixBar, Trend, type Point } from "@/ui/chart"
 import { Avatar, initialsOf } from "@/ui/person"
 import { Input } from "@/ui/field"
+import { Button } from "@/ui/button"
 import { money, Stage, stageOf } from "@/ui/paper"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
-import { HeaderSpot } from "@/ui/page-header"
+import { PageHeader } from "@/ui/page-header"
+import { Answer } from "@/ui/answer"
+import { filterBar } from "@/ui/filter-bar"
 import { JournalsDesk, WatchNotice } from "@/pages/cell/journals-desk"
 import { useCrumbLabel } from "@/app/crumbs"
 
@@ -117,6 +120,7 @@ function PlainJournals() {
       // max-w-0 + w-full: the cell takes the spare width and truncates, so a
       // 200-character conference name cannot push Papers and Paid off screen.
       className: "w-full sm:max-w-0",
+      exportValue: (j) => unshout(j.key),
       cell: (j) => (
         <span className="block min-w-0 break-words text-base sm:truncate" title={j.key}>
           {unshout(j.key)}
@@ -128,6 +132,7 @@ function PlainJournals() {
       header: "Papers",
       align: "right",
       className: "w-28",
+      exportValue: (j) => j.count,
       cell: (j) => <span className="tabular">{j.count.toLocaleString("en-IN")}</span>,
     },
     ...(showMoney
@@ -137,6 +142,8 @@ function PlainJournals() {
             header: "Paid",
             align: "right" as const,
             className: "w-36",
+            exportKind: "money" as const,
+            exportValue: (j: JournalRow) => j.amount ?? null,
             cell: (j: JournalRow) => <span className="tabular">{money(j.amount)}</span>,
           },
         ]
@@ -145,13 +152,17 @@ function PlainJournals() {
 
   return (
     <div className="page space-y-6">
-      <header className="page-head">
-        <div>
-        <PageTitle>Journals</PageTitle>
-        <Sub className="mt-1">Where this college actually publishes, most-used first.</Sub>
-        </div>
-        <HeaderSpot name="spot-search" />
-      </header>
+      <PageHeader title="Journals" sub="Where this college actually publishes, most-used first." />
+
+      {!isLoading && !isError && (
+        <Answer
+          items={[
+            { value: journals.length >= RESULT_LIMIT ? RESULT_LIMIT : journals.length, label: filtered ? "Journals match" : "Journals published in", zero: "No journal yet" },
+            { value: journals.reduce((s, j) => s + j.count, 0), label: "Papers in them" },
+            ...(showMoney ? [{ value: money(journals.reduce((s, j) => s + (j.amount ?? 0), 0)), label: "Paid for them" }] : []),
+          ]}
+        />
+      )}
 
       {!showMoney && (
         <Callout tone="info" title="Payment figures are not shown for this role">
@@ -160,18 +171,25 @@ function PlainJournals() {
         </Callout>
       )}
 
-      <div className="relative w-full max-w-xs">
-        <Search
-          className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle"
-          aria-hidden
-        />
-        <Input
-          value={searchDraft}
-          onChange={(e) => setSearchDraft(e.target.value)}
-          placeholder="Search journal name"
-          aria-label="Search journals"
-          className="pl-8"
-        />
+      <div className={filterBar} role="search">
+        <div className="relative w-full min-w-0 sm:w-80">
+          <Search
+            className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle"
+            aria-hidden
+          />
+          <Input
+            value={searchDraft}
+            onChange={(e) => setSearchDraft(e.target.value)}
+            placeholder="Search journal name"
+            aria-label="Search journals"
+            className="pl-8"
+          />
+        </div>
+        {filtered && (
+          <Button kind="quiet" onClick={() => setSearchDraft("")}>
+            Clear search
+          </Button>
+        )}
       </div>
 
       {isLoading ? (
@@ -209,6 +227,9 @@ function PlainJournals() {
             getKey={(j) => j.key}
             rowLink={(j) => `/journals/${encodeURIComponent(j.key)}`}
             minWidth="30rem"
+            maxHeight="none"
+            caption="Journals the college has published in"
+            tools={{ id: "journals-plain", title: "Journals the college has published in" }}
           />
           {journals.length >= RESULT_LIMIT && (
             <Meta className="block">

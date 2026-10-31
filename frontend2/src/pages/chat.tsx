@@ -7,6 +7,7 @@ import { ArrowLeft, AtSign, Check, FileText, Handshake, Lock, Phone, Send, UserR
 import { useAuth } from "@/app/auth"
 import { api, ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
+import { BADGES_KEY } from "@/lib/query"
 import { PeoplePicker } from "@/pages/discussions"
 import { Button } from "@/ui/button"
 import type { Candidate } from "@/ui/composer"
@@ -303,7 +304,7 @@ export function ChatPage() {
       if (reading) {
         // This fetch marked it read on the server, so the badge, the inbox
         // and the bell are stale now -- whether or not anything new arrived.
-        void qc.invalidateQueries({ queryKey: ["dm", "unread"] })
+        void qc.invalidateQueries({ queryKey: BADGES_KEY })
         void qc.invalidateQueries({ queryKey: ["dm", "inbox"] })
         void qc.invalidateQueries({ queryKey: ["notifications"] })
       }

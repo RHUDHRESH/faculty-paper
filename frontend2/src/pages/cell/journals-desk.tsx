@@ -8,6 +8,8 @@ import { queryClient } from "@/lib/query"
 import { ClaimNo, daysText, useHashScroll } from "@/pages/cell/parts"
 import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
+import { cn } from "@/lib/cn"
+import { filterBar } from "@/ui/filter-bar"
 import { ConfirmDialog, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/ui/dialog"
 import { Field, Input, Textarea } from "@/ui/field"
 import { PageHeader } from "@/ui/page-header"
@@ -221,6 +223,7 @@ export function JournalsDesk({ showMoney }: { showMoney: boolean }) {
       key: "journal",
       header: "Journal",
       className: "w-full sm:max-w-0",
+      exportValue: (j) => unshout(j.key),
       cell: (j) => (
         <span className="block min-w-0 break-words text-base sm:truncate" title={j.key}>
           {unshout(j.key)}
@@ -232,16 +235,17 @@ export function JournalsDesk({ showMoney }: { showMoney: boolean }) {
       header: "On the watch-list",
       empty: "No",
       className: "w-40",
+      exportValue: (j) => (watchedTitles.has(j.key.toLowerCase()) ? "Watched" : "No"),
       cell: (j) => (watchedTitles.has(j.key.toLowerCase()) ? <span className="font-medium text-caution">Watched</span> : null),
     },
-    { key: "count", header: "Papers", align: "right", className: "w-24", cell: (j) => j.count.toLocaleString("en-IN") },
+    { key: "count", header: "Papers", align: "right", className: "w-24", exportValue: (j) => j.count, cell: (j) => j.count.toLocaleString("en-IN") },
     ...(showMoney
-      ? [{ key: "amount", header: "Paid", align: "right" as const, className: "w-32", cell: (j: JournalRow) => money(j.amount) }]
+      ? [{ key: "amount", header: "Paid", align: "right" as const, className: "w-32", exportKind: "money" as const, exportValue: (j: JournalRow) => j.amount ?? null, cell: (j: JournalRow) => money(j.amount) }]
       : []),
   ]
 
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-8">
       <PageHeader
         title="Journals"
         sub="The venues the research office doubts, why, and the claims that touches. Below, every journal the college has published in."
@@ -251,7 +255,6 @@ export function JournalsDesk({ showMoney }: { showMoney: boolean }) {
             Watch a journal
           </Button>
         }
-        spot="spot-search"
       />
 
       <Answer
@@ -365,9 +368,16 @@ export function JournalsDesk({ showMoney }: { showMoney: boolean }) {
       </Section>
 
       <Section id="published" title="Where the college publishes" sub="Most-used first. Open one to see its standing and every paper filed in it." className="scroll-mt-6">
-        <div className="relative mb-3 w-full max-w-xs">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" aria-hidden />
-          <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Search journal name" aria-label="Search journals" className="pl-8" />
+        <div className={cn(filterBar, "mb-3")} role="search">
+          <div className="relative w-full min-w-0 sm:w-80">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" aria-hidden />
+            <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Search journal name" aria-label="Search journals" className="pl-8" />
+          </div>
+          {draft && (
+            <Button kind="quiet" onClick={() => setDraft("")}>
+              Clear search
+            </Button>
+          )}
         </div>
         {list.isLoading ? (
           <SkeletonRows rows={8} rowHeight={48} />
@@ -382,7 +392,7 @@ export function JournalsDesk({ showMoney }: { showMoney: boolean }) {
           />
         ) : (
           <>
-            <Table rows={q || showAll ? journals : journals.slice(0, 15)} columns={columns} getKey={(j) => j.key} rowLink={(j) => `/journals/${encodeURIComponent(j.key)}`} maxHeight="none" minWidth="34rem" caption="Journals the college has published in" />
+            <Table rows={q || showAll ? journals : journals.slice(0, 15)} columns={columns} getKey={(j) => j.key} rowLink={(j) => `/journals/${encodeURIComponent(j.key)}`} maxHeight="none" minWidth="34rem" caption="Journals the college has published in" tools={{ id: "journals", title: "Journals the college has published in", getAllRows: async () => journals }} />
             {!q && !showAll && journals.length > 15 && (
               <Button kind="quiet" size="sm" className="mt-2" onClick={() => setShowAll(true)}>
                 Show all {journals.length.toLocaleString("en-IN")} journals

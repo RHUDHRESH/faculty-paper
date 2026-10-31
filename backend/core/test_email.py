@@ -44,7 +44,8 @@ class RenderTests(TestCase):
             user = self.officer if spec.audience in ("staff", "principal") else self.faculty
             NotificationPreference.objects.update_or_create(user=user, kind=key, defaults={"level": "email"})
             mail.outbox.clear()
-            notify(user, key, f"Title for {key}", "One clear sentence.", "/papers/abc")
+            with self.captureOnCommitCallbacks(execute=True):
+                notify(user, key, f"Title for {key}", "One clear sentence.", "/papers/abc")
             [m] = _emails_to(user)
             html = m.alternatives[0][0]
             self.assertIn("https://app.test/papers/abc", html, key)
@@ -54,8 +55,9 @@ class RenderTests(TestCase):
             self.assertIn("One clear sentence.", m.body, key)
 
     def test_a_claimant_email_never_names_a_desk_or_person_holding_it(self):
-        notify(self.faculty, "claim_approved", "Approved by the Principal",
-               "Your paper is approved. The Principal signed it off. Payment follows.", "/papers/1")
+        with self.captureOnCommitCallbacks(execute=True):
+            notify(self.faculty, "claim_approved", "Approved by the Principal",
+                   "Your paper is approved. The Principal signed it off. Payment follows.", "/papers/1")
         [m] = _emails_to(self.faculty)
         text = (m.subject + m.body + m.alternatives[0][0]).lower()
         for word in notify_service.DESK_WORDS:
@@ -64,7 +66,8 @@ class RenderTests(TestCase):
 
     def test_an_officer_email_may_name_the_desk(self):
         NotificationPreference.objects.create(user=self.officer, kind="desk", level="email")
-        notify(self.officer, "desk", "A paper is waiting at clearing", "At your desk.", "/admin/clearing")
+        with self.captureOnCommitCallbacks(execute=True):
+            notify(self.officer, "desk", "A paper is waiting at clearing", "At your desk.", "/admin/clearing")
         [m] = _emails_to(self.officer)
         self.assertIn("clearing", m.subject)
 
@@ -101,7 +104,8 @@ class DigestRoleTests(TestCase):
         Authorship.objects.create(publication=pub, display_name="Asha Menon", author_key="asha", user=me)
         Claim.objects.create(owner=me, paper_title="In Flight", status=ClaimStatus.CLEARED,
                              submitted_at=MONDAY - timedelta(days=3))
-        digest.send_weekly_digest(now=MONDAY)
+        with self.captureOnCommitCallbacks(execute=True):
+            digest.send_weekly_digest(now=MONDAY)
         [m] = _emails_to(me)
         html = m.alternatives[0][0]
         self.assertIn("Found Paper", html)
@@ -136,7 +140,10 @@ class RateLimitTests(TestCase):
     def test_past_the_hourly_limit_alerts_wait_for_one_batched_email(self):
         me = _person("me@test.edu")
         for i in range(5):
-            notify(me, "citation", f"Cited {i}", "", "/papers/x")
+            # One at a time, as separate requests would send them: the hourly
+            # count each send checks includes the ones before it.
+            with self.captureOnCommitCallbacks(execute=True):
+                notify(me, "citation", f"Cited {i}", "", "/papers/x")
         self.assertEqual(len(_emails_to(me)), 2)
         self.assertEqual(Notification.objects.filter(user=me, emailed_at__isnull=True).count(), 3)
         # Still inside the hour: the batch waits.

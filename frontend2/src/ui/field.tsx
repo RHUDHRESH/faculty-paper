@@ -92,7 +92,7 @@ export function Field<
 
   return (
     <div className={cn("space-y-1.5", className)}>
-      <label htmlFor={id} className="block text-base font-medium">
+      <label htmlFor={id} className="block text-sm font-medium text-fg">
         {label}
       </label>
       {control}
@@ -137,7 +137,7 @@ export const Input = forwardRef<
       ref={ref}
       className={cn(
         "w-full bg-surface text-fg outline-none",
-        "shadow-well ring-1 ring-inset ring-field",
+        "ring-1 ring-inset ring-field",
         "placeholder:text-fg-subtle",
         "focus-visible:ring-2 focus-visible:ring-accent",
         "disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-50",
@@ -256,7 +256,7 @@ export const Textarea = forwardRef<
       style={{ maxHeight, ...style } as CSSProperties}
       className={cn(
         "w-full resize-none rounded-control bg-surface px-3 py-2 text-base text-fg outline-none",
-        "shadow-well ring-1 ring-inset ring-field",
+        "ring-1 ring-inset ring-field",
         "placeholder:text-fg-subtle",
         "focus-visible:ring-2 focus-visible:ring-accent",
         "disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-50",
@@ -476,7 +476,7 @@ export const NumberInput = forwardRef<
         inputMode="decimal"
         className={cn(
           "w-full bg-surface text-right text-fg tabular-nums outline-none",
-          "shadow-well ring-1 ring-inset ring-field",
+          "ring-1 ring-inset ring-field",
           "focus-visible:ring-2 focus-visible:ring-accent",
           "disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-50",
           "aria-invalid:ring-critical",
@@ -522,7 +522,7 @@ export const DateInput = forwardRef<
       type="date"
       className={cn(
         "w-full bg-surface text-fg outline-none [color-scheme:light] dark:[color-scheme:dark]",
-        "shadow-well ring-1 ring-inset ring-field",
+        "ring-1 ring-inset ring-field",
         "focus-visible:ring-2 focus-visible:ring-accent",
         "disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-50",
         "aria-invalid:ring-critical",
@@ -558,7 +558,7 @@ export const Select = forwardRef<
       ref={ref}
       className={cn(
         "w-full min-w-0 bg-surface text-fg outline-none",
-        "shadow-well ring-1 ring-inset ring-field",
+        "ring-1 ring-inset ring-field",
         "focus-visible:ring-2 focus-visible:ring-accent",
         "disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-50",
         "aria-invalid:ring-critical",

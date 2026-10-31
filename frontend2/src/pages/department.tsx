@@ -21,8 +21,6 @@ import {
   months,
   n,
   papersLink,
-  PushEmpty,
-  PushRows,
   RemindDialog,
   SILENT_KINDS,
   TargetPace,
@@ -31,7 +29,7 @@ import {
   type BriefPerson,
   type Reminder,
 } from "@/pages/hod-parts"
-import { Lead } from "@/pages/principal-parts"
+import { PushTable } from "@/pages/push-table"
 import { YearBars } from "@/pages/year-bars"
 import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
@@ -47,13 +45,14 @@ import {
   DialogTitle,
 } from "@/ui/dialog"
 import { DateInput, Field, Input, NumberInput, Radio, Textarea } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
 import { PageHeader } from "@/ui/page-header"
 import { AskTheData } from "@/pages/insights-link"
 import { Avatar } from "@/ui/person"
-import { Details, Rows, Section } from "@/ui/section"
+import { Section } from "@/ui/section"
 import { Delayed, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
-import { ColumnLabel, Meta, SectionTitle } from "@/ui/text"
+import { Meta, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { Due, When } from "@/ui/when"
 
@@ -147,6 +146,7 @@ export function Department() {
   const [editingPlan, setEditingPlan] = useState(false)
   const [assigning, setAssigning] = useState(false)
   const [reminding, setReminding] = useState<Reminder | null>(null)
+  const [who, setWho] = useState("")
 
   const brief = useBrief(year)
   const targets = useApi<TargetsPayload>(["hod", "targets", year], `/api/hod/targets?year=${year}`, { enabled: isHod })
@@ -193,7 +193,13 @@ export function Department() {
     <div className="page space-y-8">
       <PageHeader
         title={b?.department ?? "Department"}
-        sub="Is the department on track, who needs a push, and what to tell the Principal."
+        sub={
+          b ? (
+            <span data-testid="report-answer">{leadSentence(b)}</span>
+          ) : (
+            "Is the department on track, who needs a push, and what to tell the Principal."
+          )
+        }
         action={
           <Button kind="primary" asChild>
             <a href={`/api/hod/report?fmt=pdf&year=${year}`} download>
@@ -220,13 +226,6 @@ export function Department() {
         </Delayed>
       ) : (
         <>
-          <div className="w-32 print:hidden">
-            <ColumnLabel className="mb-1 block">Year</ColumnLabel>
-            <Combobox aria-label="Year" value={String(year)} onChange={setYear} options={yearOptions} />
-          </div>
-
-          <Lead>{leadSentence(b)}</Lead>
-
           <Answer
             items={[
               {
@@ -254,8 +253,6 @@ export function Department() {
             ]}
           />
 
-          <AskTheData about={`A question about ${b.department} this page does not answer? Ask it in plain English.`} />
-
           <nav aria-label="Department views" className="-mx-1 flex flex-wrap gap-1 border-b border-line print:hidden">
             {TABS.map((t) => {
               const count =
@@ -278,10 +275,33 @@ export function Department() {
             })}
           </nav>
 
-          {tab === "pace" && <PaceTab b={b} year={year} onRemind={setReminding} onSetTarget={() => setTab("plan")} />}
+          <div className={cn(filterBar, "print:hidden")} role="search">
+            <Combobox aria-label="Year" value={String(year)} onChange={setYear} options={yearOptions} className="w-32" />
+            {tab === "faculty" && (
+              <Input
+                type="search"
+                value={who}
+                onChange={(e) => setWho(e.target.value)}
+                placeholder="Find a faculty member"
+                aria-label="Find a faculty member"
+                className="w-full min-w-0 sm:w-72"
+              />
+            )}
+          </div>
+
+          {tab === "pace" && (
+            <PaceTab
+              b={b}
+              year={year}
+              onRemind={setReminding}
+              onSetTarget={() => setTab("plan")}
+              onFaculty={() => setTab("faculty")}
+            />
+          )}
           {tab === "faculty" && (
             <FacultyTab
               b={b}
+              who={who}
               targets={targets.data}
               onSetTarget={(p) => setEditing({ target: null, person: { id: p.id, name: p.name, designation: p.designation } })}
             />
@@ -326,6 +346,8 @@ export function Department() {
         </>
       )}
 
+      {b && <AskTheData about={`A question about ${b.department} this page does not answer? Ask it in plain English.`} />}
+
       {editingPlan && <PlanDialog plan={plan.data} onClose={() => setEditingPlan(false)} />}
 
       {assigning && (
@@ -357,20 +379,61 @@ function PaceTab({
   year,
   onRemind,
   onSetTarget,
+  onFaculty,
 }: {
   b: Brief
   year: number
   onRemind: (r: Reminder) => void
   onSetTarget: () => void
+  onFaculty: () => void
 }) {
   const t = b.totals
   const running = year >= new Date(b.as_of).getFullYear()
   const silent = b.push.filter((r) => SILENT_KINDS.includes(r.kind))
-  const quality = b.push.filter((r) => !SILENT_KINDS.includes(r.kind))
+  // Everyone who needs a word in one table: the ones with no paper first.
+  const everyone = [...silent, ...b.push.filter((r) => !SILENT_KINDS.includes(r.kind))]
   const rows = b.by_year.map((r) => ({ year: r.year, publications: r.publications, q1: r.q1, partial: r.partial }))
 
   return (
     <div className="space-y-10">
+      <Section
+        id="push"
+        title="Who needs a push"
+        sub={`No paper on record in ${year}, the ones who slipped first. Each has a reason and a next step.`}
+        action={
+          silent.length > 1 ? (
+            <Button
+              kind="default"
+              onClick={() =>
+                onRemind({
+                  people: silent.map((r) => ({ id: r.person.id, name: r.person.name })),
+                  draft: groupDraft(year),
+                })
+              }
+            >
+              <BellRing />
+              Remind all {n(silent.length)} who have no paper in {year}
+            </Button>
+          ) : undefined
+        }
+        className="scroll-mt-6"
+      >
+        <PushTable
+          rows={everyone}
+          pairs={b.pairs}
+          onRemind={onRemind}
+          empty={{
+            title: "Nobody needs a push",
+            message: `Every colleague has a paper on record for ${year}.`,
+            action: (
+              <Button kind="default" onClick={onFaculty}>
+                See every faculty member
+              </Button>
+            ),
+          }}
+        />
+      </Section>
+
       <Section
         title={b.targets.length ? "Pace against the year" : `${year} against ${year - 1}`}
         action={
@@ -433,52 +496,6 @@ function PaceTab({
           />
         </div>
       </Section>
-
-      <Section
-        id="push"
-        title="Who needs a push"
-        sub={`No paper on record in ${year}, the ones who slipped first. Each has a reason and a next step.`}
-        className="scroll-mt-6"
-      >
-        {silent.length === 0 && quality.length === 0 ? (
-          <PushEmpty year={year} />
-        ) : (
-          <div className="space-y-4">
-            {silent.length > 0 ? (
-              <>
-                <PushRows rows={silent.slice(0, 8)} pairs={b.pairs} onRemind={onRemind} />
-                {silent.length > 8 && (
-                  <Details count={silent.length - 8} label="more people with no paper">
-                    <PushRows rows={silent.slice(8)} pairs={b.pairs} onRemind={onRemind} />
-                  </Details>
-                )}
-                {silent.length > 1 && (
-                  <Button
-                    kind="quiet"
-                    size="sm"
-                    onClick={() =>
-                      onRemind({
-                        people: silent.map((r) => ({ id: r.person.id, name: r.person.name })),
-                        draft: groupDraft(year),
-                      })
-                    }
-                  >
-                    <BellRing />
-                    Remind all {n(silent.length)} who have no paper in {year}
-                  </Button>
-                )}
-              </>
-            ) : (
-              <p className="text-base text-fg-muted">Everyone has a paper on record for {year}.</p>
-            )}
-            {quality.length > 0 && (
-              <Details count={quality.length} label="people to talk to about the quality of their papers">
-                <PushRows rows={quality} pairs={b.pairs} onRemind={onRemind} />
-              </Details>
-            )}
-          </div>
-        )}
-      </Section>
     </div>
   )
 }
@@ -497,10 +514,13 @@ type SortKey = "name" | "this_year" | "last_year" | "q1_this_year" | "led_this_y
 
 function FacultyTab({
   b,
+  who,
   targets,
   onSetTarget,
 }: {
   b: Brief
+  /** What the search box holds; narrows the table by name. */
+  who: string
   targets: TargetsPayload | undefined
   onSetTarget: (p: BriefPerson) => void
 }) {
@@ -515,10 +535,13 @@ function FacultyTab({
   }, [targets])
   const rows = useMemo(() => {
     const sign = dir === "asc" ? 1 : -1
-    return [...b.people].sort((x, y) =>
+    const needle = who.trim().toLowerCase()
+    return [...b.people]
+      .filter((p) => !needle || p.name.toLowerCase().includes(needle))
+      .sort((x, y) =>
       sort === "name" ? sign * x.name.localeCompare(y.name) : sign * (x[sort] - y[sort]) || x.name.localeCompare(y.name)
     )
-  }, [b.people, sort, dir])
+  }, [b.people, sort, dir, who])
   const onSort = (key: string) => {
     if (key === sort) setDir((d) => (d === "asc" ? "desc" : "asc"))
     else {
@@ -532,6 +555,7 @@ function FacultyTab({
       key: "name",
       header: "Faculty",
       sortable: true,
+      exportValue: (p) => p.name,
       cell: (p) => (
         <span className="flex items-center gap-3">
           <Avatar person={face(p)} size="md" />
@@ -545,14 +569,17 @@ function FacultyTab({
         </span>
       ),
     },
-    { key: "this_year", header: String(b.year), align: "right", sortable: true, empty: "None", cell: (p) => (p.this_year ? n(p.this_year) : null) },
-    { key: "last_year", header: String(b.year - 1), align: "right", sortable: true, empty: "None", cell: (p) => (p.last_year ? n(p.last_year) : null) },
-    { key: "q1_this_year", header: "Q1", align: "right", sortable: true, empty: "None", cell: (p) => (p.q1_this_year ? n(p.q1_this_year) : null) },
-    { key: "led_this_year", header: "Led", align: "right", sortable: true, empty: "None", cell: (p) => (p.led_this_year ? n(p.led_this_year) : null) },
-    { key: "total", header: "All years", align: "right", sortable: true, empty: "None", cell: (p) => (p.total ? n(p.total) : null) },
+    { key: "this_year", exportValue: (p) => p.this_year, header: String(b.year), align: "right", sortable: true, empty: "None", cell: (p) => (p.this_year ? n(p.this_year) : null) },
+    { key: "last_year", exportValue: (p) => p.last_year, header: String(b.year - 1), align: "right", sortable: true, empty: "None", cell: (p) => (p.last_year ? n(p.last_year) : null) },
+    { key: "q1_this_year", exportValue: (p) => p.q1_this_year, header: "Q1", align: "right", sortable: true, empty: "None", cell: (p) => (p.q1_this_year ? n(p.q1_this_year) : null) },
+    { key: "led_this_year", exportValue: (p) => p.led_this_year, header: "Led", align: "right", sortable: true, empty: "None", cell: (p) => (p.led_this_year ? n(p.led_this_year) : null) },
+    { key: "total", exportValue: (p) => p.total, header: "All years", align: "right", sortable: true, empty: "None", cell: (p) => (p.total ? n(p.total) : null) },
     {
       key: "target",
       header: "Their target",
+      exportValue: (p) =>
+        (mine.get(p.id) ?? []).map((t) => `${t.metric_label}: ${t.done} of ${t.target}`).join("; ") || null,
+      empty: "None set",
       cell: (p) => {
         const theirs = mine.get(p.id) ?? []
         if (theirs.length === 0) {
@@ -589,8 +616,13 @@ function FacultyTab({
         sortKey={sort}
         sortDir={dir}
         onSort={onSort}
+        maxHeight="none"
+        tools={{ id: "department-faculty", title: `Every faculty member, ${b.year}`, subtitle: b.department }}
         caption={`Papers by faculty member, ${b.year}`}
-        empty={{ title: "Nobody is on the department's roll", message: "Faculty appear here once the research office adds them to the department." }}
+        empty={{
+          title: who.trim() ? "No faculty member matches" : "Nobody is on the department's roll",
+          message: who.trim() ? "Try a shorter name." : "Faculty appear here once the research office adds them to the department.",
+        }}
       />
     </Section>
   )
@@ -624,6 +656,93 @@ function RecordsTab({
     )
   const first = data.years[0]
   const last = data.years[data.years.length - 1]
+
+  const paperColumns: Column<Records["papers"][number]>[] = [
+    {
+      key: "paper",
+      header: "Paper",
+      exportValue: (p) => paperTitle(p.title),
+      cell: (p) => (
+        <Link to={`/department/papers/${p.id}`} className="line-clamp-2 text-base underline-offset-4 hover:underline">
+          {paperTitle(p.title)}
+        </Link>
+      ),
+    },
+    {
+      key: "authors",
+      header: "Authors",
+      exportValue: (p) => p.authors.join(", "),
+      cell: (p) => <span className="line-clamp-2">{p.authors.join(", ")}</span>,
+    },
+    {
+      key: "journal",
+      header: "Journal and year",
+      exportValue: (p) => [p.journal, p.year].filter(Boolean).join(", "),
+      cell: (p) => [p.journal, p.year].filter(Boolean).join(", "),
+    },
+    {
+      key: "missing",
+      header: "What is missing",
+      exportValue: (p) => `no ${p.missing.join(" or ")}`,
+      cell: (p) => <span className="text-critical">no {p.missing.join(" or ")}</span>,
+    },
+    {
+      key: "open",
+      header: <span className="sr-only">Open the paper</span>,
+      label: "Open the paper",
+      cell: (p) => (
+        <Button kind="default" size="sm" asChild>
+          <Link to={`/department/papers/${p.id}`} aria-label={`Open ${paperTitle(p.title)}`}>
+            Open
+          </Link>
+        </Button>
+      ),
+    },
+  ]
+
+  const scopusDraft = (all: boolean) =>
+    all
+      ? "A reminder from your head of department: your Scopus ID is not on your profile, so your papers may not be matched to you. Please add it under your profile. If you do not have one, tell me and I will ask the research office."
+      : "A reminder from your head of department: your Scopus ID is not on your profile, so your papers may not be matched to you. Please add it under your profile."
+
+  const scopusColumns: Column<Records["no_scopus_id"][number]>[] = [
+    {
+      key: "person",
+      header: "Faculty",
+      exportValue: (p) => p.name,
+      cell: (p) => (
+        <span className="flex min-w-0 items-center gap-3">
+          <Avatar person={face(p)} size="md" />
+          <Link to={`/faculty/${p.id}`} className="font-medium underline-offset-4 hover:underline">
+            {p.name}
+          </Link>
+        </span>
+      ),
+    },
+    {
+      key: "designation",
+      header: "Designation",
+      exportValue: (p) => p.designation ?? null,
+      cell: (p) => p.designation || "Designation not recorded",
+    },
+    {
+      key: "remind",
+      header: <span className="sr-only">Remind</span>,
+      label: "Remind",
+      cell: (p) => (
+        <Button
+          kind="default"
+          size="sm"
+          aria-label={`Remind ${p.name} to add a Scopus ID`}
+          onClick={() => onRemind({ people: [{ id: p.id, name: p.name }], draft: scopusDraft(false) })}
+        >
+          <BellRing />
+          Remind
+        </Button>
+      ),
+    },
+  ]
+
   return (
     <div className="space-y-10">
       <Section
@@ -637,32 +756,18 @@ function RecordsTab({
           ) : undefined
         }
       >
-        {data.papers.length === 0 ? (
-          <p className="border-y border-line py-6 text-base text-fg-muted">
-            Nothing to fix: all {n(data.papers_checked)} papers of {first} to {last} have an ISSN and a DOI.
-          </p>
-        ) : (
-          <Rows>
-            {data.papers.slice(0, 15).map((p) => (
-              <li key={p.id}>
-                <Link to={`/department/papers/${p.id}`} className="row flex items-center gap-3 px-1 py-2.5 sm:px-2">
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-base underline-offset-4 hover:underline">{paperTitle(p.title)}</span>
-                    <Meta className="block truncate">
-                      {[p.authors.join(", "), p.journal, p.year].filter(Boolean).join(" · ") || "Details not recorded"}
-                    </Meta>
-                  </span>
-                  <span className="shrink-0 text-sm text-critical">no {p.missing.join(" or ")}</span>
-                </Link>
-              </li>
-            ))}
-          </Rows>
-        )}
-        {data.papers.length > 15 && (
-          <Meta className="mt-2 block">
-            {n(data.papers.length - 15)} more. The NBA and NAAC workbook lists every one on its Missing data sheet.
-          </Meta>
-        )}
+        <Table
+          rows={data.papers}
+          columns={paperColumns}
+          getKey={(p) => p.id}
+          maxHeight="none"
+          caption="Papers missing a DOI or an ISSN"
+          tools={{ id: "department-records", title: "Papers missing a DOI or an ISSN" }}
+          empty={{
+            title: "Nothing to fix",
+            message: `All ${n(data.papers_checked)} papers of ${first} to ${last} have an ISSN and a DOI.`,
+          }}
+        />
       </Section>
 
       <Section
@@ -670,54 +775,30 @@ function RecordsTab({
         sub="Without it their papers may not be matched to them, so they can look like they have published nothing."
         action={
           data.no_scopus_id.length > 1 ? (
-            <button
-              type="button"
-              className="text-accent underline-offset-4 hover:underline"
+            <Button
+              kind="default"
               onClick={() =>
                 onRemind({
                   people: data.no_scopus_id.map((p) => ({ id: p.id, name: p.name })),
-                  draft:
-                    "A reminder from your head of department: your Scopus ID is not on your profile, so your papers may not be matched to you. Please add it under your profile. If you do not have one, tell me and I will ask the research office.",
+                  draft: scopusDraft(true),
                 })
               }
             >
+              <BellRing />
               Remind all {n(data.no_scopus_id.length)}
-            </button>
+            </Button>
           ) : undefined
         }
       >
-        {data.no_scopus_id.length === 0 ? (
-          <p className="border-y border-line py-6 text-base text-fg-muted">Every faculty member has a Scopus ID on file.</p>
-        ) : (
-          <Rows>
-            {data.no_scopus_id.map((p) => (
-              <li key={p.id} className="flex items-center gap-3 px-1 py-2.5 sm:px-2">
-                <Avatar person={face(p)} size="md" />
-                <span className="min-w-0 flex-1">
-                  <Link to={`/faculty/${p.id}`} className="block truncate text-base font-medium underline-offset-4 hover:underline">
-                    {p.name}
-                  </Link>
-                  <Meta className="block truncate">{p.designation || "Designation not recorded"}</Meta>
-                </span>
-                <Button
-                  kind="quiet"
-                  size="sm"
-                  aria-label={`Remind ${p.name} to add a Scopus ID`}
-                  onClick={() =>
-                    onRemind({
-                      people: [{ id: p.id, name: p.name }],
-                      draft:
-                        "A reminder from your head of department: your Scopus ID is not on your profile, so your papers may not be matched to you. Please add it under your profile.",
-                    })
-                  }
-                >
-                  <BellRing />
-                  Remind
-                </Button>
-              </li>
-            ))}
-          </Rows>
-        )}
+        <Table
+          rows={data.no_scopus_id}
+          columns={scopusColumns}
+          getKey={(p) => p.id}
+          maxHeight="none"
+          caption="Faculty with no Scopus ID on file"
+          tools={{ id: "department-no-scopus", title: "Faculty with no Scopus ID on file" }}
+          empty={{ title: "Every faculty member has a Scopus ID on file", message: "Their papers can be matched to them." }}
+        />
       </Section>
       <p className="text-sm text-fg-muted">{b.totals.scopus_indexed ? `${n(b.totals.scopus_indexed)} of ${n(b.totals.record_papers)} papers of ${b.year} are listed in Scopus.` : ""}</p>
     </div>
@@ -836,16 +917,88 @@ function TargetsSection({
   onAdd: () => void
   onEdit: (t: Target) => void
 }) {
+  const columns: Column<Target>[] = [
+    {
+      key: "target",
+      header: "Target",
+      exportValue: (t) => [t.metric_label, t.person_name].filter(Boolean).join(", "),
+      cell: (t) => (
+        <div>
+          <p className="text-base">
+            {t.metric_label}
+            {t.person_name && <span className="text-fg-muted">, {t.person_name}</span>}
+          </p>
+          {t.note && <Meta className="block">{t.note}</Meta>}
+        </div>
+      ),
+    },
+    {
+      key: "progress",
+      header: "Progress",
+      exportValue: (t) => `${t.done} of ${t.target}`,
+      cell: (t) => {
+        const share = t.fraction == null ? 0 : Math.min(1, t.fraction)
+        return (
+          <div className="min-w-32 space-y-1">
+            <span className={cn("text-base font-medium tabular", t.met ? "text-positive" : "text-fg")}>
+              {t.done} / {t.target}
+            </span>
+            <div
+              className="h-1.5 w-full overflow-hidden rounded-full bg-sunken"
+              role="progressbar"
+              aria-valuenow={t.done}
+              aria-valuemin={0}
+              aria-valuemax={t.target}
+              aria-label={`${t.metric_label}: ${t.done} of ${t.target}`}
+            >
+              <span
+                className={cn("block h-full rounded-full transition-[width] duration-500", t.met ? "bg-positive" : "bg-accent")}
+                style={{ width: `${share * 100}%` }}
+              />
+            </div>
+          </div>
+        )
+      },
+    },
+    {
+      key: "left",
+      header: "Still to do",
+      exportValue: (t) => (t.met ? "Reached" : `${t.remaining} more to go`),
+      cell: (t) => (
+        <span className={t.met ? "text-positive" : undefined}>
+          {t.met ? "Reached" : `${t.remaining} more to go`}
+          {t.due_date && (
+            <>
+              {", "}
+              <Due day={t.due_date} done={t.met} />
+            </>
+          )}
+          {t.set_by ? <Meta className="block">Set by {t.set_by}</Meta> : null}
+        </span>
+      ),
+    },
+    {
+      key: "change",
+      header: <span className="sr-only">Change</span>,
+      label: "Change",
+      cell: (t) => (
+        <Button kind="default" size="sm" onClick={() => onEdit(t)} aria-label={`Change the target: ${t.metric_label}`}>
+          Change
+        </Button>
+      ),
+    },
+  ]
+
   return (
-    <section className="space-y-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <SectionTitle>Targets for {year}</SectionTitle>
-        <Button kind="primary" size="sm" onClick={onAdd}>
+    <Section
+      title={`Targets for ${year}`}
+      action={
+        <Button kind="primary" onClick={onAdd}>
           <Plus />
           Set a target
         </Button>
-      </div>
-
+      }
+    >
       {loading ? (
         <SkeletonRows rows={3} rowHeight={52} />
       ) : failed ? (
@@ -856,82 +1009,22 @@ function TargetsSection({
           message="The server did not answer. Any target already agreed is still there."
           onRetry={onRetry}
         />
-      ) : !data || data.department_targets.length === 0 ? (
-        <div className="border-y border-line py-10 text-center">
-          <TargetIcon className="mx-auto mb-2 size-7 text-fg-subtle" aria-hidden />
-          <p className="text-base">No target set for the department this year.</p>
-          <p className="mx-auto mt-1 max-w-md text-sm text-fg-muted">
-            A target written down is the difference between “we should do better” and “we
-            agreed eleven Q1 papers and we are at four”.
-          </p>
-        </div>
       ) : (
-        <ul className="divide-y divide-line border-y border-line">
-          {data.department_targets.map((t) => (
-            <TargetRow key={t.id} target={t} onEdit={() => onEdit(t)} />
-          ))}
-        </ul>
-      )}
-    </section>
-  )
-}
-
-function TargetRow({ target, onEdit }: { target: Target; onEdit: () => void }) {
-  const share = target.fraction == null ? 0 : Math.min(1, target.fraction)
-
-  return (
-    <li className="row space-y-2 py-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <div>
-          <p className="text-base">
-            {target.metric_label}
-            {target.person_name && <span className="text-fg-muted"> · {target.person_name}</span>}
-          </p>
-          {target.note && <Meta className="block">{target.note}</Meta>}
-        </div>
-        <div className="flex items-baseline gap-3">
-          <span
-            className={cn(
-              "text-base font-medium tabular",
-              target.met ? "text-positive" : "text-fg"
-            )}
-          >
-            {target.done} / {target.target}
-          </span>
-          <Button kind="quiet" size="sm" className="reveal" onClick={onEdit}>
-            Change
-          </Button>
-        </div>
-      </div>
-      <div
-        className="h-1.5 w-full overflow-hidden rounded-full bg-sunken"
-        role="progressbar"
-        aria-valuenow={target.done}
-        aria-valuemin={0}
-        aria-valuemax={target.target}
-        aria-label={`${target.metric_label}: ${target.done} of ${target.target}`}
-      >
-        <span
-          className={cn(
-            "block h-full rounded-full transition-[width] duration-500",
-            target.met ? "bg-positive" : "bg-accent"
-          )}
-          style={{ width: `${share * 100}%` }}
+        <Table
+          rows={data?.department_targets ?? []}
+          columns={columns}
+          getKey={(t) => t.id}
+          maxHeight="none"
+          caption={`Targets for ${year}`}
+          tools={{ id: "department-targets", title: `Targets for ${year}` }}
+          empty={{
+            icon: TargetIcon,
+            title: "No target set for the department this year",
+            message: "A target written down turns “we should do better” into “we agreed eleven Q1 papers and we are at four”.",
+          }}
         />
-      </div>
-      {(!target.met || target.due_date) && (
-        <Meta className="block">
-          {target.met ? "Reached" : `${target.remaining} more to go`}
-          {target.due_date && (
-            <>
-              {" · "}
-              <Due day={target.due_date} done={target.met} />
-            </>
-          )}
-          {target.set_by ? ` · set by ${target.set_by}` : ""}
-        </Meta>
       )}
-    </li>
+    </Section>
   )
 }
 
@@ -940,7 +1033,7 @@ function TargetRow({ target, onEdit }: { target: Target; onEdit: () => void }) {
 /* ------------------------------------------------------------------------ */
 
 /**
- * Who has been asked to do what, grouped by how far along it is.
+ * Who has been asked to do what, in one table, the ones still open first.
  *
  * An instruction given in a corridor has no record: nobody can tell a month
  * later whether it was done, or whether it was ever given. Each one written
@@ -961,16 +1054,52 @@ function AssignmentsSection({
   onRetry: () => void
   onAssign: () => void
 }) {
+  const whoOf = (a: Assignment) => (a.partner_name ? `${a.assignee_name} & ${a.partner_name}` : a.assignee_name)
+  const order = STATUSES.map((s) => s.value as string)
+  const rows = [...(data ?? [])].sort((x, y) => order.indexOf(x.status) - order.indexOf(y.status))
+
+  const columns: Column<Assignment>[] = [
+    {
+      key: "work",
+      header: "Work",
+      exportValue: (a) => a.title,
+      cell: (a) => (
+        <div className="min-w-0">
+          <p className="flex min-w-0 items-center gap-2">
+            <KindBadge label={a.kind_label} />
+            <span className="text-base">{a.title}</span>
+          </p>
+          {a.notes && <p className="mt-0.5 text-fg-muted">{a.notes}</p>}
+        </div>
+      ),
+    },
+    { key: "who", header: "For", exportValue: whoOf, cell: whoOf },
+    {
+      key: "due",
+      header: "Due",
+      empty: "No date",
+      exportValue: (a) => a.due_date ?? null,
+      cell: (a) => (a.due_date ? <Due day={a.due_date} done={a.status === "DONE"} /> : null),
+    },
+    {
+      key: "status",
+      header: "Status",
+      label: "Status",
+      exportValue: (a) => STATUSES.find((s) => s.value === a.status)?.label ?? a.status,
+      cell: (a) => <AssignmentActions assignment={a} />,
+    },
+  ]
+
   return (
-    <section className="space-y-4" aria-label="Work assigned">
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <SectionTitle>Work assigned</SectionTitle>
-        <Button kind="primary" size="sm" onClick={onAssign}>
+    <Section
+      title="Work assigned"
+      action={
+        <Button kind="primary" onClick={onAssign}>
           <UserPlus />
           Assign work
         </Button>
-      </div>
-
+      }
+    >
       {loading ? (
         <SkeletonRows rows={3} rowHeight={52} />
       ) : failed ? (
@@ -979,38 +1108,26 @@ function AssignmentsSection({
           message="The server did not answer. Nothing handed out has been lost."
           onRetry={onRetry}
         />
-      ) : !data || data.length === 0 ? (
-        <div className="rounded-lg bg-sunken px-6 py-8 text-center">
-          <p className="text-base">Nothing handed out yet.</p>
-          <p className="mx-auto mt-1 max-w-md text-sm text-fg-muted">
-            A task, two colleagues paired to write together, or a research area for somebody to
-            take up. The people it is for see it on their home screen.
-          </p>
-        </div>
       ) : (
-        STATUSES.map(({ value, label }) => {
-          const rows = data.filter((a) => a.status === value)
-          if (rows.length === 0) return null
-          return (
-            <div key={value} className="space-y-1.5">
-              <div className="flex items-baseline gap-2">
-                <h3 className="text-base font-medium">{label}</h3>
-                <Meta className="tabular">{rows.length}</Meta>
-              </div>
-              <ul className="divide-y divide-line border-y border-line">
-                {rows.map((a) => (
-                  <AssignmentRow key={a.id} assignment={a} />
-                ))}
-              </ul>
-            </div>
-          )
-        })
+        <Table
+          rows={rows}
+          columns={columns}
+          getKey={(a) => a.id}
+          maxHeight="none"
+          caption="Work assigned"
+          tools={{ id: "department-work", title: "Work assigned" }}
+          empty={{
+            title: "Nothing handed out yet",
+            message: "A task, two colleagues paired to write together, or a research area for somebody to take up.",
+          }}
+        />
       )}
-    </section>
+    </Section>
   )
 }
 
-function AssignmentRow({ assignment: a }: { assignment: Assignment }) {
+/** The status the person has reached, which the head can move, and the way to withdraw the work. */
+function AssignmentActions({ assignment: a }: { assignment: Assignment }) {
   const [confirmWithdraw, setConfirmWithdraw] = useState(false)
   const move = useApiMutation<{ status: AssignmentStatus }, Assignment>(
     `/api/hod/assignments/${a.id}`,
@@ -1044,23 +1161,7 @@ function AssignmentRow({ assignment: a }: { assignment: Assignment }) {
   }
 
   return (
-    <li className="row flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 py-2.5 sm:px-2">
-      <div className="min-w-0 flex-1">
-        <p className="flex min-w-0 items-center gap-2">
-          <KindBadge label={a.kind_label} />
-          <span className="truncate text-base">{a.title}</span>
-        </p>
-        <Meta className="mt-0.5 block">
-          {who}
-          {a.due_date && (
-            <>
-              {" · "}
-              <Due day={a.due_date} done={a.status === "DONE"} />
-            </>
-          )}
-        </Meta>
-        {a.notes && <p className="mt-0.5 text-sm text-fg-muted">{a.notes}</p>}
-      </div>
+    <div className="flex items-center gap-2">
       <StatusSelect
         value={a.status}
         title={a.title}
@@ -1070,7 +1171,6 @@ function AssignmentRow({ assignment: a }: { assignment: Assignment }) {
       <Button
         kind="quiet"
         size="icon"
-        className="reveal"
         aria-label={`Withdraw ${a.title}`}
         onClick={() => setConfirmWithdraw(true)}
       >
@@ -1085,7 +1185,7 @@ function AssignmentRow({ assignment: a }: { assignment: Assignment }) {
         confirmLabel="Withdraw it"
         onConfirm={withdrawIt}
       />
-    </li>
+    </div>
   )
 }
 

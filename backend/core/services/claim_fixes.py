@@ -341,7 +341,7 @@ def apply_fix(
             if abs(delta) > 0.01:
                 PaidLedger.objects.create(
                     claim=claim,
-                    payout_month=claim.payout_month or timezone.now().date().replace(day=1),
+                    payout_month=claim.payout_month or timezone.localdate().replace(day=1),
                     department=claim.owner.department,
                     faculty_name=claim.owner.name,
                     staff_id=claim.staff_id,

@@ -14,6 +14,7 @@ import {
   type Overview,
 } from "@/pages/coordination-parts"
 import { PageHeader } from "@/ui/page-header"
+import { Details } from "@/ui/section"
 import { Tabs } from "@/ui/tabs"
 import { ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 
@@ -60,7 +61,7 @@ export function Coordination() {
   }
 
   return (
-    <div className="page space-y-8">
+    <div className="page space-y-6">
       <PageHeader title="Coordination" sub={SUB[tab]} />
 
       <Tabs
@@ -94,18 +95,22 @@ function DeskTab() {
   }
   const o = q.data
   return (
-    <div className="space-y-10">
+    <div className="space-y-6">
       <Summary o={o} />
-      {/* The work first: handing claims out. The pace and the ageing follow. */}
+      {/* The work first: handing claims out, in one table. The pace follows, one step away. */}
       <Assign slaDays={o.sla_days} />
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-x-12 gap-y-10 lg:grid-cols-2">
-        <Workload o={o} />
-        <Ageing o={o} />
-      </div>
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-x-12 gap-y-10 lg:grid-cols-2">
-        <Throughput o={o} />
-        <Stuck o={o} />
-      </div>
+      <Details label="the desk's pace: workload, waiting times and weekly throughput">
+        <div className="space-y-10 pt-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-x-12 gap-y-10 lg:grid-cols-2">
+            <Workload o={o} />
+            <Ageing o={o} />
+          </div>
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-x-12 gap-y-10 lg:grid-cols-2">
+            <Throughput o={o} />
+            <Stuck o={o} />
+          </div>
+        </div>
+      </Details>
     </div>
   )
 }

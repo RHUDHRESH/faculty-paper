@@ -1,25 +1,23 @@
 import { useEffect, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
-import { ChevronRight, Copy, Flag, Search, SearchX, Wrench } from "lucide-react"
+import { Copy, Flag, Search, SearchX, Wrench } from "lucide-react"
 
 import { useAuth, type Role } from "@/app/auth"
-import { hubSections } from "@/app/nav"
+import { api } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { paperTitle } from "@/lib/names"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Chip } from "@/ui/chip"
-import { AnswerLine, AnswerWord, tieNumbers } from "@/ui/answer"
-import { Thread, THREAD_STAGES } from "@/ui/thread"
-import { THREAD_DESK, threadCounts, threadLate, trackKey } from "@/pages/home-track"
+import { Answer } from "@/ui/answer"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
-import { Input } from "@/ui/field"
+import { Input, Select } from "@/ui/field"
 import { filterBar } from "@/ui/filter-bar"
 import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { Avatar, initialsOf } from "@/ui/person"
 import { EmptyState, ErrorState, NotOpen, Skeleton, SkeletonRows } from "@/ui/state"
-import { Meta, SectionTitle } from "@/ui/text"
+import { Meta } from "@/ui/text"
 import { PageHeader } from "@/ui/page-header"
 import { Table, type Column } from "@/ui/table"
 import { WhyAmountSheet } from "@/pages/track-why"
@@ -29,10 +27,7 @@ import {
   clean,
   days,
   isErpNumber,
-  MAIN_STAGES,
   paidLabel,
-  SIDE_STAGES,
-  type Ageing,
   type TrackPayload as Payload,
   type TrackRowData as Row,
   type TrackStage as Stage,
@@ -54,17 +49,9 @@ import {
  * paper. This page draws what it is sent and never guesses at the rest.
  */
 
-const PAGE_SIZE = 25
-
-
-
-const AGE_BAR: { key: keyof Ageing; label: string; className: string }[] = [
-  { key: "week", label: "a week or less", className: "bg-fg-subtle/40" },
-  { key: "fortnight", label: "8 to 14 days", className: "bg-caution/45" },
-  { key: "month", label: "15 to 30 days", className: "bg-caution" },
-  { key: "older", label: "over 30 days", className: "bg-critical" },
-]
-
+/** The four stages shown as figures; every stage is in the Stage filter. */
+const KPI_STAGES = ["submitted", "checked", "approved", "paid"]
+const HEAD_KPI_STAGES = ["review", "approved", "completed", "sent_back"]
 
 function monthLabel(ym: string): string {
   const [y, m] = ym.split("-").map(Number)
@@ -83,6 +70,8 @@ export function Track() {
   const fix = params.get("fix") ?? ""
   const why = params.get("why") ?? ""
   const page = Math.max(0, Number.parseInt(params.get("page") ?? "0", 10) || 0)
+  const sort = ["oldest", "newest", "amount"].includes(params.get("sort") ?? "") ? params.get("sort")! : "oldest"
+  const pageSize = [30, 50, 100].includes(Number(params.get("size"))) ? Number(params.get("size")) : 30
   const office = role === "SUPER_ADMIN" || role === "RESEARCH_CELL" || role === "RESEARCH_COORDINATOR"
 
   function setParam(name: string, value: string) {
@@ -111,8 +100,20 @@ export function Track() {
   if (month) query.set("month", month)
   if (q) query.set("q", q)
   if (fix && office) query.set("fix", fix)
-  query.set("limit", String(PAGE_SIZE))
-  query.set("offset", String(page * PAGE_SIZE))
+  query.set("sort", sort)
+  const filterQuery = query.toString()
+  query.set("limit", String(pageSize))
+  query.set("offset", String(page * pageSize))
+
+  async function allRows(): Promise<Row[]> {
+    const out: Row[] = []
+    for (let offset = 0; offset < 5000; offset += 100) {
+      const res = await api<Payload>(`/api/track?${filterQuery}&limit=100&offset=${offset}`)
+      out.push(...res.results)
+      if (out.length >= res.total || res.results.length === 0) break
+    }
+    return out
+  }
 
   const { data, isLoading, isError, error, refetch } = useApi<Payload>(
     ["track", query.toString()],
@@ -125,13 +126,24 @@ export function Track() {
   })
   const whyRow = data?.results.find((r) => r.id === why)
   const stages = data?.stages ?? []
-  // The server sends the stages in order, and which ones this reader has.
-  const main = stages.filter((s) => MAIN_STAGES.includes(s.key))
-  const side = stages.filter((s) => SIDE_STAGES.includes(s.key))
-  const chosen = stages.find((s) => s.key === stage)
   const filtered = Boolean(stage || department || month || q || fix)
   const head = data?.scope === "department"
-  const related = hubSections("claims", role).flatMap((s) => s.items)
+  const stageText = (s: Stage) => `${s.label} (${s.count.toLocaleString("en-IN")})`
+  const kpis = (head ? HEAD_KPI_STAGES : KPI_STAGES)
+    .map((k) => stages.find((s) => s.key === k))
+    .filter((s): s is Stage => Boolean(s))
+    .map((s) => {
+      const next = new URLSearchParams(params)
+      if (stage === s.key) next.delete("stage")
+      else next.set("stage", s.key)
+      next.delete("page")
+      const qs = next.toString()
+      return {
+        value: s.count,
+        label: data?.sees_money && (s.amount ?? 0) > 0 ? `${s.label}, ${money(s.amount)}` : s.label,
+        to: qs ? `/track?${qs}` : "/track",
+      }
+    })
 
   if (isError && error?.status === 403) {
     return (
@@ -159,40 +171,9 @@ export function Track() {
             ? `Where ${data?.department ?? "your department"}'s claims are.`
             : "Where every claim is, and how long it has waited."
         }
-      >
-        {related.length > 0 && (
-          <p className="mt-3 flex flex-wrap items-center gap-x-1 gap-y-1 text-sm text-fg-muted">
-            <span>Also look at</span>
-            {related.map((r, i) => (
-              <span key={r.to} className="inline-flex items-center gap-1">
-                {i > 0 && <span aria-hidden>·</span>}
-                <Link to={r.to} className="text-accent underline-offset-4 hover:underline">
-                  {r.label}
-                </Link>
-              </span>
-            ))}
-          </p>
-        )}
-      </PageHeader>
+/>
 
-      {!head && data && <WaitingLine stages={stages} />}
-
-      {head && data && <HeadLine stages={data.stages} department={data.department} />}
-
-      <Board
-        loading={isLoading && !data}
-        main={main}
-        side={side}
-        selected={stage}
-        onSelect={(k) => setParam("stage", k === stage ? "" : k)}
-        money={data?.sees_money ?? false}
-        flags={data?.sees_flags ?? false}
-        total={data?.total_claims ?? 0}
-        head={head}
-        role={role}
-        params={params}
-        chosen={chosen}
-      />
+      {data ? <Answer items={kpis} /> : <Skeleton className="h-20" />}
 
       {office && (fixes.data?.claims_needing_a_fix ?? 0) > 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-base" data-testid="track-fixes">
@@ -236,26 +217,23 @@ export function Track() {
             aria-label="Month filed"
             className="sm:w-48"
           />
-        </div>
-
-        <div className="flex min-h-7 flex-wrap items-center gap-2" role="status" aria-live="polite">
-          {data && (
-            <Meta className="tabular">
-              {chosen ? `${chosen.label}: ` : ""}
-              {data.total === 1 ? "1 claim" : `${data.total.toLocaleString("en-IN")} claims`}
-              {fix ? " that need fixing" : filtered ? " matching" : ""}
-            </Meta>
-          )}
+          <Select aria-label="Stage" value={stage} onChange={(e) => setParam("stage", e.target.value)} className="sm:w-52">
+            <option value="">Every stage</option>
+            {stages.map((s) => (
+              <option key={s.key} value={s.key}>
+                {stageText(s)}
+              </option>
+            ))}
+          </Select>
           {filtered && (
             <Button
               kind="quiet"
-              size="sm"
               onClick={() => {
                 setDraft("")
                 setParams(new URLSearchParams())
               }}
             >
-              Clear all
+              Clear
             </Button>
           )}
         </div>
@@ -273,11 +251,7 @@ export function Track() {
             art="no-results"
             icon={SearchX}
             title={filtered ? "No claim matches these filters" : "No claims have been filed yet"}
-            message={
-              filtered
-                ? "Try a different stage or month, or clear the filters."
-                : "A claim shows up here the moment it is filed."
-            }
+            message={filtered ? "Clear the filters to see every claim." : "A claim shows up here the moment it is filed."}
           />
         ) : (
           <>
@@ -289,13 +263,32 @@ export function Track() {
               sinceFiling={head}
               office={office}
               onWhy={(id) => setParam("why", id)}
+              sort={sort}
+              onSort={(k) =>
+                setParam("sort", k === "amount" ? "amount" : sort === "oldest" ? "newest" : "oldest")
+              }
+              getAllRows={allRows}
             />
-            <Pagination
-              page={page}
-              pageSize={PAGE_SIZE}
-              total={data!.total}
-              onChange={(n) => setParam("page", n > 0 ? String(n) : "")}
-            />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Pagination
+                page={page}
+                pageSize={pageSize}
+                total={data!.total}
+                onChange={(n) => setParam("page", n > 0 ? String(n) : "")}
+              />
+              <Select
+                aria-label="Rows per page"
+                value={String(pageSize)}
+                onChange={(e) => setParam("size", e.target.value === "30" ? "" : e.target.value)}
+                className="w-auto"
+              >
+                {[30, 50, 100].map((n) => (
+                  <option key={n} value={n}>
+                    {n} per page
+                  </option>
+                ))}
+              </Select>
+            </div>
           </>
         )}
       </section>
@@ -315,288 +308,6 @@ export function Track() {
 /* The board                                                              */
 /* ------------------------------------------------------------------------ */
 
-const WAITING_KEYS = ["submitted", "checked", "approved", "authorised"]
-
-/** The answer to "is anything stuck": claims on their way, and how many have waited over two weeks. */
-function WaitingLine({ stages }: { stages: Stage[] }) {
-  const here = stages.filter((s) => WAITING_KEYS.includes(s.key))
-  const waiting = here.reduce((n, s) => n + s.count, 0)
-  const late = here.reduce((n, s) => n + (s.ageing ? s.ageing.month + s.ageing.older : 0), 0)
-  if (waiting === 0) return <AnswerLine>Nothing is waiting at any desk.</AnswerLine>
-  const onWay = waiting === 1 ? "One claim is on its way" : `${waiting.toLocaleString("en-IN")} claims are on their way`
-  return (
-    <AnswerLine>
-      {tieNumbers(onWay)},{" "}
-      {late === 0 ? (
-        <AnswerWord tone="sage">none late</AnswerWord>
-      ) : (
-        <AnswerWord tone="amber">{late === 1 ? "one waited over two weeks" : `${late.toLocaleString("en-IN")} waited over two weeks`}</AnswerWord>
-      )}
-      .
-    </AnswerLine>
-  )
-}
-
-function Board({
-  loading,
-  main,
-  side,
-  selected,
-  onSelect,
-  money: showMoney,
-  flags,
-  total,
-  head,
-  role,
-  params,
-  chosen,
-}: {
-  loading: boolean
-  main: Stage[]
-  side: Stage[]
-  selected: string
-  onSelect: (key: string) => void
-  money: boolean
-  flags: boolean
-  total: number
-  head: boolean
-  role: Role | undefined
-  params: URLSearchParams
-  chosen: Stage | undefined
-}) {
-  if (loading) {
-    return (
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-5" aria-hidden>
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-32" />
-        ))}
-      </div>
-    )
-  }
-  // Each station's link keeps the reader's filters and drops the page number.
-  const to = Object.fromEntries(
-    THREAD_STAGES.map((s) => {
-      const next = new URLSearchParams(params)
-      next.set("stage", trackKey(s.key))
-      next.delete("page")
-      return [s.key, `/track?${next.toString()}`]
-    })
-  )
-  return (
-    <section className="space-y-3" aria-labelledby="track-board">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <SectionTitle>
-          <span id="track-board">The journey</span>
-        </SectionTitle>
-        {head ? (
-          <Meta className="tabular">{total.toLocaleString("en-IN")} claims in all. Choose a stage to list its claims.</Meta>
-        ) : selected && chosen ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <Meta className="tabular">
-              {`Showing ${chosen.count === 1 ? "the 1 claim" : `the ${chosen.count.toLocaleString("en-IN")} claims`} at ${chosen.label}.`}
-            </Meta>
-            <Button kind="quiet" size="sm" onClick={() => onSelect("")}>
-              Show every stage
-            </Button>
-          </div>
-        ) : (
-          <Meta className="tabular">{total.toLocaleString("en-IN")} claims in all. Choose a station to list its claims.</Meta>
-        )}
-      </div>
-
-      {head ? (
-      <ol
-        className="grid grid-cols-[minmax(0,1fr)] overflow-hidden rounded-panel border border-line bg-surface sm:auto-cols-fr sm:grid-flow-col sm:divide-x sm:divide-line max-sm:divide-y max-sm:divide-line"
-        aria-label="Claims by stage"
-      >
-        {main.map((s, i) => (
-          <li key={s.key} className="relative min-w-0">
-            <StageButton stage={s} selected={selected === s.key} onSelect={onSelect} money={showMoney} flags={flags} />
-            {i < main.length - 1 && (
-              <ChevronRight
-                className="pointer-events-none absolute -right-2 top-4 z-10 hidden size-4 rounded-full bg-surface text-fg-subtle sm:block"
-                aria-hidden
-              />
-            )}
-          </li>
-        ))}
-      </ol>
-      ) : (
-        <Thread
-          counts={threadCounts(main)}
-          late={threadLate(main)}
-          you={role ? THREAD_DESK[role] : undefined}
-          to={to}
-          caption="Each dot is a claim. Amber has waited over two weeks."
-        />
-      )}
-
-      {side.length > 0 && (
-        <ul className="flex flex-wrap items-center gap-2" aria-label="Claims off the main path">
-          <li>
-            <Meta>Off the main path</Meta>
-          </li>
-          {side.map((s) => (
-            <li key={s.key}>
-              <button
-                type="button"
-                aria-pressed={selected === s.key}
-                onClick={() => onSelect(s.key)}
-                title={s.caption}
-                className={cn(
-                  "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm ring-1 ring-inset max-sm:min-h-10",
-                  selected === s.key ? "bg-navy-wash text-fg ring-navy/40" : "bg-surface text-fg-muted ring-line hover:text-fg",
-                  s.count === 0 && selected !== s.key && "text-fg-subtle"
-                )}
-              >
-                <span>{s.label}</span>
-                <span className="tabular font-semibold">{s.count.toLocaleString("en-IN")}</span>
-                {showMoney && (s.amount ?? 0) > 0 && <span className="tabular text-xs">{money(s.amount)}</span>}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  )
-}
-
-function StageButton({
-  stage: s,
-  selected,
-  onSelect,
-  money: showMoney,
-  flags,
-}: {
-  stage: Stage
-  selected: boolean
-  onSelect: (key: string) => void
-  money: boolean
-  flags: boolean
-}) {
-  const waiting = s.ageing ? Object.values(s.ageing).reduce((a, b) => a + b, 0) : 0
-  const old = s.oldest_days
-  // An amount of nothing is not a figure worth drawing.
-  const hasMoney = showMoney && (s.amount ?? 0) > 0
-  return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={() => onSelect(s.key)}
-      className={cn(
-        // A phone gets a slim row (the count, then the stage); a wide screen
-        // gets a column with the count at its corner.
-        "relative grid h-full w-full grid-cols-[2.75rem_minmax(0,1fr)] items-start gap-x-3 px-4 py-3 text-left",
-        "transition-colors duration-[var(--dur-1)] sm:flex sm:flex-col sm:gap-1 sm:py-4",
-        selected ? "bg-active" : "hover:bg-hover"
-      )}
-    >
-      <span className="text-lg font-semibold tabular leading-none max-sm:pt-0.5 sm:absolute sm:right-4 sm:top-4">
-        {s.count.toLocaleString("en-IN")}
-      </span>
-      <span className="flex min-w-0 flex-col gap-1 sm:w-full">
-        <span className="text-sm font-medium sm:pr-12">
-          {s.label}
-          {hasMoney && (
-            <span className="ml-2 font-normal tabular text-fg-muted sm:hidden">{money(s.amount)}</span>
-          )}
-        </span>
-        <span className="text-pretty text-xs text-fg-muted max-sm:hidden">{s.caption}</span>
-        {hasMoney && <span className="text-sm tabular text-fg max-sm:hidden">{money(s.amount)}</span>}
-        {s.ageing && waiting > 0 ? (
-          <>
-            <span
-              className="mt-1 flex h-1.5 w-full overflow-hidden rounded-full bg-line"
-              role="img"
-              aria-label={AGE_BAR.map((a) => `${s.ageing![a.key]} ${a.label}`).join(", ")}
-            >
-              {AGE_BAR.map((a) => {
-                const n = s.ageing![a.key]
-                return n ? <span key={a.key} className={a.className} style={{ width: `${(n / waiting) * 100}%` }} /> : null
-              })}
-            </span>
-            <span
-              className={cn(
-                "text-xs tabular text-fg-muted",
-                old != null && old > 30 && "font-medium text-critical",
-                old != null && old > 14 && old <= 30 && "text-caution"
-              )}
-            >
-              Longest {days(old)}
-              {s.average_days != null && waiting > 1 ? `, usually ${days(s.average_days)}` : ""}
-            </span>
-          </>
-        ) : (
-          <span className="mt-1 h-1.5 max-sm:hidden" aria-hidden />
-        )}
-        {flags && (s.flagged ?? 0) > 0 && (
-          <span className="inline-flex items-center gap-1 text-xs text-caution">
-            <Flag className="size-3" aria-hidden />
-            {s.flagged === 1 ? "1 with an open flag" : `${s.flagged} with open flags`}
-          </span>
-        )}
-      </span>
-    </button>
-  )
-}
-
-/* ------------------------------------------------------------------------ */
-/* The claims                                                               */
-/* ------------------------------------------------------------------------ */
-
-/**
- * What an "ERP-" claim number is, said once above the table instead of on every
- * row. Without it the numbers read as codes: nobody who did not run the import
- * knows that RAW means "still waiting when it was imported" and PROCESSED
- * means "already paid".
- */
-function ErpLegend({ head }: { head?: boolean }) {
-  return (
-    <details className="max-w-3xl text-sm text-fg-muted" data-testid="erp-legend">
-      <summary className="cursor-pointer list-none underline-offset-4 hover:text-fg hover:underline">
-        What an ERP- number is
-      </summary>
-      <p className="mt-1 text-pretty">
-        {head
-          ? "A claim number that starts ERP- was brought over from the college's earlier system, so it has no FP- number."
-          : "A claim number that starts ERP- came from the old ERP and has no FP- number. ERP-RAW claims were still waiting when they were imported. ERP-PROCESSED claims had already been paid."}
-      </p>
-    </details>
-  )
-}
-
-/**
- * A head's answer, in one sentence: how many of the department's claims are
- * still being checked, how long the longest has waited, and how many are done.
- * A head is not in the chain, so it also says what they can do about one.
- */
-function HeadLine({ stages, department }: { stages: Stage[]; department: string | null | undefined }) {
-  const by = (k: string) => stages.find((s) => s.key === k)
-  const review = by("review")
-  const approved = by("approved")
-  const done = by("completed")
-  const sentBack = by("sent_back")
-  const total = stages.filter((s) => MAIN_STAGES.includes(s.key) || s.key === "sent_back").reduce((a, s) => a + s.count, 0)
-  const part = (n: number, one: string, many: string) => `${n.toLocaleString("en-IN")} ${n === 1 ? one : many}`
-  const bits = [
-    review?.count
-      ? `${part(review.count, "claim is", "claims are")} being checked by the college${review.oldest_days ? `, the longest for ${days(review.oldest_days)}` : ""}`
-      : "No claim is waiting to be checked",
-    approved?.count ? `${part(approved.count, "is", "are")} approved and being paid` : "",
-    sentBack?.count ? `${part(sentBack.count, "was", "were")} sent back to the claimant` : "",
-    done?.count ? `${part(done.count, "is", "are")} complete` : "",
-  ].filter(Boolean)
-  return (
-    <p className="max-w-3xl text-pretty text-base" role="status" data-testid="track-head-line">
-      {total ? `${department ?? "Your department"} has ${part(total, "claim", "claims")}: ` : ""}
-      {bits.join("; ")}.{" "}
-      <span className="text-fg-muted">
-        You are not in the chain, so you cannot move a claim. If one is stuck, ask its owner.
-      </span>
-    </p>
-  )
-}
-
 function ClaimTable({
   rows,
   role,
@@ -605,6 +316,9 @@ function ClaimTable({
   sinceFiling,
   office,
   onWhy,
+  sort,
+  onSort,
+  getAllRows,
 }: {
   rows: Row[]
   role: Role | undefined
@@ -614,28 +328,33 @@ function ClaimTable({
   sinceFiling: boolean
   office: boolean
   onWhy: (id: string) => void
+  sort: string
+  onSort: (key: string) => void
+  getAllRows: () => Promise<Row[]>
 }) {
-  const hasErp = rows.some((r) => isErpNumber(r.ticket_number))
-
   const columns: Column<Row>[] = [
     {
       key: "number",
       header: "Claim no.",
       empty: "No number yet",
+      sortable: false,
+      exportValue: (r) => r.ticket_number ?? null,
       className: "whitespace-nowrap",
       cell: (r) =>
         r.ticket_number ? (
-          <span
-            className="tabular text-xs text-fg-muted"
+          <Link
+            to={claimHref(role, r)}
+            className="tabular text-sm text-accent underline-offset-4 hover:underline"
             title={isErpNumber(r.ticket_number) ? "Imported from the old ERP, so it has no FP- number" : undefined}
           >
             {r.ticket_number}
-          </span>
+          </Link>
         ) : null,
     },
     {
       key: "claimant",
       header: "Claimant",
+      exportValue: (r) => clean(r.owner_name),
       className: "md:max-w-[11rem]",
       cell: (r) => {
         const notFound = clean(r.owner_name) === null
@@ -665,6 +384,7 @@ function ClaimTable({
     {
       key: "paper",
       header: "Paper",
+      exportValue: (r) => clean(r.paper_title),
       className: "md:max-w-[17rem]",
       cell: (r) => {
         const title = clean(r.paper_title)
@@ -685,6 +405,7 @@ function ClaimTable({
     {
       key: "stands",
       header: "Where it stands",
+      exportValue: (r) => r.stage_label,
       className: "min-w-[6rem]",
       cell: (r) => (
         <span className="flex flex-wrap items-center gap-1.5">
@@ -711,6 +432,9 @@ function ClaimTable({
       key: "time",
       header: sinceFiling ? "Since filed" : "Time in stage",
       align: "right",
+      sortable: true,
+      exportKind: "number",
+      exportValue: (r) => r.days_in_stage ?? null,
       className: "whitespace-nowrap",
       cell: (r) => {
         const d = r.days_in_stage
@@ -735,6 +459,9 @@ function ClaimTable({
       key: "amount",
       header: "Amount",
       align: "right",
+      sortable: true,
+      exportKind: "money",
+      exportValue: (r) => r.amount || null,
       className: "min-w-[7.5rem]",
       cell: (r) => (
         <span className="flex flex-col md:items-end">
@@ -763,15 +490,16 @@ function ClaimTable({
   }
 
   return (
-    <div className="space-y-3">
-      {hasErp && <ErpLegend head={sinceFiling} />}
-      <Table
-        rows={rows}
-        columns={columns}
-        getKey={(r) => r.id}
-        maxHeight="none"
-        caption="Claims and where each one stands"
-      />
-    </div>
+    <Table
+      rows={rows}
+      columns={columns}
+      getKey={(r) => r.id}
+      maxHeight="none"
+      caption="Claims and where each one stands"
+      sortKey={sort === "amount" ? "amount" : "time"}
+      sortDir={sort === "oldest" || sort === "amount" ? "desc" : "asc"}
+      onSort={onSort}
+      tools={{ id: "track", title: "Track", getAllRows }}
+    />
   )
 }

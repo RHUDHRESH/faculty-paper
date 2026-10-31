@@ -6,8 +6,8 @@ copy, without touching a single claim or payment. It shares its rules with the
 "Issue passwords" screen (core/services/issue_passwords.py), so the two behave
 identically.
 
-Every account is flagged `must_change_password`, so the generated value only
-survives until the person signs in once.
+Nothing forces a password change (people change theirs in Profile settings),
+so keep the generated value safe until they do.
 
     python manage.py reset_faculty_passwords --out gs://bucket/creds.csv
     python manage.py reset_faculty_passwords --out creds.csv --role HOD
@@ -80,4 +80,4 @@ class Command(BaseCommand):
                 f"{len(rows)} passwords written to {path}. Keep it out of git."
             ))
 
-        self.stdout.write("  every one is flagged must_change_password")
+        self.stdout.write("  nothing forces a change; people change it in Profile settings")

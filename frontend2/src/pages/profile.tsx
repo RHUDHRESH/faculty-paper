@@ -211,7 +211,7 @@ export function Profile() {
 
   if (meQuery.isLoading) {
     return (
-      <div className="page space-y-8 py-8">
+      <div className="page space-y-8">
         <SkeletonText lines={2} className="max-w-xs" />
         <SkeletonRows rows={6} />
       </div>
@@ -220,7 +220,7 @@ export function Profile() {
 
   if (meQuery.isError || !meQuery.data) {
     return (
-      <div className="page py-8">
+      <div className="page">
         <ErrorState
           title="Could not load your account"
           message="The server did not answer. Your details are unchanged and nothing has been lost."
@@ -422,7 +422,6 @@ export function Profile() {
                 </div>
                 <Button
                   kind="default"
-                  size="sm"
                   onClick={() => setManualPasswordOpen(true)}
                   className="shrink-0"
                 >
@@ -536,7 +535,7 @@ function YourDetails({ phone, orcid }: { phone: string | null; orcid: string | n
     <form onSubmit={submit} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <label htmlFor={phoneId} className="block text-sm font-medium">
+          <label htmlFor={phoneId} className="block text-base font-medium">
             Phone
           </label>
           <Input
@@ -554,17 +553,17 @@ function YourDetails({ phone, orcid }: { phone: string | null; orcid: string | n
             aria-invalid={error?.field === "phone" ? true : undefined}
           />
           {error?.field === "phone" ? (
-            <p id={`${phoneId}-help`} role="alert" className="text-xs text-critical">
+            <p id={`${phoneId}-help`} role="alert" className="text-sm text-critical">
               {error.message}
             </p>
           ) : (
-            <p id={`${phoneId}-help`} className="text-xs text-fg-muted">
+            <p id={`${phoneId}-help`} className="text-sm text-fg-muted">
               Optional. The research office uses it to reach you about a paper.
             </p>
           )}
         </div>
         <div className="space-y-1.5">
-          <label htmlFor={orcidId} className="block text-sm font-medium">
+          <label htmlFor={orcidId} className="block text-base font-medium">
             ORCID iD
           </label>
           <Input
@@ -579,11 +578,11 @@ function YourDetails({ phone, orcid }: { phone: string | null; orcid: string | n
             aria-invalid={error?.field === "orcid" ? true : undefined}
           />
           {error?.field === "orcid" ? (
-            <p id={`${orcidId}-help`} role="alert" className="text-xs text-critical">
+            <p id={`${orcidId}-help`} role="alert" className="text-sm text-critical">
               {error.message}
             </p>
           ) : (
-            <p id={`${orcidId}-help`} className="text-xs text-fg-muted">
+            <p id={`${orcidId}-help`} className="text-sm text-fg-muted">
               Optional. Paste the iD or the orcid.org link; papers carrying it are matched to you.
             </p>
           )}
@@ -720,7 +719,6 @@ function DetailRow({
           {onAsk && (
             <Button
               kind="default"
-              size="sm"
               onClick={onAsk}
               className="shrink-0"
               aria-label={`${pending ? "Change your request" : "Request a change"} to ${field ? REQUESTABLE[field].phrase : label}`}
@@ -856,7 +854,7 @@ function GoogleRow({ link, email }: { link: GoogleLink | null; email: string }) 
                 : "Either that Google account or your password signs you in. Unlinking leaves your password as it is."}
             </p>
           </div>
-          <Button kind="quiet" size="sm" onClick={() => setUnlinkOpen(true)} className="shrink-0">
+          <Button kind="quiet" onClick={() => setUnlinkOpen(true)} className="shrink-0">
             Unlink
           </Button>
         </div>
@@ -908,7 +906,6 @@ function GoogleRow({ link, email }: { link: GoogleLink | null; email: string }) 
           {!picking && (
             <Button
               kind="default"
-              size="sm"
               onClick={() => {
                 setError(null)
                 setPicking(true)
@@ -926,7 +923,7 @@ function GoogleRow({ link, email }: { link: GoogleLink | null; email: string }) 
             <div ref={slot} className="min-h-10" />
             {!drawn && !error && <Meta className="block">Loading Google's sign-in…</Meta>}
             <div className="flex items-center gap-3">
-              <Button kind="quiet" size="sm" onClick={() => setPicking(false)}>
+              <Button kind="quiet" onClick={() => setPicking(false)}>
                 Cancel
               </Button>
               {linkMutation.isPending && <Meta>Linking…</Meta>}
@@ -1014,12 +1011,12 @@ function PhotoRow({
               if (f) photo.mutate(f)
             }}
           />
-          <Button size="sm" onClick={() => input.current?.click()} disabled={photo.isPending}>
+          <Button onClick={() => input.current?.click()} disabled={photo.isPending}>
             <Camera />
             {photo.isPending ? "Uploading…" : photoUrl ? "Change photo" : "Add a photo"}
           </Button>
           {photoUrl && (
-            <Button kind="quiet" size="sm" onClick={() => photo.mutate(null)} disabled={photo.isPending}>
+            <Button kind="quiet" onClick={() => photo.mutate(null)} disabled={photo.isPending}>
               Remove photo
             </Button>
           )}
@@ -1143,7 +1140,7 @@ export function Interests() {
     <div className="space-y-3">
       <div>
         <h3 className="text-sm font-medium">What you work on</h3>
-        <p className="mt-0.5 text-xs text-fg-muted">
+        <p className="mt-0.5 text-sm text-fg-muted">
           Decides who you are matched with and what gets suggested to you. Up to{" "}
           {MAX_INTERESTS}.
         </p>
@@ -1198,7 +1195,7 @@ export function Interests() {
                     <span className="truncate">{t}</span>
                   </button>
                 ))}
-                <Button size="sm" disabled={save.isPending} onClick={() => persist(fromPapers)}>
+                <Button disabled={save.isPending} onClick={() => persist(fromPapers)}>
                   Add all
                 </Button>
               </div>
@@ -1221,7 +1218,7 @@ export function Interests() {
               aria-label="Add a domain"
               className="w-full max-w-xs"
             />
-            <Button kind="primary" size="sm" onClick={() => persist()} disabled={!dirty || save.isPending}>
+            <Button kind="primary" onClick={() => persist()} disabled={!dirty || save.isPending}>
               {save.isPending && <LoaderCircle className="animate-spin" />}
               {save.isPending ? "Saving…" : "Save"}
             </Button>

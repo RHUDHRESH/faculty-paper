@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
-import { Download, FileText, Printer, Receipt, SearchX, Undo2, X } from "lucide-react"
+import { FileText, Receipt, SearchX, Undo2 } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
 import { api } from "@/lib/api"
@@ -20,13 +20,15 @@ import {
   DialogTitle,
 } from "@/ui/dialog"
 import { Field, Input, Textarea } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
+import { cn } from "@/lib/cn"
 import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { Details } from "@/ui/section"
 import { Callout, EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
-import { ColumnLabel, Meta } from "@/ui/text"
+import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { PrintStamp } from "@/pages/reports-print"
 import type { FinancialYear, StatementMonth } from "@/pages/statements"
@@ -59,19 +61,6 @@ import {
  */
 
 const PAGE_SIZE = 50
-
-function csvCell(v: unknown): string {
-  return `"${String(v ?? "").replace(/"/g, '""')}"`
-}
-
-function downloadCsv(name: string, lines: string[]) {
-  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" })
-  const a = document.createElement("a")
-  a.href = URL.createObjectURL(blob)
-  a.download = name
-  a.click()
-  URL.revokeObjectURL(a.href)
-}
 
 export function PaymentsDone() {
   const { me } = useAuth()
@@ -140,50 +129,21 @@ export function PaymentsDone() {
   )
   const chosen = month ? byMonth.get(month) : undefined
 
-  const [exporting, setExporting] = useState(false)
   const [voidId, setVoidId] = useState<string | null>(null)
   const voidClaim = voidId ? (rows.find((c) => c.id === voidId) ?? null) : null
 
   /** Every payment matching the filter, not just this page, 200 at a time. */
-  async function exportCsv() {
-    setExporting(true)
-    try {
-      const all: PayoutClaim[] = []
-      for (let off = 0; ; off += 200) {
-        const p = new URLSearchParams(filters)
-        p.set("limit", "200")
-        p.set("offset", String(off))
-        const r = await api<PayoutsPage<PaidTotals>>(`/api/admin/payouts?${p.toString()}`)
-        all.push(...r.results)
-        if (r.results.length === 0 || all.length >= r.total) break
-      }
-      downloadCsv(`payments-paid-${new Date().toISOString().slice(0, 10)}.csv`, [
-        ["Month paid", "Paid on", "Voucher", "Claim no.", "Staff id", "Name", "Department", "Paper", "Amount (INR)", "Held back by research threshold (INR)"]
-          .map(csvCell)
-          .join(","),
-        ...all.map((c) =>
-          [
-            monthLabel(monthKey(c)),
-            c.paid_at?.slice(0, 10),
-            c.voucher_number,
-            c.ticket_number,
-            c.staff_id,
-            c.owner_name,
-            c.owner_department,
-            c.paper_title,
-            c.remuneration ?? "",
-            c.threshold_absorbed || "",
-          ]
-            .map(csvCell)
-            .join(",")
-        ),
-      ])
-      toast.ok(`Exported ${formatCount(all.length)} ${all.length === 1 ? "payment" : "payments"}`)
-    } catch (err) {
-      toast.fail(err)
-    } finally {
-      setExporting(false)
+  async function allRows(): Promise<PayoutClaim[]> {
+    const all: PayoutClaim[] = []
+    for (let off = 0; ; off += 200) {
+      const p = new URLSearchParams(filters)
+      p.set("limit", "200")
+      p.set("offset", String(off))
+      const r = await api<PayoutsPage<PaidTotals>>(`/api/admin/payouts?${p.toString()}`)
+      all.push(...r.results)
+      if (r.results.length === 0 || all.length >= r.total) break
     }
+    return all
   }
 
   if (!allowed) {
@@ -195,13 +155,16 @@ export function PaymentsDone() {
   }
 
   const columns: Column<PayoutClaim>[] = [
-    { key: "claimant", header: "Paid to", className: "w-56", cell: (c) => <Claimant c={c} /> },
-    { key: "paper", header: "Paper", cell: (c) => <PaperCell c={c} journal={false} /> },
-    { key: "voucher", header: "Voucher", className: "w-40 break-all", empty: "None", cell: (c) => c.voucher_number },
+    { key: "claimant", header: "Paid to", exportValue: (c) => c.owner_name, cell: (c) => <Claimant c={c} size="md" /> },
+    { key: "staff_id", header: "Staff id", defaultHidden: true, exportValue: (c) => c.staff_id ?? null, cell: (c) => c.staff_id },
+    { key: "department", header: "Department", defaultHidden: true, exportValue: (c) => c.owner_department ?? null, cell: (c) => c.owner_department },
+    { key: "paper", header: "Paper", exportValue: (c) => c.paper_title, cell: (c) => <PaperCell c={c} journal={false} /> },
+    { key: "claim_no", header: "Claim no.", defaultHidden: true, exportValue: (c) => c.ticket_number, cell: (c) => c.ticket_number },
+    { key: "voucher", header: "Voucher", className: "break-all", empty: "None", exportValue: (c) => c.voucher_number ?? null, cell: (c) => c.voucher_number },
     {
       key: "paid",
       header: "Paid on",
-      className: "w-40",
+      exportValue: (c) => c.paid_at?.slice(0, 10) ?? null,
       cell: (c) => (
         <div>
           <span className="block">{dateTime(c.paid_at)}</span>
@@ -209,12 +172,13 @@ export function PaymentsDone() {
         </div>
       ),
     },
-    { key: "amount", header: "Amount", align: "right", className: "w-52", cell: (c) => <AmountCell c={c} /> },
+    { key: "amount", header: "Amount", align: "right", exportKind: "money", exportValue: (c) => c.remuneration ?? null, cell: (c) => <AmountCell c={c} /> },
     {
       key: "ledger",
       header: "On the ledger",
       align: "right",
-      className: "w-36",
+      exportKind: "money",
+      exportValue: (c) => c.ledger_paid ?? null,
       cell: (c) => {
         if (c.ledger_paid == null) return null
         const same = Math.abs(c.ledger_paid - (c.remuneration || 0)) < 0.005
@@ -232,9 +196,8 @@ export function PaymentsDone() {
   if (isSuper) {
     columns.push({
       key: "undo",
-      header: "Action",
+      header: <span className="sr-only">Undo</span>,
       label: "Undo",
-      className: "w-24",
       cell: (c) => (
         <Button kind="danger" size="sm" onClick={() => setVoidId(c.id)}>
           <Undo2 className="size-3.5" />
@@ -249,6 +212,7 @@ export function PaymentsDone() {
       <PrintStamp title="Register of incentive payments" scope={chosen ? chosen.label : "every month paid"} />
       <PageHeader
         title="Paid"
+        sub="Every claim Finance has paid, with its voucher and date."
         action={
           <Button kind="default" size="sm" asChild>
             <Link to="/statements">
@@ -302,51 +266,35 @@ export function PaymentsDone() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-end gap-3 print:hidden">
-        <Field label="Find a payment" className="w-full max-w-sm">
-          <Input
-            type="search"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Name, staff id, claim number or voucher"
-          />
-        </Field>
-        <div>
-          <ColumnLabel className="mb-1 block">Month paid</ColumnLabel>
-          <Combobox
-            value={month}
-            onChange={(v) => setFilter("month", v)}
-            options={monthOptions}
-            placeholder={months.isLoading ? "Loading…" : "All months"}
-            aria-label="Month paid"
-            className="w-56 max-w-full"
-          />
-        </div>
-        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
-          {filtered && (
-            <Button
-              kind="default"
-              size="md"
-              onClick={() => {
-                setDraft("")
-                setParams(new URLSearchParams())
-              }}
-            >
-              <X />
-              Clear filters
-            </Button>
-          )}
-          <Button kind="default" size="md" onClick={() => void exportCsv()} disabled={exporting || total === 0}>
-            <Download />
-            {exporting ? "Exporting…" : `Export ${formatCount(total)} ${total === 1 ? "payment" : "payments"} (CSV)`}
+      <div className={cn(filterBar, "print:hidden")} role="search">
+        <Input
+          type="search"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Name, staff id, claim number or voucher"
+          aria-label="Find a payment"
+          className="w-full min-w-0 sm:w-80"
+        />
+        <Combobox
+          value={month}
+          onChange={(v) => setFilter("month", v)}
+          options={monthOptions}
+          placeholder={months.isLoading ? "Loading…" : "All months"}
+          aria-label="Month paid"
+          className="w-56 max-w-full"
+        />
+        {filtered && (
+          <Button
+            kind="quiet"
+            onClick={() => {
+              setDraft("")
+              setParams(new URLSearchParams())
+            }}
+          >
+            Clear filters
           </Button>
-          <Button kind="default" size="md" onClick={() => window.print()}>
-            <Printer />
-            Print register
-          </Button>
-        </div>
+        )}
       </div>
-
 
       {isLoading ? (
         <SkeletonRows rows={8} rowHeight={52} />
@@ -391,9 +339,9 @@ export function PaymentsDone() {
             rows={rows}
             columns={columns}
             getKey={(c) => c.id}
-            minWidth="64rem"
             caption="Payments made"
             maxHeight="none"
+            tools={{ id: "payments-paid", title: "Payments made", subtitle: chosen ? chosen.label : undefined, getAllRows: allRows }}
           />
           <ErpLegend rows={rows} />
           <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={goToPage} />

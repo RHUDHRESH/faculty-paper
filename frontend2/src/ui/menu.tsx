@@ -48,7 +48,7 @@ export function MenuContent({
             ...style,
           }}
           className={cn(
-            "z-50 min-w-[10rem] overflow-hidden rounded-panel bg-surface p-1",
+            "z-50 min-w-[10rem] overflow-hidden rounded-control border border-edge bg-surface p-1",
             "shadow-pop",
             menuPop,
             className
@@ -102,8 +102,8 @@ export function MenuItem({
         // once, so it has to be unmistakable: a wash and an outline, and the
         // icon takes the text colour.
         danger
-          ? "text-critical data-[highlighted]:bg-critical-wash data-[highlighted]:ring-1 data-[highlighted]:ring-inset data-[highlighted]:ring-critical-line"
-          : "text-fg data-[highlighted]:bg-hover data-[highlighted]:ring-1 data-[highlighted]:ring-inset data-[highlighted]:ring-edge [&_svg]:text-fg-subtle data-[highlighted]:[&_svg]:text-fg",
+          ? "text-critical data-[highlighted]:bg-critical-wash"
+          : "text-fg data-[highlighted]:bg-sunken [&_svg]:text-fg-subtle data-[highlighted]:[&_svg]:text-fg",
         className
       )}
       {...props}

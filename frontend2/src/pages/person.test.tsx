@@ -19,7 +19,7 @@ describe("Published work — the full record", () => {
     }))
     renderWithProviders(<PublishedWork papers={papers} />)
     expect(screen.getByText("23 papers")).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "2026" })).toBeInTheDocument()
+    expect(screen.getAllByRole("cell", { name: /2026/ }).length).toBeGreaterThan(0)
     expect(screen.getByText("Paper 9")).toBeInTheDocument()
     expect(screen.queryByText("Paper 10")).toBeNull()
     await userEvent.click(screen.getByRole("button", { name: "Show more (13 left)" }))

@@ -130,7 +130,7 @@ export function PreSubmitCheck({
               )
             })}
           </ul>
-          <p className="text-xs text-fg-muted">{result.note}</p>
+          <p className="text-sm text-fg-muted">{result.note}</p>
         </>
       ) : null}
     </section>

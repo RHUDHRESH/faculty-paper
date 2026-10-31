@@ -153,7 +153,7 @@ describe("Convocation shared components", () => {
       </>
     )
     expect(screen.getByText("Certificate")).toHaveAttribute("data-area", "honours")
-    expect(container.querySelector('img[src="/illustrations/empty-papers.svg"]')).not.toBeNull()
+    expect(container.querySelector("img")).toBeNull()
     expect(screen.getByRole("img", { name: "trend" })).toBeInTheDocument()
   })
 })

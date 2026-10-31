@@ -14,7 +14,7 @@ import { Clearing } from "@/pages/clearing"
 import { renderWithProviders } from "@/test/harness"
 
 /**
- * The clearing queue in two lanes (docs/ux/26). What a clerk relies on: the
+ * The clearing queue as one table, ready claims first (docs/ux/26). What a clerk relies on: the
  * ready claims are together and the others say why they are not; a row opens
  * the full-page review; a filter survives in the address; `c` then Enter
  * clears the claim under the cursor; `a` chooses every ready claim; the batch
@@ -100,53 +100,54 @@ async function open(route = "/clearing") {
     "/api/desk/bulk-hold": { held: 2, held_ids: ["c1", "c2"], skipped: [] },
   })
   const view = renderWithProviders(at(<Clearing />), { route })
-  await screen.findByRole("region", { name: "Ready to clear" })
+  await screen.findByRole("table")
   return view
 }
 
-const ready = () => within(screen.getByRole("region", { name: "Ready to clear" }))
-const look = () => within(screen.getByRole("region", { name: "Needs a look" }))
+/** The table row that holds a claim number. */
+const rowOf = (no: string) => within(screen.getByText(no).closest("tr") as HTMLElement)
 
 describe("the clearing queue", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("says the answer first, then splits the queue into the ready and the rest", async () => {
+  it("answers first in figures, then lists the ready claims before the rest", async () => {
     await open()
-    expect(screen.getAllByRole("status")[0]).toHaveTextContent("2 of 4 are ready to clear.")
-    expect(ready().getByText("FP-2026-000001")).toBeInTheDocument()
-    expect(ready().getByText("FP-2026-000002")).toBeInTheDocument()
-    expect(ready().queryByText("FP-2026-000003")).toBeNull()
-    expect(look().getByText("FP-2026-000003")).toBeInTheDocument()
-    expect(look().getByText("ERP-PROCESSED-120")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "2 ready to clear" })).toBeInTheDocument()
+    expect(screen.getByRole("group", { name: "At a glance" })).toHaveTextContent("4 claims waiting")
+    const order = within(screen.getByRole("table")).getAllByRole("row").slice(1).map((r) => r.textContent ?? "")
+    expect(order[0]).toContain("FP-2026-000001")
+    expect(order[1]).toContain("FP-2026-000002")
+    expect(rowOf("FP-2026-000001").getByText("Ready to clear")).toBeInTheDocument()
+    expect(rowOf("FP-2026-000002").getByText("Ready to clear")).toBeInTheDocument()
+    expect(rowOf("FP-2026-000003").queryByText("Ready to clear")).toBeNull()
   })
 
   it("leads with the person, then the paper, and says why a claim needs a look", async () => {
     await open()
-    const row = ready().getByText("FP-2026-000001").closest("li") as HTMLElement
-    expect(within(row).getByText("Asha Faculty")).toBeInTheDocument()
-    expect(within(row).getByText("Fuzzy control of a grid")).toBeInTheDocument()
-    expect(within(row).getByText("Nature")).toBeInTheDocument()
-    expect(within(row).getByText("Q1")).toBeInTheDocument()
-    expect(within(row).getAllByText("₹52,377.50").length).toBeGreaterThan(0)
-    expect(within(row).getByRole("button", { name: /copy claim no\. FP-2026-000001/i })).toBeInTheDocument()
-    const dup = look().getByText("ERP-PROCESSED-120").closest("li") as HTMLElement
-    expect(within(dup).getByText(/Checks failed/)).toBeInTheDocument()
-    expect(within(dup).getByText(/Possible duplicate/)).toBeInTheDocument()
-    const watched = look().getByText("FP-2026-000003").closest("li") as HTMLElement
-    expect(within(watched).getByText(/Watched journal/)).toBeInTheDocument()
+    const row = rowOf("FP-2026-000001")
+    expect(row.getByText("Asha Faculty")).toBeInTheDocument()
+    expect(row.getByText("Fuzzy control of a grid")).toBeInTheDocument()
+    expect(row.getByText("Nature")).toBeInTheDocument()
+    expect(row.getByText("Q1")).toBeInTheDocument()
+    expect(row.getAllByText("₹52,377.50").length).toBeGreaterThan(0)
+    expect(row.getByRole("button", { name: /copy claim no\. FP-2026-000001/i })).toBeInTheDocument()
+    const dup = rowOf("ERP-PROCESSED-120")
+    expect(dup.getByText(/Checks failed/)).toBeInTheDocument()
+    expect(dup.getByText(/Possible duplicate/)).toBeInTheDocument()
+    expect(rowOf("FP-2026-000003").getByText(/Watched journal/)).toBeInTheDocument()
   })
 
   it("turns waiting days amber after two weeks and red after a month, and says Late", async () => {
     await open()
-    expect(ready().getByText("40 days")).toHaveClass("text-critical")
-    expect(ready().getByText("20 days")).toHaveClass("text-caution")
-    expect(ready().getAllByText("Late")).toHaveLength(2)
+    expect(rowOf("FP-2026-000001").getByText("40 days")).toHaveClass("text-critical")
+    expect(rowOf("FP-2026-000002").getByText("20 days")).toHaveClass("text-caution")
+    expect(screen.getAllByText("Late")).toHaveLength(2)
   })
 
   it("opens the full-page review from a row, never a side sheet", async () => {
     const user = userEvent.setup()
     await open()
-    await user.click(ready().getByText("Asha Faculty"))
+    await user.click(rowOf("FP-2026-000001").getByRole("link", { name: "Fuzzy control of a grid" }))
     expect(await screen.findByText("The review workspace")).toBeInTheDocument()
     expect(where()).toBe("/review/c1?queue=clearing")
     expect(screen.queryByRole("dialog")).toBeNull()
@@ -155,13 +156,13 @@ describe("the clearing queue", () => {
   it("tells the review which filters were on", async () => {
     const user = userEvent.setup()
     await open("/clearing?department=CSE")
-    await user.click(ready().getByText("Ravi Other"))
+    await user.click(rowOf("FP-2026-000002").getByRole("link", { name: "Fuzzy control of a grid" }))
     expect(where()).toBe("/review/c2?queue=clearing&filter=department%3DCSE")
   })
 
   it("keeps a filter in the address and applies one that is there already", async () => {
     await open("/clearing?department=CSE")
-    expect(ready().getByText("FP-2026-000002")).toBeInTheDocument()
+    expect(screen.getByText("FP-2026-000002")).toBeInTheDocument()
     expect(screen.queryByText("FP-2026-000001")).toBeNull()
   })
 
@@ -171,7 +172,16 @@ describe("the clearing queue", () => {
     await user.type(screen.getByRole("textbox", { name: "Search the queue" }), "fp 2026 3")
     await waitFor(() => expect(where()).toContain("q="))
     await waitFor(() => expect(screen.queryByText("FP-2026-000001")).toBeNull())
-    expect(look().getByText("FP-2026-000003")).toBeInTheDocument()
+    expect(screen.getByText("FP-2026-000003")).toBeInTheDocument()
+  })
+
+  it("narrows to the ready claims from the checks filter", async () => {
+    const user = userEvent.setup()
+    await open()
+    await user.selectOptions(screen.getByRole("combobox", { name: "Filter by checks" }), "ready")
+    await waitFor(() => expect(screen.queryByText("FP-2026-000003")).toBeNull())
+    expect(where()).toContain("check=ready")
+    expect(screen.getByText("FP-2026-000001")).toBeInTheDocument()
   })
 
   it("clears every ready claim from one button, and says what it leaves out", async () => {
@@ -185,6 +195,16 @@ describe("the clearing queue", () => {
     await user.click(within(dialog).getByRole("button", { name: /^Clear 2 for/ }))
     await waitFor(() => expect(posted("/api/admin/bulk-clear")).toHaveLength(1))
     expect(posted("/api/admin/bulk-clear")[0].body).toEqual({ claim_ids: ["c1", "c2"] })
+  })
+
+  it("clears one ready claim from the Clear button in its own row", async () => {
+    const user = userEvent.setup()
+    await open()
+    expect(rowOf("FP-2026-000003").queryByRole("button", { name: "Clear" })).toBeNull()
+    expect(rowOf("FP-2026-000003").getByRole("link", { name: "Review" })).toBeInTheDocument()
+    await user.click(rowOf("FP-2026-000002").getByRole("button", { name: "Clear" }))
+    const dialog = await screen.findByRole("dialog", { name: "Clear this claim?" })
+    expect(dialog).toHaveTextContent("Ravi Other")
   })
 
   it("clears the claim under the cursor with c, then Enter", async () => {
@@ -220,8 +240,8 @@ describe("the clearing queue", () => {
   it("shows what a manual choice contains, including what is not ready", async () => {
     const user = userEvent.setup()
     await open()
-    await user.click(ready().getByRole("checkbox", { name: /FP-2026-000001/ }))
-    await user.click(look().getByRole("checkbox", { name: /ERP-PROCESSED-120/ }))
+    await user.click(rowOf("FP-2026-000001").getByRole("checkbox", { name: /FP-2026-000001/ }))
+    await user.click(rowOf("ERP-PROCESSED-120").getByRole("checkbox", { name: /ERP-PROCESSED-120/ }))
     await user.click(screen.getByRole("button", { name: "Clear 2 claims" }))
     const dialog = await screen.findByRole("dialog", { name: "Clear 2 claims?" })
     expect(dialog).toHaveTextContent("One claim is not marked ready")
@@ -231,8 +251,8 @@ describe("the clearing queue", () => {
   it("puts a choice on hold with one reason, and has no bulk send back", async () => {
     const user = userEvent.setup()
     await open()
-    await user.click(ready().getByRole("checkbox", { name: /FP-2026-000001/ }))
-    await user.click(ready().getByRole("checkbox", { name: /FP-2026-000002/ }))
+    await user.click(rowOf("FP-2026-000001").getByRole("checkbox", { name: /FP-2026-000001/ }))
+    await user.click(rowOf("FP-2026-000002").getByRole("checkbox", { name: /FP-2026-000002/ }))
     expect(screen.getByText(/Send back is one claim at a time/)).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Put on hold" }))
     const dialog = await screen.findByRole("dialog", { name: "Put 2 claims on hold?" })
@@ -244,11 +264,18 @@ describe("the clearing queue", () => {
     expect(posted("/api/desk/bulk-hold")[0].body).toEqual({ claim_ids: ["c1", "c2"], reason: "Waiting on the erratum" })
   })
 
-  it("offers one Choose all, on the ready lane, and none on the rest", async () => {
+  it("offers one box in the heading that chooses the ready claims, and none for the rest", async () => {
+    const user = userEvent.setup()
     await open()
-    expect(screen.getAllByText("Choose all")).toHaveLength(1)
-    expect(ready().getByRole("checkbox", { name: /Choose all 2 in ready to clear/ })).toBeInTheDocument()
-    expect(look().queryByText("Choose all")).toBeNull()
+    const all = screen.getByRole("checkbox", { name: "Choose all 2 ready to clear" })
+    await user.click(all)
+    expect(await screen.findByText(/chosen/)).toHaveTextContent("2")
+    expect(rowOf("FP-2026-000003").getByRole("checkbox")).toHaveAttribute("aria-checked", "false")
+  })
+
+  it("exports the table to Excel, PDF and CSV from its tools", async () => {
+    await open()
+    expect(screen.getByRole("button", { name: /export/i })).toBeInTheDocument()
   })
 
   it("says Not recorded, with its title, for an old-system claim with no amount, never ₹0", async () => {
@@ -258,10 +285,15 @@ describe("the clearing queue", () => {
     renderWithProviders(at(<Clearing />), { route: "/clearing" })
     const labels = await screen.findAllByText("Not recorded")
     expect(labels.length).toBeGreaterThan(0)
-    expect(labels[0].closest("[title]")).toHaveAttribute("title", "The old system did not record an amount.")
+    expect(labels.some((l) => l.closest("[title]")?.getAttribute("title") === "The old system did not record an amount.")).toBe(true)
     // The row itself never prints a rupee zero (the queue total above is a sum, not a claim's amount).
-    const row = labels[0].closest("li") as HTMLElement
-    expect(within(row).queryByText("₹0")).toBeNull()
+    expect(within(labels[0].closest("tr") as HTMLElement).queryByText("₹0")).toBeNull()
+  })
+
+  it("names the next step when nothing is waiting", async () => {
+    serve({ "/api/admin/clearing-queue": [] })
+    renderWithProviders(at(<Clearing />), { route: "/clearing" })
+    expect(await screen.findByRole("link", { name: "See where claims are" })).toHaveAttribute("href", "/track")
   })
 
   it("does not draw an empty queue when the load fails", async () => {

@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Link } from "react-router-dom"
 import { BellRing, Check, Users } from "lucide-react"
 
+import { useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { formatCount } from "@/lib/count"
 import { useApi, useApiMutation } from "@/lib/query"
@@ -110,9 +111,12 @@ export const TONE_TEXT = { positive: "text-positive", caution: "text-caution", c
 /** No paper this year: the people a head talks to this week. The other kinds are about quality. */
 export const SILENT_KINDS: PushKind[] = ["slipped", "quiet", "never"]
 
+/** The brief is for a head of department only (`_require_hod`); no one else asks. */
 export function useBrief(year?: number) {
+  const { me } = useAuth()
   return useApi<Brief>(["hod", "brief", year ?? "current"], `/api/hod/brief${year ? `?year=${year}` : ""}`, {
     retry: false,
+    enabled: me?.role === "HOD",
   })
 }
 

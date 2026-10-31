@@ -12,11 +12,14 @@ import { Button } from "@/ui/button"
 import { Chip } from "@/ui/chip"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { Input } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
+import { PageHeader } from "@/ui/page-header"
+import { Table, type Column } from "@/ui/table"
 import { money } from "@/ui/paper"
 import { Avatar } from "@/ui/person"
 import { ScopusProfileCard } from "@/ui/scopus"
 import { Callout, EmptyState, ErrorState, SkeletonRows, SkeletonText } from "@/ui/state"
-import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { ColumnLabel, Meta, SectionTitle } from "@/ui/text"
 import {
   MISSING_WORDS,
   count,
@@ -103,7 +106,7 @@ export function FacultyRecord() {
           {d.person.missing.map((m) => MISSING_WORDS[m].toLowerCase()).join(", ")}.
           {d.person.missing.includes("photo") && " Only they can add a photo."}
           <div className="mt-2">
-            <Button kind="default" size="sm" asChild>
+            <Button kind="default" asChild>
               <Link to={`/people/${d.person.id}`}>Open the account to fix it</Link>
             </Button>
           </div>
@@ -131,7 +134,7 @@ export function FacultyRecord() {
               )
             }
             className={cn(
-              "-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 pb-2.5 pt-1 text-sm",
+              "-mb-px shrink-0 whitespace-nowrap border-b-2 px-4 pb-3 pt-2 text-base",
               tab === t.id ? "border-(--area) font-medium text-fg" : "border-transparent text-fg-muted hover:text-fg"
             )}
           >
@@ -179,55 +182,54 @@ function Header({ d }: { d: FacultyRecordPayload }) {
       : "Threshold set"
     : "Threshold not set"
   return (
-    <header className="space-y-5 border-b border-line pb-6">
-      <div className="flex flex-wrap items-start gap-x-5 gap-y-4">
-        <Avatar person={p} size="xl" />
-        <div className="min-w-0 flex-1 basis-64">
-          <PageTitle>{p.name}</PageTitle>
-          <Sub className="mt-1">
-            {[p.designation, p.department].filter(Boolean).join(" · ") || "No designation or department on record"}
-          </Sub>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Chip tone={p.faculty_type === "RESEARCH" ? "area" : "neutral"} area={p.faculty_type === "RESEARCH" ? "research" : undefined}>
-              {p.faculty_type === "RESEARCH" ? "Research faculty" : "Regular faculty"}
-            </Chip>
-            {p.faculty_type === "RESEARCH" && (
-              <Meta className={cn(!p.threshold_set && "text-caution")}>
-                {threshold}
-              </Meta>
-            )}
-            {p.faculty_type === "RESEARCH" && editor && (
-              <Button kind="quiet" size="sm" asChild>
-                <Link to={`/people/${p.id}`}>{p.threshold_set ? "Change threshold" : "Set threshold"}</Link>
+    <div className="space-y-5">
+      <PageHeader
+        title={p.name}
+        sub={[p.designation, p.department].filter(Boolean).join(", ") || "No designation or department on record"}
+        action={
+          <>
+            {editor && (
+              <Button asChild kind="primary">
+                <Link to={`/people/${p.id}`}>
+                  <Pencil />
+                  Edit account
+                </Link>
               </Button>
             )}
-            {p.role === "HOD" && <Chip>Head of department</Chip>}
-            {!p.active && <Chip tone="caution">No longer at the college</Chip>}
-          </div>
-        </div>
+            {d.viewer.is_self && (
+              <Button asChild kind={editor ? "default" : "primary"}>
+                <Link to="/me">
+                  <Pencil />
+                  Edit your profile
+                </Link>
+              </Button>
+            )}
+            <Button asChild kind="quiet">
+              <Link to={`/u/${p.id}`}>
+                <UserRound />
+                Public profile
+              </Link>
+            </Button>
+          </>
+        }
+      />
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        <Avatar person={p} size="xl" />
         <div className="flex flex-wrap items-center gap-2">
-          {editor && (
-            <Button asChild kind="primary" size="md">
-              <Link to={`/people/${p.id}`}>
-                <Pencil />
-                Edit account
-              </Link>
+          <Chip tone={p.faculty_type === "RESEARCH" ? "area" : "neutral"} area={p.faculty_type === "RESEARCH" ? "research" : undefined}>
+            {p.faculty_type === "RESEARCH" ? "Research faculty" : "Regular faculty"}
+          </Chip>
+          {p.faculty_type === "RESEARCH" && (
+            <Meta className={cn("text-base", !p.threshold_set && "text-caution")}>{threshold}</Meta>
+          )}
+          {p.faculty_type === "RESEARCH" && editor && (
+            <Button kind="quiet" asChild>
+              <Link to={`/people/${p.id}`}>{p.threshold_set ? "Change threshold" : "Set threshold"}</Link>
             </Button>
           )}
-          {d.viewer.is_self && (
-            <Button asChild kind={editor ? "default" : "primary"} size="md">
-              <Link to="/me">
-                <Pencil />
-                Edit your profile
-              </Link>
-            </Button>
-          )}
-          <Button asChild kind="quiet" size="md">
-            <Link to={`/u/${p.id}`}>
-              <UserRound />
-              Public profile
-            </Link>
-          </Button>
+          {p.role === "HOD" && <Chip>Head of department</Chip>}
+          {!p.active && <Chip tone="caution">No longer at the college</Chip>}
         </div>
       </div>
 
@@ -241,7 +243,7 @@ function Header({ d }: { d: FacultyRecordPayload }) {
           ) : (
             <Missing>
               {editor ? (
-                <Button kind="quiet" size="sm" asChild>
+                <Button kind="quiet" asChild>
                   <Link to={`/people/${p.id}`}>Add Scopus ID</Link>
                 </Button>
               ) : null}
@@ -274,7 +276,7 @@ function Header({ d }: { d: FacultyRecordPayload }) {
           </Ident>
         )}
       </dl>
-    </header>
+    </div>
   )
 }
 
@@ -377,6 +379,77 @@ function PapersTab({ d }: { d: FacultyRecordPayload }) {
     })
   }, [d.papers, text, quartile, claimed])
 
+  const columns: Column<RecordPaper>[] = [
+    {
+      key: "title",
+      header: "Paper",
+      exportValue: (p) => paperTitle(p.title),
+      cell: (p) => {
+        const title = paperTitle(p.title)
+        return p.doi ? (
+          <a
+            href={`https://doi.org/${p.doi}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-base font-medium leading-snug underline-offset-2 hover:text-accent hover:underline"
+          >
+            {title}
+          </a>
+        ) : (
+          <span className="text-base font-medium leading-snug">{title}</span>
+        )
+      },
+    },
+    {
+      key: "date",
+      header: "Published",
+      exportValue: (p) => paperDate(p.date, p.year) || null,
+      cell: (p) => <span className="whitespace-nowrap">{paperDate(p.date, p.year)}</span>,
+    },
+    { key: "venue", header: "Journal", exportValue: (p) => p.venue ?? null, cell: (p) => p.venue },
+    {
+      key: "quartile",
+      header: "Quartile",
+      exportValue: (p) => p.quartile?.toUpperCase() ?? null,
+      cell: (p) =>
+        p.quartile ? <Chip tone={p.quartile.toUpperCase() === "Q1" ? "positive" : "neutral"}>{p.quartile.toUpperCase()}</Chip> : null,
+    },
+    {
+      key: "author",
+      header: "Author",
+      exportValue: (p) =>
+        [p.author_position ? `${p.author_position}${p.total_authors ? ` of ${p.total_authors}` : ""}` : null, p.corresponding ? "corresponding" : null]
+          .filter(Boolean)
+          .join(", ") || null,
+      cell: (p) => (
+        <span className="block">
+          {p.author_position ? `${p.author_position}${p.total_authors ? ` of ${p.total_authors}` : ""}` : null}
+          {p.corresponding && <span className="block text-sm text-fg-muted">Corresponding author</span>}
+        </span>
+      ),
+    },
+    {
+      key: "citations",
+      header: "Cited",
+      align: "right",
+      exportKind: "number",
+      exportValue: (p) => p.citations ?? null,
+      empty: "Not recorded",
+      cell: (p) => (p.citations != null ? count(p.citations) : null),
+    },
+    {
+      key: "claim",
+      header: "Claim",
+      exportValue: (p) =>
+        p.claim
+          ? [p.claim.stage, p.claim.claim_no ? claimNoLabel(p.claim.claim_no) : null].filter(Boolean).join(", ")
+          : p.eligible
+            ? "No claim filed"
+            : "Too many authors to claim",
+      cell: (p) => <ClaimState p={p} />,
+    },
+  ]
+
   if (d.papers.length === 0) {
     return (
       <EmptyState
@@ -389,7 +462,7 @@ function PapersTab({ d }: { d: FacultyRecordPayload }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3 max-sm:[&>*]:w-full max-sm:[&>*]:max-w-none">
+      <div className={filterBar} role="search">
         <Input
           value={text}
           onChange={(e) => {
@@ -398,61 +471,30 @@ function PapersTab({ d }: { d: FacultyRecordPayload }) {
           }}
           placeholder="Search title or journal"
           aria-label="Search this person's papers"
-          className="w-full max-w-xs"
+          className="w-full sm:w-72"
         />
         <Combobox value={quartile} onChange={(v) => { setQuartile(v); setShown(STEP) }} options={QUARTILE_OPTIONS} aria-label="Filter by quartile" className="w-48" />
-        <Combobox value={claimed} onChange={(v) => { setClaimed(v); setShown(STEP) }} options={CLAIM_OPTIONS} aria-label="Filter by claim" className="w-44" />
+        <Combobox value={claimed} onChange={(v) => { setClaimed(v); setShown(STEP) }} options={CLAIM_OPTIONS} aria-label="Filter by claim" className="w-56" />
       </div>
-      <Meta className="block" aria-live="polite">
+      <p className="text-base text-fg-muted" aria-live="polite">
         Showing {count(Math.min(shown, rows.length))} of {count(rows.length)}
         {rows.length !== d.papers.length ? ` matching papers, ${count(d.papers.length)} on record` : " papers on record"}.
-      </Meta>
-      {rows.length === 0 ? (
-        <EmptyState illustration="empty-no-results" title="No paper matches" message="Try a shorter search, or clear the filters." />
-      ) : (
-        <ul aria-label="Papers" className="divide-y divide-line border-y border-line">
-          {rows.slice(0, shown).map((p) => (
-            <PaperRow key={p.id} p={p} />
-          ))}
-        </ul>
-      )}
+      </p>
+      <Table
+        rows={rows.slice(0, shown)}
+        columns={columns}
+        getKey={(p) => p.id}
+        maxHeight="none"
+        caption="Papers"
+        tools={{ id: "faculty-record-papers", title: `Papers of ${d.person.name}`, getAllRows: async () => rows }}
+        empty={{ illustration: "empty-no-results", title: "No paper matches", message: "Try a shorter search, or clear the filters." }}
+      />
       {shown < rows.length && (
-        <Button kind="default" size="md" onClick={() => setShown((s) => s + STEP)}>
+        <Button kind="default" onClick={() => setShown((s) => s + STEP)}>
           Show {Math.min(STEP, rows.length - shown)} more
         </Button>
       )}
     </div>
-  )
-}
-
-function PaperRow({ p }: { p: RecordPaper }) {
-  const title = paperTitle(p.title)
-  const meta = [
-    paperDate(p.date, p.year),
-    p.venue,
-    p.author_position ? `Author ${p.author_position}${p.total_authors ? ` of ${p.total_authors}` : ""}` : null,
-    p.corresponding ? "Corresponding author" : null,
-    p.citations != null ? `Cited ${count(p.citations)}` : null,
-  ].filter(Boolean)
-  return (
-    <li className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2 py-3">
-      <div className="min-w-0 flex-1 basis-72">
-        <p className="text-base font-medium leading-snug">
-          {p.doi ? (
-            <a href={`https://doi.org/${p.doi}`} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
-              {title}
-            </a>
-          ) : (
-            title
-          )}
-        </p>
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-muted">
-          {p.quartile && <Chip tone={p.quartile.toUpperCase() === "Q1" ? "positive" : "neutral"}>{p.quartile.toUpperCase()}</Chip>}
-          <span className="min-w-0 break-words">{meta.join(" · ")}</span>
-        </div>
-      </div>
-      <ClaimState p={p} />
-    </li>
   )
 }
 
@@ -489,26 +531,69 @@ function ClaimState({ p }: { p: RecordPaper }) {
 /* ------------------------------------------------------------------------ */
 
 function ClaimsTab({ d }: { d: FacultyRecordPayload }) {
-  if (d.claims.length === 0) {
-    return (
-      <EmptyState
-        illustration="empty-no-papers"
-        title="No claims filed"
-        message={
-          d.payments && d.payments.count > 0
-            ? "Nothing was filed through this system. Payments made earlier are listed under Payments."
-            : d.viewer.is_self
-              ? "When you file a claim for a paper it is listed here with where it stands."
-              : "This person has not filed a claim yet."
-        }
-      />
-    )
-  }
-  const earlier = d.viewer.is_self && d.payments && d.payments.count > d.claims.length
+  const self = d.viewer.is_self
+  /*
+   * A paid claim is a quiet word, not a chip: eight green chips down a column
+   * say "paid" eight times. When the person is reading their own record the
+   * stage is in the college's words ("Being checked"), an old-workbook number
+   * is not shown as if it were a claim number they know, and a zero on a paid
+   * claim (the workbook did not record the amount) is left unsaid; the
+   * statement holds what was actually paid.
+   */
+  const stageOfClaim = (c: RecordClaim) => (self ? stageName(c.stage) : c.stage)
+  const isPaid = (c: RecordClaim) => c.stage === "Paid" || c.stage === "Completed"
+  const columns: Column<RecordClaim>[] = [
+    {
+      key: "title",
+      header: "Paper",
+      exportValue: (c) => paperTitle(c.title),
+      cell: (c) => <span className="text-base font-medium leading-snug">{paperTitle(c.title)}</span>,
+    },
+    {
+      key: "claim_no",
+      header: "Claim no.",
+      exportValue: (c) => (c.claim_no ? claimNoLabel(c.claim_no) : null),
+      cell: (c) =>
+        c.claim_no ? (
+          c.review_path ? (
+            <Link to={c.review_path} className="inline-flex items-center gap-1 underline underline-offset-2">
+              <FileSearch aria-hidden className="size-4" />
+              {claimNoLabel(c.claim_no)}
+            </Link>
+          ) : (
+            <span className="tabular text-fg-muted">{claimNoLabel(c.claim_no)}</span>
+          )
+        ) : null,
+    },
+    { key: "journal", header: "Journal", exportValue: (c) => c.journal ?? null, cell: (c) => c.journal },
+    { key: "year", header: "Year", exportKind: "number", exportValue: (c) => c.year ?? null, cell: (c) => c.year },
+    {
+      key: "filed",
+      header: "Filed",
+      exportValue: (c) => (c.filed_on ? paperDate(c.filed_on, null) : null),
+      cell: (c) => (c.filed_on ? <span className="whitespace-nowrap">{paperDate(c.filed_on, null)}</span> : null),
+    },
+    {
+      key: "stage",
+      header: "Where it is",
+      exportValue: (c) => stageOfClaim(c),
+      cell: (c) =>
+        isPaid(c) && self ? <span className="text-fg-muted">Paid</span> : <Chip tone={isPaid(c) ? "positive" : "neutral"}>{stageOfClaim(c)}</Chip>,
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      align: "right",
+      exportKind: "money",
+      exportValue: (c) => (c.amount != null && !(self && isPaid(c) && c.amount === 0) ? c.amount : null),
+      cell: (c) => (c.amount != null && !(self && isPaid(c) && c.amount === 0) ? money(c.amount) : null),
+    },
+  ]
+  const earlier = self && d.payments && d.payments.count > d.claims.length
   return (
     <div className="space-y-3">
       {earlier && (
-        <p className="text-sm text-fg-muted">
+        <p className="text-base text-fg-muted">
           These are the claims filed in this system. Payments made before it are listed under{" "}
           <Link to="/faculty/me?tab=payments" className="underline underline-offset-2">
             Payments
@@ -516,56 +601,25 @@ function ClaimsTab({ d }: { d: FacultyRecordPayload }) {
           .
         </p>
       )}
-      <ul aria-label="Claims" className="divide-y divide-line border-y border-line">
-        {d.claims.map((c) => (
-          <ClaimRow key={c.id} c={c} self={d.viewer.is_self} />
-        ))}
-      </ul>
+      <Table
+        rows={d.claims}
+        columns={columns}
+        getKey={(c) => c.id}
+        maxHeight="none"
+        caption="Claims"
+        tools={{ id: "faculty-record-claims", title: `Claims of ${d.person.name}` }}
+        empty={{
+          illustration: "empty-no-papers",
+          title: "No claims filed",
+          message:
+            d.payments && d.payments.count > 0
+              ? "Nothing was filed through this system. Payments made earlier are listed under Payments."
+              : self
+                ? "When you file a claim for a paper it is listed here with where it stands."
+                : "This person has not filed a claim yet.",
+        }}
+      />
     </div>
-  )
-}
-
-/**
- * One claim on the record. A paid claim is a quiet word, not a chip: eight
- * green chips down a column say "paid" eight times. When the person is reading
- * their own record the stage is in the college's words ("Being checked"), an
- * old-workbook number is not shown as if it were a claim number they know, and
- * a zero on a paid claim (the workbook did not record the amount) is left
- * unsaid; the statement holds what was actually paid.
- */
-function ClaimRow({ c, self }: { c: RecordClaim; self?: boolean }) {
-  const paid = c.stage === "Paid" || c.stage === "Completed"
-  const stage = self ? stageName(c.stage) : c.stage
-  return (
-    <li className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2 py-3">
-      <div className="min-w-0 flex-1 basis-72">
-        <p className="text-base font-medium leading-snug">{paperTitle(c.title)}</p>
-        <Meta className="mt-1 block break-words">
-          {[c.journal, c.year, c.quartile, c.filed_on ? `Filed ${paperDate(c.filed_on, null)}` : null]
-            .filter(Boolean)
-            .join(" · ")}
-        </Meta>
-      </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 sm:justify-end">
-        {c.claim_no &&
-          (c.review_path ? (
-            <Link to={c.review_path} className="inline-flex items-center gap-1 text-sm underline underline-offset-2">
-              <FileSearch aria-hidden className="size-3.5" />
-              {claimNoLabel(c.claim_no)}
-            </Link>
-          ) : (
-            <span className="tabular text-sm text-fg-muted">{claimNoLabel(c.claim_no)}</span>
-          ))}
-        {paid && self ? (
-          <span className="text-sm text-fg-muted">Paid</span>
-        ) : (
-          <Chip tone={paid ? "positive" : "neutral"}>{stage}</Chip>
-        )}
-        {c.amount != null && !(self && paid && c.amount === 0) && (
-          <span className="tabular text-sm font-medium">{money(c.amount)}</span>
-        )}
-      </div>
-    </li>
   )
 }
 
@@ -575,42 +629,65 @@ function ClaimRow({ c, self }: { c: RecordClaim; self?: boolean }) {
 
 function PaymentsTab({ d }: { d: FacultyRecordPayload }) {
   const pay = d.payments!
-  if (pay.rows.length === 0) {
-    return (
-      <EmptyState
-        illustration="empty-no-payouts"
-        title="No incentives paid yet"
-        message="Payments appear here once a claim has been paid."
-      />
-    )
-  }
+  type PayRow = (typeof pay.rows)[number]
+  const columns: Column<PayRow>[] = [
+    {
+      key: "title",
+      header: "Paper",
+      exportValue: (r) => paperTitle(r.title),
+      cell: (r) => <span className="text-base font-medium leading-snug">{paperTitle(r.title)}</span>,
+    },
+    {
+      key: "month",
+      header: "Month paid",
+      exportValue: (r) => monthLabel(r.month),
+      cell: (r) => <span className="whitespace-nowrap">{monthLabel(r.month)}</span>,
+    },
+    { key: "journal", header: "Journal", exportValue: (r) => r.journal ?? null, cell: (r) => r.journal },
+    {
+      key: "voucher",
+      header: "Voucher",
+      exportValue: (r) => r.voucher ?? null,
+      cell: (r) => r.voucher,
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      align: "right",
+      exportKind: "money",
+      exportValue: (r) => r.amount,
+      cell: (r) => money(r.amount),
+    },
+  ]
   return (
     <div className="space-y-4">
-      <p className="text-base">
-        <span className="tabular font-semibold">{money(pay.total_amount)}</span> paid in {count(pay.count)} payments,{" "}
-        <span className="tabular font-semibold">{money(pay.this_year.amount)}</span> of it in {pay.year}.
-        {d.viewer.is_self && (
-          <>
-            {" "}
-            <Button kind="default" size="sm" asChild>
-              <Link to="/papers/statement">Open the statement by financial year</Link>
-            </Button>
-          </>
-        )}
-      </p>
-      <ul aria-label="Payments" className="divide-y divide-line border-y border-line">
-        {pay.rows.map((r) => (
-          <li key={r.id} className="flex flex-wrap items-start justify-between gap-x-6 gap-y-1 py-3">
-            <div className="min-w-0 flex-1 basis-72">
-              <p className="text-base leading-snug">{paperTitle(r.title)}</p>
-              <Meta className="mt-0.5 block break-words">
-                {[monthLabel(r.month), r.journal, r.voucher ? `Voucher ${r.voucher}` : null].filter(Boolean).join(" · ")}
-              </Meta>
-            </div>
-            <span className="tabular text-base font-medium">{money(r.amount)}</span>
-          </li>
-        ))}
-      </ul>
+      {pay.rows.length > 0 && (
+        <p className="text-base">
+          <span className="tabular font-semibold">{money(pay.total_amount)}</span> paid in {count(pay.count)} payments,{" "}
+          <span className="tabular font-semibold">{money(pay.this_year.amount)}</span> of it in {pay.year}.
+          {d.viewer.is_self && (
+            <>
+              {" "}
+              <Button kind="default" asChild>
+                <Link to="/papers/statement">Open the statement by financial year</Link>
+              </Button>
+            </>
+          )}
+        </p>
+      )}
+      <Table
+        rows={pay.rows}
+        columns={columns}
+        getKey={(r) => r.id}
+        maxHeight="none"
+        caption="Payments"
+        tools={{ id: "faculty-record-payments", title: `Payments to ${d.person.name}` }}
+        empty={{
+          illustration: "empty-no-payouts",
+          title: "No incentives paid yet",
+          message: "Payments appear here once a claim has been paid.",
+        }}
+      />
     </div>
   )
 }

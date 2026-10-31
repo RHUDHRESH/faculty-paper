@@ -198,10 +198,10 @@ export function Ledger() {
   const disagree = (n?.no_ledger ?? 0) + (n?.mismatch ?? 0)
 
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-6">
       <PageHeader
         title="Ledger"
-        spot="spot-payouts"
+        sub="Every payment made under the scheme, in the order it went out. Nothing here can be edited."
         action={
           <Button kind="default" asChild>
             <a href={`/api/admin/ledger/export?${filters.toString()}`} download>
@@ -380,6 +380,8 @@ export function Ledger() {
                 rowLink={(r) => (r.claim_id ? `/papers/${r.claim_id}` : null)}
                 minWidth="56rem"
                 caption="Payments matching the filter"
+                maxHeight="none"
+                tools={{ id: "ledger", title: "Ledger", subtitle: month || department || q || undefined }}
               />
               <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={goToPage} />
             </div>
@@ -473,6 +475,7 @@ const columns: Column<LedgerRow>[] = [
     key: "faculty",
     header: "Paid to",
     className: "w-[15rem] max-w-[15rem]",
+    exportValue: (r) => [r.faculty_name || "Name not recorded", r.staff_id, r.department].filter(Boolean).join(", "),
     cell: (r) => (
       <span className="flex min-w-0 items-center gap-2.5">
         <Face row={r} />
@@ -488,6 +491,7 @@ const columns: Column<LedgerRow>[] = [
   {
     key: "paper",
     header: "Paper",
+    exportValue: (r) => [unshout(r.paper_title) || "Title not recorded", r.journal_title].filter(Boolean).join(", "),
     cell: (r) => (
       <span className="block min-w-0 max-w-[26rem]">
         <span className="block truncate">{unshout(r.paper_title) || "Title not recorded"}</span>
@@ -500,6 +504,7 @@ const columns: Column<LedgerRow>[] = [
     key: "month",
     header: "Month",
     className: "w-28 whitespace-nowrap",
+    exportValue: (r) => (hasMonth(r) ? monthLabel(r.payout_month) : "Not recorded"),
     cell: (r) =>
       hasMonth(r) ? <span className="tabular">{monthLabel(r.payout_month)}</span> : <Meta>Not recorded</Meta>,
   },
@@ -507,6 +512,7 @@ const columns: Column<LedgerRow>[] = [
     key: "voucher",
     header: "Voucher",
     className: "w-32",
+    exportValue: (r) => r.voucher_number,
     cell: (r) =>
       r.voucher_number ? <span className="tabular">{r.voucher_number}</span> : <Meta>Not recorded</Meta>,
   },
@@ -515,6 +521,8 @@ const columns: Column<LedgerRow>[] = [
     header: "Amount",
     align: "right",
     className: "w-32",
+    exportKind: "money",
+    exportValue: (r) => r.amount,
     cell: (r) => (
       <span className="block">
         <Amount value={r.amount} />
@@ -707,11 +715,13 @@ function LedgerProblems({ kind, canFix }: { kind: ProblemKind; canFix: boolean }
               getKey={(r) => r.id}
               caption="Ledger payments with no claim"
               maxHeight="none"
+              tools={{ id: "ledger-no-claim", title: "Ledger payments with no claim" }}
               empty={{ title: "Every payment belongs to a claim", message: "Nothing to link." }}
               columns={[
                 {
                   key: "who",
                   header: "Paid to",
+                  exportValue: (r) => [r.faculty_name, r.staff_id, r.department].filter(Boolean).join(", "),
                   cell: (r) => (
                     <span className="block min-w-0">
                       <span className="block font-medium">{r.faculty_name}</span>
@@ -719,10 +729,10 @@ function LedgerProblems({ kind, canFix }: { kind: ProblemKind; canFix: boolean }
                     </span>
                   ),
                 },
-                { key: "paper", header: "Paper", empty: "Title not recorded", cell: (r) => (r.paper_title ? <span className="line-clamp-2">{unshout(r.paper_title)}</span> : null) },
-                { key: "month", header: "Month", cell: (r) => (r.month ? monthLabel(r.month.slice(0, 7)) : null) },
-                { key: "voucher", header: "Voucher", cell: (r) => r.voucher_number },
-                { key: "amount", header: "Amount", align: "right", cell: (r) => money(r.amount) },
+                { key: "paper", header: "Paper", empty: "Title not recorded", exportValue: (r) => unshout(r.paper_title) || "", cell: (r) => (r.paper_title ? <span className="line-clamp-2">{unshout(r.paper_title)}</span> : null) },
+                { key: "month", header: "Month", exportValue: (r) => (r.month ? monthLabel(r.month.slice(0, 7)) : ""), cell: (r) => (r.month ? monthLabel(r.month.slice(0, 7)) : null) },
+                { key: "voucher", header: "Voucher", exportValue: (r) => r.voucher_number, cell: (r) => r.voucher_number },
+                { key: "amount", header: "Amount", align: "right", exportKind: "money", exportValue: (r) => r.amount, cell: (r) => money(r.amount) },
                 {
                   key: "fix",
                   header: "Fix",
@@ -758,21 +768,23 @@ function LedgerProblems({ kind, canFix }: { kind: ProblemKind; canFix: boolean }
               getKey={(r) => r.id}
               caption={text.title}
               maxHeight="none"
+              tools={{ id: `ledger-${kind}`, title: text.title }}
               empty={{ title: "The ledger agrees with every paid claim", message: "Nothing to fix here." }}
               columns={[
                 {
                   key: "no",
                   header: "Claim no.",
+                  exportValue: (r) => r.ticket_number,
                   cell: (r) => (
                     <Link to={`/papers/${r.id}`} className="underline-offset-2 hover:underline">
                       <ClaimNo no={r.ticket_number} />
                     </Link>
                   ),
                 },
-                { key: "who", header: "Faculty", cell: (r) => <FaceName person={r.owner} /> },
-                { key: "paper", header: "Paper", empty: "Title not recorded", cell: (r) => (r.title && r.title.trim() !== "-" ? <span className="line-clamp-2">{r.title}</span> : null) },
-                { key: "claim", header: "Claim says", align: "right", cell: (r) => (r.claim_amount == null ? null : money(r.claim_amount)) },
-                { key: "ledger", header: "Ledger has", align: "right", cell: (r) => money(r.ledger_total) },
+                { key: "who", header: "Faculty", exportValue: (r) => r.owner.name, cell: (r) => <FaceName person={r.owner} /> },
+                { key: "paper", header: "Paper", empty: "Title not recorded", exportValue: (r) => r.title, cell: (r) => (r.title && r.title.trim() !== "-" ? <span className="line-clamp-2">{r.title}</span> : null) },
+                { key: "claim", header: "Claim says", align: "right", exportKind: "money", exportValue: (r) => r.claim_amount, cell: (r) => (r.claim_amount == null ? null : money(r.claim_amount)) },
+                { key: "ledger", header: "Ledger has", align: "right", exportKind: "money", exportValue: (r) => r.ledger_total, cell: (r) => money(r.ledger_total) },
                 {
                   key: "fix",
                   header: "Fix",

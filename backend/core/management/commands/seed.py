@@ -269,7 +269,7 @@ class Command(BaseCommand):
                     "biometric_id": bio_id,
                     "designation": designation,
                     "is_staff": role == Role.SUPER_ADMIN,
-                    "must_change_password": role == Role.SUPER_ADMIN,
+                    "must_change_password": False,
                 },
             )
             if created:

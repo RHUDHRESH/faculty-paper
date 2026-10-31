@@ -2,16 +2,18 @@ import { useEffect, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { ArrowRight, Download, History, Search, SearchX } from "lucide-react"
 
+import { useAuth, type Role } from "@/app/auth"
 import { useApi } from "@/lib/query"
 import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { DateInput, Input } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
 import { PageHeader } from "@/ui/page-header"
 import { Pagination } from "@/ui/pagination"
-import { Details, Rows, Section } from "@/ui/section"
+import { Details, Rows } from "@/ui/section"
 import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle } from "@/ui/sheet"
-import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { ErrorState, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { Meta } from "@/ui/text"
 
@@ -26,9 +28,12 @@ import { count, FaceName, type Face } from "./admin-b-parts"
  * edit here and nothing to remove, and nothing on the page suggests otherwise.
  *
  * The audit endpoint is open to a wider set than "the office" (the Principal,
- * Finance and the Director read it too), so the page does not gate on a client
- * role check. It lets the request run and reads the server's own 403.
+ * Finance and the Director read it too), so the page gates on that same set
+ * (`rbac.can_view_audit`), and makes no request for anybody else.
  */
+
+/** `rbac.can_view_audit` (admin.py `admin_audit`, admin_b.py `audit_actions`). */
+const AUDIT_READERS: Role[] = ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR", "PRINCIPAL", "DIRECTOR", "FINANCE"]
 
 type Change = { label: string; from: string; to: string }
 
@@ -162,6 +167,8 @@ function Origins() {
 }
 
 export function Audit() {
+  const { me, loading: signingIn } = useAuth()
+  const canRead = !!me && AUDIT_READERS.includes(me.role)
   const [searchParams, setSearchParams] = useSearchParams()
   const q = searchParams.get("q") ?? ""
   const action = searchParams.get("action") ?? ""
@@ -234,9 +241,11 @@ export function Audit() {
   const { data, isLoading, isError, error, refetch } = useApi<AuditPayload>(
     ["audit", q, action, person, claim, from, to, page],
     `/api/admin/audit?${listQuery.toString()}`,
-    { placeholderData: (prev) => prev }
+    { placeholderData: (prev) => prev, enabled: canRead }
   )
-  const actions = useApi<{ actions: { value: string; label: string }[] }>(["audit", "actions"], "/api/admin/audit/actions")
+  const actions = useApi<{ actions: { value: string; label: string }[] }>(["audit", "actions"], "/api/admin/audit/actions", {
+    enabled: canRead,
+  })
   const actionOptions: ComboboxOption[] = [
     { value: "", label: "Anything" },
     ...(actions.data?.actions ?? []).map((a) => ({ value: a.value, label: a.label })),
@@ -256,6 +265,26 @@ export function Audit() {
   const filtered = Boolean(q || extraFilters)
   const shown = collapseRuns(rows)
   const summary = data?.summary
+
+  if (signingIn) {
+    return (
+      <div className="page space-y-10">
+        <SkeletonRows rows={8} rowHeight={48} />
+      </div>
+    )
+  }
+
+  if (!canRead) {
+    return (
+      <div className="page py-8">
+        <ErrorState
+          art="closed-gate"
+          title="Not open to this account"
+          message="Open to the research office, system admins, the Principal, the Director and Finance."
+        />
+      </div>
+    )
+  }
 
   const columns: Column<ShownRow>[] = [
     {
@@ -324,11 +353,10 @@ export function Audit() {
   ]
 
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-6">
       <PageHeader
         title="Audit log"
         sub="Who changed what, and when. Nothing can be edited."
-        spot="spot-audit"
         action={
           <Button kind="primary" asChild>
             <a href={csvHref} download>
@@ -344,7 +372,7 @@ export function Audit() {
         }
       />
 
-      <section aria-label="The answer" className="space-y-3">
+      <div className="space-y-3">
         <Answer
           items={[
             { value: data ? total : null, label: filtered ? "Entries match" : "Entries in all", to: filtered ? "/audit" : undefined, zero: "Nothing recorded yet" },
@@ -358,10 +386,10 @@ export function Audit() {
             The CSV stops at {count(AUDIT_CSV_CAP)} rows. Narrow the dates to export the rest.
           </p>
         )}
-      </section>
+      </div>
 
-      <Section title="Find an entry" className="space-y-3">
-        <div className="relative w-full max-w-md">
+      <div className={filterBar} role="search">
+        <div className="relative w-full min-w-0 sm:w-80">
           <Search
             className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle"
             aria-hidden
@@ -374,64 +402,60 @@ export function Audit() {
             className="pl-8"
           />
         </div>
-        <Details label="more filters" defaultOpen={extraFilters}>
-          <div className="flex flex-wrap items-end gap-3 max-sm:[&>*]:w-full max-sm:[&>*]:max-w-none">
-            <label className="block w-56">
-              <span className="mb-1.5 block text-xs text-fg-muted">What happened</span>
-              <Combobox
-                value={action}
-                onChange={(v) => setParam("action", v)}
-                options={actionOptions}
-                placeholder="Anything"
-                aria-label="Filter by what happened"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-xs text-fg-muted">Who did it</span>
-              <Input
-                defaultValue={person}
-                key={`p-${person}`}
-                onBlur={(e) => setParam("person", e.target.value.trim())}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") setParam("person", e.currentTarget.value.trim())
-                }}
-                placeholder="Name or email"
-                aria-label="Filter by who did it"
-                className="w-full sm:w-48"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-xs text-fg-muted">Claim number</span>
-              <Input
-                defaultValue={claim}
-                key={`c-${claim}`}
-                onBlur={(e) => setParam("claim", e.target.value.trim())}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") setParam("claim", e.currentTarget.value.trim())
-                }}
-                placeholder="FP-2026-000001"
-                aria-label="Filter by claim number"
-                className="w-full sm:w-44"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-xs text-fg-muted">From</span>
-              <DateInput value={from} onChange={(e) => setParam("from", e.target.value)} aria-label="From date" className="w-full sm:w-36" />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-xs text-fg-muted">To</span>
-              <DateInput value={to} onChange={(e) => setParam("to", e.target.value)} aria-label="To date" className="w-full sm:w-36" />
-            </label>
-          </div>
-        </Details>
+        <label className="block sm:w-56">
+          <span className="mb-1.5 block text-sm text-fg-muted">What happened</span>
+          <Combobox
+            value={action}
+            onChange={(v) => setParam("action", v)}
+            options={actionOptions}
+            placeholder="Anything"
+            aria-label="Filter by what happened"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm text-fg-muted">Who did it</span>
+          <Input
+            defaultValue={person}
+            key={`p-${person}`}
+            onBlur={(e) => setParam("person", e.target.value.trim())}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") setParam("person", e.currentTarget.value.trim())
+            }}
+            placeholder="Name or email"
+            aria-label="Filter by who did it"
+            className="w-full sm:w-48"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm text-fg-muted">Claim number</span>
+          <Input
+            defaultValue={claim}
+            key={`c-${claim}`}
+            onBlur={(e) => setParam("claim", e.target.value.trim())}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") setParam("claim", e.currentTarget.value.trim())
+            }}
+            placeholder="FP-2026-000001"
+            aria-label="Filter by claim number"
+            className="w-full sm:w-44"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm text-fg-muted">From</span>
+          <DateInput value={from} onChange={(e) => setParam("from", e.target.value)} aria-label="From date" className="w-full sm:w-36" />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm text-fg-muted">To</span>
+          <DateInput value={to} onChange={(e) => setParam("to", e.target.value)} aria-label="To date" className="w-full sm:w-36" />
+        </label>
         {filtered && (
-          <Button kind="quiet" size="sm" onClick={clearFilters}>
+          <Button kind="quiet" onClick={clearFilters}>
             Clear filters
           </Button>
         )}
-      </Section>
+      </div>
 
-      <Section title={filtered ? `${count(total)} matching` : "Newest first"}>
+      <div className="space-y-3">
         {isLoading ? (
           <SkeletonRows rows={8} rowHeight={48} />
         ) : isError ? (
@@ -448,31 +472,31 @@ export function Audit() {
               onRetry={() => refetch()}
             />
           )
-        ) : rows.length === 0 ? (
-          <EmptyState
-            art={filtered ? "no-results" : "nothing-filed"}
-            icon={filtered ? SearchX : History}
-            title={filtered ? "Nothing matches" : "No activity recorded yet"}
-            message={
-              filtered
-                ? "Try a wider date range or fewer filters."
-                : "Every change appears here as it happens."
-            }
-            action={
-              filtered ? (
-                <Button kind="default" size="sm" onClick={clearFilters}>
-                  Clear filters
-                </Button>
-              ) : undefined
-            }
-          />
         ) : (
-          <div className="space-y-3">
-            <Table rows={shown} getKey={(r) => r.id} columns={columns} caption="Audit log entries" maxHeight="none" />
+          <>
+            <Table
+              rows={shown}
+              getKey={(r) => r.id}
+              columns={columns}
+              caption="Audit log entries"
+              maxHeight="none"
+              tools={{ id: "audit", title: "Audit log" }}
+              empty={{
+                art: filtered ? "no-results" : "nothing-filed",
+                icon: filtered ? SearchX : History,
+                title: filtered ? "Nothing matches" : "No activity recorded yet",
+                message: filtered ? "Try a wider date range or fewer filters." : "Every change appears here as it happens.",
+                action: filtered ? (
+                  <Button kind="default" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
+                ) : undefined,
+              }}
+            />
             <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={goToPage} />
-          </div>
+          </>
         )}
-      </Section>
+      </div>
 
       {!filtered && page === 0 && <Origins />}
 

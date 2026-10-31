@@ -346,7 +346,7 @@ class Command(BaseCommand):
                 biometric_id=r["biometric_id"], designation=r["designation"],
                 scopus_author_id=r["scopus_author_id"],
                 scopus_author_url=author_profile_url(r["scopus_author_id"]),
-                must_change_password=True, active=True,
+                must_change_password=False, active=True,
             )
             user.set_password(pw)
             user.save()
@@ -674,7 +674,7 @@ class Command(BaseCommand):
                 # No longer on the roster, so no sign-in — the record exists to
                 # keep their payment history attributed, not to grant access.
                 "active": False,
-                "must_change_password": True,
+                "must_change_password": False,
             },
         )
         for key in (email, staff_id, bio, user.scopus_author_id):
@@ -694,7 +694,7 @@ class Command(BaseCommand):
                 "name": "Unattributed ERP records",
                 "role": Role.FACULTY,
                 "active": False,
-                "must_change_password": True,
+                "must_change_password": False,
             },
         )
         return user

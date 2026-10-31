@@ -10,7 +10,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 import type { Me } from "@/app/auth"
 import { api } from "@/lib/api"
 import { Faults } from "@/pages/faults"
-import { fakeApi, renderWithProviders } from "@/test/harness"
+import { FINANCE, fakeApi, renderWithProviders } from "@/test/harness"
 
 const ADMIN: Me = { id: "u-a", email: "a@x.edu", name: "Admin", role: "SUPER_ADMIN", department: null }
 
@@ -77,5 +77,12 @@ describe("Faults", () => {
     expect((await screen.findAllByText("Asha Rao")).length).toBeGreaterThan(0)
     // A missing amount says so; it is not a blank cell or a dash.
     expect(screen.getAllByText("Not recorded").length).toBeGreaterThan(0)
+  })
+
+  it("is closed to Finance without asking the server for the faults", async () => {
+    vi.mocked(api).mockImplementation(fakeApi({ "/api/auth/me": () => FINANCE, "/api/admin/faults": () => PAYLOAD }))
+    renderWithProviders(<Faults />)
+    expect(await screen.findByText("Not open to this account")).toBeInTheDocument()
+    expect(vi.mocked(api).mock.calls.some(([path]) => String(path).startsWith("/api/admin/faults"))).toBe(false)
   })
 })

@@ -42,10 +42,13 @@ describe("Coming up, on Home", () => {
     const rows = within(card).getAllByRole("link", { name: /./ }).filter((a) => a.getAttribute("href")?.startsWith("/events?event="))
     expect(rows).toHaveLength(3)
     expect(rows[0]).toHaveTextContent("Power electronics for electric vehicles")
-    expect(rows[0]).toHaveTextContent("Thursday 8 Oct, 3 pm, Seminar Hall 2")
     expect(rows[0]).toHaveAttribute("href", `/events?event=${SEMINAR.id}`)
-    expect(rows[2]).toHaveTextContent("Closes Monday 19 Oct")
-    expect(rows[2]).toHaveTextContent("12 days left")
+    // A plain table: the event is the link, the rest is in its row.
+    const lines = within(card).getAllByRole("row")
+    expect(lines[1]).toHaveTextContent("Thursday 8 Oct, 3 pm, Seminar Hall 2")
+    expect(lines[3]).toHaveTextContent("Closes Monday 19 Oct")
+    expect(lines[3]).toHaveTextContent("12 days left")
+    expect(within(card).getByRole("button", { name: /Export/ })).toBeInTheDocument()
   })
 
   it("says how many are going when anybody is", async () => {

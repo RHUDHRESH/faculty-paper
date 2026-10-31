@@ -1,106 +1,28 @@
-import { cn } from "@/lib/cn"
-import { ILLUSTRATIONS, type IllustrationName } from "@/ui/illustration-index"
+import type { IllustrationName } from "@/ui/illustration-index"
 
 export type { IllustrationName }
 
-const BASE = "/illustrations/generated/"
 
-/**
- * One of the generated illustrations (public/illustrations/generated,
- * manifest.json; index built by scripts/gen-illustration-index.mjs).
- *
- * Lazy, WebP with a PNG fallback, and width/height set from the asset's own
- * size so nothing shifts while it loads. Decorative by default (the heading
- * beside it carries the meaning); pass `alt` to make it content.
- *
- * Some drawings keep a cream fill inside closed shapes, so in dark mode they
- * sit on a light plate (docs/ux/ASSETS.md); in light mode the plate is
- * invisible against the canvas. Illustrations support, never dominate: keep
- * `width` small.
- */
-export function Illustration({
-  name,
-  width = 160,
-  alt,
-  className,
-  plate = true,
-  eager = false,
-}: {
+/** Decorative illustration: the minimalist skin renders nothing. Kept so imports compile. */
+export function Illustration(_props: {
   name: IllustrationName
-  /** Rendered width in px; height follows the asset's aspect ratio. */
   width?: number
   alt?: string
   className?: string
-  /** Light plate behind the art in dark mode. */
   plate?: boolean
   eager?: boolean
 }) {
-  const meta = ILLUSTRATIONS[name]
-  if (!meta) return null
-  const height = Math.round((width * meta.h) / meta.w)
-  return (
-    <picture
-      className={cn(
-        "inline-block shrink-0 select-none",
-        plate && "dark:rounded-2xl dark:bg-plate dark:p-2",
-        className
-      )}
-      data-illustration={name}
-    >
-      <source srcSet={`${BASE}${name}.webp`} type="image/webp" />
-      <img
-        src={`${BASE}${name}.png`}
-        width={width}
-        height={height}
-        loading={eager ? "eager" : "lazy"}
-        decoding="async"
-        alt={alt ?? ""}
-        aria-hidden={alt ? undefined : true}
-        className="block h-auto max-w-full"
-        style={{ width }}
-      />
-    </picture>
-  )
+  return null
 }
 
-/**
- * One of the 60 generated spot icons, masked so its ink takes `currentColor`
- * and themes with the text around it. For spot moments (a stat, an empty
- * row, a card lead) — not UI chrome, where Lucide stays.
- */
-export function SpotIcon({
-  name,
-  size = 24,
-  label,
-  className,
-}: {
+/** Decorative spot icon: renders nothing. */
+export function SpotIcon(_props: {
   name: Extract<IllustrationName, `icon-${string}`>
   size?: number
   label?: string
   className?: string
 }) {
-  const url = `url(${BASE}${name}.svg)`
-  return (
-    <span
-      role={label ? "img" : undefined}
-      aria-label={label}
-      aria-hidden={label ? undefined : true}
-      data-spot-icon={name}
-      className={cn("inline-block shrink-0 bg-current align-middle", className)}
-      style={{
-        width: size,
-        height: size,
-        WebkitMaskImage: url,
-        maskImage: url,
-        WebkitMaskRepeat: "no-repeat",
-        maskRepeat: "no-repeat",
-        WebkitMaskSize: "contain",
-        maskSize: "contain",
-        WebkitMaskPosition: "center",
-        maskPosition: "center",
-      }}
-    />
-  )
+  return null
 }
 
 /** The illustration for a department code, when there is one. */

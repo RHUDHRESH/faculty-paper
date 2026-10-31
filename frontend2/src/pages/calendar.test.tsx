@@ -349,8 +349,8 @@ describe("Google Calendar strip", () => {
   it("keeps the page's primary button on Add event; Connect Google Calendar is an ordinary button", async () => {
     mount(FACULTY, { google: READY })
     const connect = await screen.findByRole("button", { name: "Connect Google Calendar" })
-    expect(connect.className).not.toContain("bg-action")
-    expect(screen.getAllByRole("button", { name: /Add event/ })[0].className).toContain("bg-action")
+    expect(connect.className).not.toContain("bg-accent")
+    expect(screen.getAllByRole("button", { name: /Add event/ })[0].className).toContain("bg-accent")
   })
 
   it("shows who it is connected as, when it last synced, and Sync now and Disconnect", async () => {

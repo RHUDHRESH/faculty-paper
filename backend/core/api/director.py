@@ -22,17 +22,22 @@ from core.api.common import (
     logger,
     session_auth,
 )
-from core.api.schemas import ActionIn, ManualVerifyIn, OverrideStatusIn
+from core.api.schemas import ActionIn, ManualVerifyIn, OverrideStatusIn, VoidIn
 from core.api.deps import claim_to_dict
 from core.api.common import require_user
 from core.api.journals import (
     PrincipalBulkIn,
+    _claim_columns,
     _guard_recomputed_amount,
     _may_approve_as_principal,
+    _persist_checked,
     _require_own_desk,
     _reverify_or_recalc,
+    _routine_second_signature,
     _transition,
+    _unpriced_reason,
     _withdraw_approvals,
+    _withdraw_second_signature,
     clear_claim,
 )
 
@@ -103,10 +108,8 @@ def director_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
         claim.authorised_amount = research_threshold.full_amount(claim)
         # A third pair of eyes satisfies the second-signature rule if the
         # Principal has not already -- but only where this really is somebody
-        # other than whoever cleared it.
-        if not claim.second_approved_by_id and claim.cleared_by_id != user.id:
-            claim.second_approved_by = user
-            claim.second_approved_at = timezone.now()
+        # other than whoever cleared it, and not on a payment-history warning.
+        _routine_second_signature(claim, user)
         _transition(
             claim, user, ClaimStatus.DIRECTOR_APPROVED, "DIRECTOR_APPROVE", payload.note
         )
@@ -276,6 +279,10 @@ def director_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
                 continue
             shown = claim.remuneration
             _apply_calc(claim)
+            if _unpriced_reason(claim):
+                skipped.append({"id": claim_id, "reason": _unpriced_reason(claim)})
+                transaction.set_rollback(True)
+                continue
             if round(shown or 0, 2) != round(claim.remuneration or 0, 2):
                 skipped.append({
                     "id": claim_id,
@@ -290,9 +297,7 @@ def director_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
             claim.director_approved_by = user
             claim.director_approved_at = timezone.now()
             claim.authorised_amount = research_threshold.full_amount(claim)
-            if not claim.second_approved_by_id and claim.cleared_by_id != user.id:
-                claim.second_approved_by = user
-                claim.second_approved_at = timezone.now()
+            _routine_second_signature(claim, user)
             _transition(
                 claim, user, ClaimStatus.DIRECTOR_APPROVED, "DIRECTOR_APPROVE", payload.note
             )
@@ -344,7 +349,11 @@ def director_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
         # reader concludes it was signed off twice.
         claim.principal_approved_by = None
         claim.principal_approved_at = None
-        claim.save(update_fields=["principal_approved_by", "principal_approved_at"])
+        _withdraw_second_signature(claim)
+        claim.save(update_fields=[
+            "principal_approved_by", "principal_approved_at", "second_approved_by", "second_approved_at",
+            "override_duplicate", "override_by", "override_at", "override_reason",
+        ])
         _transition(claim, user, ClaimStatus.CLEARED, "DIRECTOR_SEND_BACK", note)
 
     for u in _desk_people(claim, (Role.PRINCIPAL, Role.SUPER_ADMIN)):
@@ -384,6 +393,7 @@ def principal_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
         # the Principal's approval with it: the desk will clear it again.
         claim.cleared_by = None
         claim.cleared_at = None
+        _withdraw_second_signature(claim)
         _transition(claim, user, ClaimStatus.SUBMITTED, "PRINCIPAL_SEND_BACK", note)
 
     _notify_admins(
@@ -680,7 +690,9 @@ def _pay_under_lock(
         flag_service.announce_paid_with_open_flags(claim)
         payout = claim.payout_month
         if not payout:
-            today = timezone.now().date()
+            # The college's calendar, not UTC's: before 05:30 on the 1st the
+            # UTC date is still the month before.
+            today = timezone.localdate()
             payout = date(today.year, today.month, 1)
             claim.payout_month = payout
             claim.save(update_fields=["payout_month"])
@@ -853,10 +865,13 @@ def bulk_mark_paid(request: HttpRequest, payload: BulkMarkPaidIn):
 
 @api.post("/claims/{claim_id}/second-approve", auth=session_auth)
 def second_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
-    """Second signature on a high-value cleared claim.
+    """Second signature on a high-value cleared claim, or on one whose
+    payment-history warning was set aside.
 
     Must come from someone other than the person who cleared it — the whole
-    point is a second pair of eyes on large amounts.
+    point is a second pair of eyes on large amounts — and, on a set-aside
+    warning, other than the person who set it aside. On a claim carrying a
+    payment-history warning this is the only way the signature is given.
     """
     user = require_user(request)
     # Admin only. The Principal oversees and reports; giving that account a
@@ -879,12 +894,16 @@ def second_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
                 "ticket can be second-approved",
             )
         threshold = _high_value_threshold()
-        if (claim.remuneration or 0) < threshold:
+        # A warning that was set aside needs its second reader at any amount
+        # (`_needs_second_approval`), so the threshold is no reason to refuse.
+        if (claim.remuneration or 0) < threshold and not (claim.duplicate_warning and claim.override_duplicate):
             raise HttpError(
                 400, f"Below the second-approval threshold (₹{threshold:,.0f}) — no second signature needed"
             )
         if claim.cleared_by_id == user.id:
             raise HttpError(400, "The second approver must be a different person from the one who cleared it")
+        if claim.duplicate_warning and claim.override_duplicate and claim.override_by_id == user.id:
+            raise HttpError(400, "The second approver must be a different person from the one who set the warning aside")
         if claim.second_approved_by_id:
             raise HttpError(400, "Already second-approved")
         claim.second_approved_by = user
@@ -911,7 +930,7 @@ def second_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
 
 
 @api.post("/claims/{claim_id}/void-payment", auth=session_auth)
-def void_payment(request: HttpRequest, claim_id: str, payload: ActionIn):
+def void_payment(request: HttpRequest, claim_id: str, payload: VoidIn):
     """Reverse a payment made in error.
 
     The ledger is append-only: voiding writes a negative reversing row rather
@@ -944,11 +963,22 @@ def void_payment(request: HttpRequest, claim_id: str, payload: ActionIn):
         net_paid = claim.ledger_rows.aggregate(s=Sum("amount"))["s"] or 0
         if not claim.ledger_rows.exists():
             raise HttpError(400, "No payment on record to void")
-        today = timezone.now().date()
+        today = timezone.localdate()
         # The reversal belongs to the cycle it undoes. A second void of the
         # same payment would be a second REVERSAL in the same cycle, which the
         # database refuses (`one_reversal_per_claim_cycle`).
         cycle = payment_guards.current_cycle(claim)
+        # The bank pays what it is sent. A payment already in a bank file is
+        # not undone on the ledger alone: the void has to say the transfer was
+        # recalled, and by what reference.
+        recall = (payload.bank_recall_ref or "").strip()
+        if claim.ledger_rows.filter(cycle=cycle, bank_export__isnull=False).exists() and len(recall) < 6:
+            raise HttpError(
+                409,
+                "This payment is already in a bank file. Recall the transfer with the bank first, "
+                "then void it with the bank's recall reference (bank_recall_ref).",
+            )
+        old_voucher = claim.voucher_number
         try:
             with transaction.atomic():
                 row = PaidLedger.objects.create(
@@ -963,8 +993,8 @@ def void_payment(request: HttpRequest, claim_id: str, payload: ActionIn):
                     paper_title=claim.paper_title,
                     journal_title=claim.journal_title,
                     amount=-net_paid,
-                    voucher_number=f"{(claim.voucher_number or 'VOID')[:59]}-VOID",
-                    raw_json=json.dumps({"voided_by": user.email, "reason": note}),
+                    voucher_number=f"{(old_voucher or 'VOID')[:59]}-VOID",
+                    raw_json=json.dumps({"voided_by": user.email, "reason": note, "bank_recall_ref": recall or None}),
                 )
         except IntegrityError:
             raise HttpError(409, "This payment has already been voided.")
@@ -972,11 +1002,20 @@ def void_payment(request: HttpRequest, claim_id: str, payload: ActionIn):
             actor=user, action="LEDGER_REVERSAL", entity="PaidLedger", entity_id=row.id,
             detail_json=json.dumps({
                 "claim": claim.id, "ticket": claim.ticket_number, "amount": row.amount,
-                "cycle": cycle, "reason": note,
+                "cycle": cycle, "reason": note, "bank_recall_ref": recall or None,
             }),
         )
+        # The month and voucher belonged to the payment just undone. Left on
+        # the claim, a repayment would be booked into that old, possibly
+        # already exported and signed, month.
         claim.paid_at = None
-        claim.save(update_fields=["paid_at"])
+        claim.payout_month = None
+        claim.voucher_number = None
+        _withdraw_second_signature(claim)
+        claim.save(update_fields=[
+            "paid_at", "payout_month", "voucher_number", "second_approved_by", "second_approved_at",
+            "override_duplicate", "override_by", "override_at", "override_reason",
+        ])
         _transition(claim, user, ClaimStatus.CLEARED, "VOID_PAYMENT", note)
     return claim_to_dict(claim)
 
@@ -1115,6 +1154,7 @@ def _verify_claim(claim: Claim) -> Claim:
     # payment silently diverges the claim from its PaidLedger row.
     if claim.status == ClaimStatus.PAID:
         raise HttpError(400, "Claim is already paid. Re-verifying would change a settled amount")
+    before = _claim_columns(claim)
     result = verify_publication(
         title=claim.paper_title or "",
         scopus_author_url=claim.scopus_author_url,
@@ -1125,8 +1165,8 @@ def _verify_claim(claim: Claim) -> Claim:
     )
     apply_verify_to_claim(claim, result)
     _apply_calc(claim)
-    claim.save()
-    return claim
+    # Saved onto the claim as it is after the lookup, not the copy read before it.
+    return _persist_checked(claim, before)
 
 
 @api.post("/claims/{claim_id}/verify", auth=session_auth)
@@ -1173,6 +1213,7 @@ def set_verified_values(request: HttpRequest, claim_id: str, payload: ManualVeri
     if payload.quartile is not None and payload.quartile not in ("Q1", "Q2", "Q3", "Q4", ""):
         raise HttpError(400, "Quartile must be one of Q1–Q4")
 
+    columns_before = _claim_columns(claim)
     before = {
         "snip": claim.snip,
         "snip_source": claim.snip_source,
@@ -1193,7 +1234,7 @@ def set_verified_values(request: HttpRequest, claim_id: str, payload: ManualVeri
     claim.manual_verified_at = timezone.now()
     claim.manual_verification_note = note
     _apply_calc(claim)
-    claim.save()
+    claim = _persist_checked(claim, columns_before)
     ClaimAction.objects.create(
         claim=claim,
         actor=user,

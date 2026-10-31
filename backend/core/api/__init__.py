@@ -98,3 +98,5 @@ from core.api.journal_check import *  # noqa: F401,F403
 from core.api.proof_locker import *  # noqa: F401,F403
 from core.api.insights import *  # noqa: F401,F403
 from core.api.export_table import *  # noqa: F401,F403
+from core.api.paper_candidates import *  # noqa: F401,F403
+from core.api.shell import *  # noqa: F401,F403

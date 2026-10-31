@@ -9,6 +9,8 @@ import { Chip } from "@/ui/chip"
 import { Combobox } from "@/ui/combobox"
 import { ConfirmDialog } from "@/ui/dialog"
 import { Input } from "@/ui/field"
+import { filterBar } from "@/ui/filter-bar"
+import { MoreMenu } from "@/pages/more-menu"
 import { formatCount } from "@/lib/count"
 import { Answer } from "@/ui/answer"
 import { PageHeader } from "@/ui/page-header"
@@ -101,7 +103,6 @@ export function AuthorMatches() {
       <PageHeader
         title="Author matches"
         sub="Say who each name is once. Later harvests follow."
-        spot="spot-search"
         action={
           <Button
             kind="default"
@@ -246,18 +247,6 @@ function Names({
           >
             Match nobody ({formatCount(waiting)})
           </Button>
-          {shown === "no" && waiting > 0 && (
-            <Button kind="quiet" size="sm" onClick={() => setBulk(true)}>
-              Set all {formatCount(waiting)} aside…
-            </Button>
-          )}
-        </div>
-      )}
-      {status !== "open" && inList > 1 && (
-        <div>
-          <Button kind="quiet" size="sm" onClick={() => setBulk(true)}>
-            Move all {formatCount(inList)} back to review…
-          </Button>
         </div>
       )}
       <ConfirmDialog
@@ -291,7 +280,7 @@ function Names({
           }
         }}
       />
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <div className={filterBar} role="search">
         <Input
           aria-label="Search names"
           placeholder="Search a name"
@@ -300,7 +289,17 @@ function Names({
             setQ(e.target.value)
             setPage(0)
           }}
-          className="w-full max-w-sm"
+          className="w-full min-w-0 sm:w-80"
+        />
+        <MoreMenu
+          items={[
+            status === "open" && shown === "no" && waiting > 0
+              ? { label: `Set all ${formatCount(waiting)} aside`, onSelect: () => setBulk(true), danger: true }
+              : false,
+            status !== "open" && inList > 1
+              ? { label: `Move all ${formatCount(inList)} back to review`, onSelect: () => setBulk(true) }
+              : false,
+          ]}
         />
       </div>
       <Details label="keyboard shortcuts" className="hidden sm:block">

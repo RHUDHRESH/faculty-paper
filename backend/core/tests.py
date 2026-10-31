@@ -2536,16 +2536,15 @@ class SuperAdminPowersTests(TestCase):
         self.assertIn("Stop impersonating", blocked.json()["detail"])
 
     def test_viewing_as_somebody_who_owes_a_password_change_still_shows_their_record(self):
-        # Every imported account starts owing one; the view must not go blank.
+        # The flag is inert: neither the viewer nor Alice is held to it.
         self.alice.must_change_password = True
         self.alice.save()
         self.client.force_login(self.admin)
         self.post(f"/api/admin/impersonate/{self.alice.id}", {})
         self.assertEqual(self.client.get("/api/claims").status_code, 200)
-        # Alice herself is still held to it.
         own = Client()
         own.force_login(self.alice)
-        self.assertEqual(own.get("/api/claims").status_code, 403)
+        self.assertEqual(own.get("/api/claims").status_code, 200)
 
     def test_stopping_works_after_viewing_somebody_who_owes_a_password_change(self):
         self.alice.must_change_password = True
@@ -3862,6 +3861,20 @@ class DuplicateOverrideGuardTests(TestCase):
         self.assertEqual(claim.override_by_id, self.cell.id)
         self.assertIsNotNone(claim.override_at)
 
+    def test_a_claimants_own_contest_is_a_note_not_a_decision(self):
+        self.client.force_login(self.faculty)
+        r = self._refile(owner_id=None, contest_forward=True,
+                         contest_note="This is a different paper from the one paid.")
+        self.assertEqual(r.status_code, 200, r.content)
+        claim = Claim.objects.get(pk=r.json()["id"])
+        self.assertEqual(claim.owner_id, self.faculty.id)
+        self.assertTrue(claim.duplicate_warning)
+        self.assertTrue(claim.contest_forward)
+        self.assertEqual(claim.contest_note, "This is a different paper from the one paid.")
+        self.assertFalse(claim.override_duplicate)
+        self.assertIsNone(claim.override_by_id)
+        self.assertIsNone(claim.override_at)
+
     def test_the_person_who_set_it_aside_cannot_clear_it(self):
         self.client.force_login(self.cell)
         claim_id = self._refile(
@@ -3937,9 +3950,8 @@ class DuplicateOverrideGuardTests(TestCase):
         claim.refresh_from_db()
         self.assertEqual(claim.status, ClaimStatus.CLEARED)
 
-        # The principal is a third person again, and their approval is what
-        # satisfies the second-signature rule the override raised. Three people
-        # have now looked at a ticket somebody said was not a duplicate.
+        # The principal's approval is routine: it does not read the warning,
+        # so it is not the second signature the override raised.
         head = User.objects.create_user(
             email="dup-head@test.edu", password="pass", name="Head", role=Role.PRINCIPAL
         )
@@ -3951,10 +3963,9 @@ class DuplicateOverrideGuardTests(TestCase):
         )
         self.assertEqual(r.status_code, 200, r.content)
         claim.refresh_from_db()
-        self.assertEqual(claim.second_approved_by_id, head.id)
+        self.assertIsNone(claim.second_approved_by_id)
 
-        # A fourth pair of eyes: the director authorises what the principal
-        # approved, and only then is there anything for finance to pay.
+        # Nor is the director's: they authorise what the principal approved.
         director = User.objects.create_user(
             email="dup-dir@test.edu", password="pass", name="Dup Director",
             role=Role.DIRECTOR,
@@ -3963,6 +3974,29 @@ class DuplicateOverrideGuardTests(TestCase):
         r = self.client.post(
             f"/api/claims/{claim_id}/director-approve",
             data=json.dumps({"expected_amount": claim.remuneration}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+
+        self.client.force_login(self.finance)
+        r = self.client.post(
+            f"/api/claims/{claim_id}/mark-paid",
+            data=json.dumps({"expected_amount": claim.remuneration}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn("second approver", r.json()["detail"])
+
+        # The second signature is its own act, by an admin who neither cleared
+        # the ticket nor set the warning aside.
+        third = User.objects.create_user(
+            email="dup-third@test.edu", password="pass", name="Third Admin",
+            role=Role.RESEARCH_COORDINATOR,
+        )
+        self.client.force_login(third)
+        r = self.client.post(
+            f"/api/claims/{claim_id}/second-approve",
+            data=json.dumps({"note": "Checked against the ledger"}),
             content_type="application/json",
         )
         self.assertEqual(r.status_code, 200, r.content)
@@ -5578,7 +5612,8 @@ class HeadOfDepartmentTests(TestCase):
 
 
 class MustChangePasswordTests(TestCase):
-    """The flag was returned to the client and enforced only by the frontend."""
+    """The owner chose voluntary password changes only: the model flag is inert,
+    never blocks the API and is never advertised as True."""
 
     def setUp(self):
         self.user = User.objects.create_user(
@@ -5588,9 +5623,14 @@ class MustChangePasswordTests(TestCase):
         self.client = Client()
         self.client.force_login(self.user)
 
-    def test_other_endpoints_are_blocked(self):
+    def test_a_user_with_the_flag_set_can_still_use_the_api(self):
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.must_change_password)
         r = self.client.get("/api/claims")
-        self.assertEqual(r.status_code, 403, r.content)
+        self.assertEqual(r.status_code, 200, r.content)
+        me = self.client.get("/api/auth/me")
+        self.assertEqual(me.status_code, 200)
+        self.assertIs(me.json()["must_change_password"], False)
 
     def test_me_and_change_password_still_work(self):
         self.assertEqual(self.client.get("/api/auth/me").status_code, 200)
@@ -9985,8 +10025,8 @@ class AssignableRoleTests(TestCase):
         self.assertEqual(r.status_code, 200, r.content)
         made = User.objects.get(email="ar-dir@test.edu")
         self.assertEqual(made.role, Role.DIRECTOR)
-        # Issued, not chosen: they are asked for their own on first sign-in.
-        self.assertTrue(made.must_change_password)
+        # Issued, not chosen; nothing forces a change (voluntary, in Profile settings).
+        self.assertFalse(made.must_change_password)
 
     def test_the_research_cell_may_move_somebody_between_departments(self):
         """Routing, not identity -- people move departments as a matter of course."""
@@ -10927,15 +10967,13 @@ class CreateAccountWithoutAPasswordTests(TestCase):
             )
             self.assertEqual(res.status_code, 401, f"{attempt!r} opened a session")
 
-    def test_it_is_made_to_choose_one(self):
+    def test_it_is_not_forced_to_choose_one(self):
         self.create()
-        self.assertTrue(User.objects.get(email="new-person@test.edu").must_change_password)
+        self.assertFalse(User.objects.get(email="new-person@test.edu").must_change_password)
 
-    def test_the_flag_cannot_be_waived_on_a_passwordless_account(self):
-        """Otherwise the account is both unable to sign in and never asked to
-        fix that."""
-        self.create(must_change_password=False)
-        self.assertTrue(User.objects.get(email="new-person@test.edu").must_change_password)
+    def test_the_flag_is_never_set_even_if_asked_for(self):
+        self.create(must_change_password=True)
+        self.assertFalse(User.objects.get(email="new-person@test.edu").must_change_password)
 
     def test_a_password_may_still_be_given(self):
         res = self.create(password="a-real-password-1")

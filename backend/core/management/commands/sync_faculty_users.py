@@ -72,7 +72,7 @@ class Command(BaseCommand):
                     biometric_id=str(f.biometric_id) if f.biometric_id else None,
                     designation=f.designation,
                     scopus_author_id=f.scopus_author_id,
-                    must_change_password=not bool(options["password"]),
+                    must_change_password=False,
                 )
                 created += 1
                 self.stdout.write(self.style.SUCCESS(f"Created {email}"))
@@ -115,6 +115,6 @@ class Command(BaseCommand):
         if created and not options["password"] and not dry:
             self.stdout.write(
                 self.style.WARNING(
-                    "New users got random passwords with must_change_password=True"
+                    "New users got random passwords (nothing forces a change)"
                 )
             )

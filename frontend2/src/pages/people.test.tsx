@@ -491,7 +491,7 @@ describe("a person's record, seen by the office, carries their Scopus profile", 
 })
 
 describe("People — the answer first", () => {
-  it("says the roster in one line and raises only a desk with nobody on it", async () => {
+  it("says the roster in four figures and raises a desk with nobody on it", async () => {
     vi.mocked(api).mockReset()
     vi.mocked(api).mockImplementation(
       fakeApi({
@@ -504,13 +504,15 @@ describe("People — the answer first", () => {
       })
     )
     renderWithProviders(<People />, { route: "/people" })
-    const glance = await screen.findByRole("group", { name: "At a glance" })
-    expect(await within(glance).findByRole("link", { name: /2 Desks with nobody on them/ })).toHaveAttribute("href", "/admin")
-    expect(within(glance).getAllByRole("link")).toHaveLength(1)
-    expect(screen.getByText("413 active, 1 has left.")).toBeInTheDocument()
+    // Wait for the account list: before the account is known the page is the plain directory.
+    await screen.findByRole("link", { name: /2 Desks with nobody on them/ })
+    const glance = screen.getByRole("group", { name: "At a glance" })
+    expect(within(glance).getByRole("link", { name: /2 Desks with nobody on them/ })).toHaveAttribute("href", "/admin")
+    expect(within(glance).getByRole("link", { name: /413 Active/ })).toHaveAttribute("href", "/people?status=active")
+    expect(within(glance).getByRole("link", { name: /1 Have left/ })).toBeInTheDocument()
   })
 
-  it("shows no figures at all when every desk has a person", async () => {
+  it("says every desk has someone when none is empty", async () => {
     vi.mocked(api).mockReset()
     vi.mocked(api).mockImplementation(
       fakeApi({
@@ -523,8 +525,10 @@ describe("People — the answer first", () => {
       })
     )
     renderWithProviders(<People />, { route: "/people" })
-    expect(await screen.findByText("417 active, nobody has left.")).toBeInTheDocument()
-    expect(screen.queryByRole("group", { name: "At a glance" })).toBeNull()
+    await screen.findAllByText(/Every desk has someone/)
+    const glance = screen.getByRole("group", { name: "At a glance" })
+    expect(within(glance).getByText(/417 Active/)).toBeInTheDocument()
+    expect(within(glance).getAllByText(/Every desk has someone/).length).toBeGreaterThan(0)
   })
 
   it("asks the server for leavers only when the status is chosen", async () => {

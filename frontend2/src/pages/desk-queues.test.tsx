@@ -130,19 +130,18 @@ async function openApprovals(route = "/approvals") {
     "/api/desk/bulk-hold": { held: 1, held_ids: ["a1"], skipped: [] },
   })
   renderWithProviders(at(<Approvals />, "/approvals"), { route })
-  await screen.findByRole("region", { name: "Ready to approve" })
+  await screen.findByRole("table")
 }
-/** A claim's row, by its claim number (rows are in two lanes: ready, and needs a look). */
-const row = (no: string) => document.querySelector(`[data-claim="${no}"]`) as HTMLElement
+/** A claim's row, by its claim number (one table: the ready claims first, then the rest). */
+const row = (no: string) => screen.getByText(no).closest("tr") as HTMLElement
 
 describe("the approvals queue", () => {
   beforeEach(() => vi.clearAllMocks())
 
   it("shows amounts and the research office's flags to the Principal", async () => {
     await openApprovals()
-    // The claim that needs her eyes is in its own lane and says why, in words, on its row.
-    const look = within(screen.getByRole("region", { name: "Needs a look" }))
-    const flagged = within(look.getByText("FP-2026-000012").closest("li") as HTMLElement)
+    // The claim that needs her eyes says why, in words, on its row.
+    const flagged = within(row("FP-2026-000012"))
     expect(flagged.getByText(/2 open flags/)).toBeInTheDocument()
     expect(flagged.getByText(/Your approval is the second signature/)).toBeInTheDocument()
     // Amounts are shown, and a month-old wait is red.
@@ -153,7 +152,7 @@ describe("the approvals queue", () => {
   it("opens the full-page review with the queue named", async () => {
     const user = userEvent.setup()
     await openApprovals()
-    await user.click(within(row("FP-2026-000013")).getByText("Asha Faculty"))
+    await user.click(within(row("FP-2026-000013")).getByRole("link", { name: "Fuzzy control of a grid" }))
     expect(await screen.findByText("The review workspace")).toBeInTheDocument()
     expect(where()).toBe("/review/a3?queue=approvals")
     expect(screen.queryByRole("dialog")).toBeNull()
@@ -171,7 +170,7 @@ describe("the approvals queue", () => {
   it("counts as ready only a claim with no open flag, no duplicate and an amount", async () => {
     const user = userEvent.setup()
     await openApprovals()
-    expect(screen.getByText(/2 are ready; 1 need a look/)).toBeInTheDocument()
+    expect(screen.getByRole("group", { name: "At a glance" })).toHaveTextContent("2 ready to approve")
     await user.click(screen.getByRole("button", { name: "Approve the 2 ready" }))
     const dialog = await screen.findByRole("dialog", { name: "Approve 2 claims?" })
     expect(dialog).toHaveTextContent("₹72,377.50")
@@ -200,7 +199,6 @@ describe("the approvals queue", () => {
       "/api/principal/queue": PRINCIPAL_QUEUE,
       "/api/claims/a3/principal-approve": { ...approvalClaim({ id: "a3", remuneration: 20_000 }), status: "PRINCIPAL_APPROVED" },
     })
-    // (a row holds one button for a phone and one for a desk; the stylesheet shows the right one)
     await user.click(within(row("FP-2026-000013")).getAllByRole("button", { name: /^Approve: / })[0])
     const dialog = await screen.findByRole("dialog", { name: "Approve this claim?" })
     await user.click(within(dialog).getByRole("button", { name: /^Approve ₹20,000/ }))
@@ -279,9 +277,10 @@ async function openAuthorisations(route = "/authorisations") {
     "/api/budgets": { financial_year: "2026-27", college: { department: null, allocated: null, spent: 0, committed: 0, remaining: null, used_fraction: null }, departments: [] },
   })
   renderWithProviders(at(<Authorisations />, "/authorisations"), { route })
-  await screen.findByRole("list", { name: "Claims ready to authorise" })
+  await screen.findByRole("table")
 }
-const dTable = () => screen.getByRole("list", { name: "Claims ready to authorise" })
+const dTable = () => screen.getByRole("table")
+const dRow = (no: string) => within(screen.getByText(no).closest("tr") as HTMLElement)
 
 describe("the authorisations queue", () => {
   beforeEach(() => vi.clearAllMocks())
@@ -289,8 +288,8 @@ describe("the authorisations queue", () => {
   it("shows the amount to the Director and never a flags column", async () => {
     await openAuthorisations()
     const t = within(dTable())
-    // A face-led list, not a table: no Flags column, and none of the words a flag is made of.
-    expect(screen.queryByRole("table")).toBeNull()
+    // No Flags column, and none of the words a flag is made of.
+    expect(screen.queryByRole("columnheader", { name: /flag/i })).toBeNull()
     expect(screen.queryByText(/flag|duplicate|watch/i)).toBeNull()
     expect(t.getAllByText("₹52,377.50")[0]).toBeInTheDocument()
     expect(t.getAllByText("29 days")[0]).toHaveClass("text-caution")
@@ -303,18 +302,19 @@ describe("the authorisations queue", () => {
       "href",
       "/review/d1?queue=authorisations"
     )
-    await user.click(within(dTable()).getByText("Asha Faculty"))
+    await user.click(within(dTable()).getByRole("link", { name: "Fuzzy control of a grid" }))
     expect(await screen.findByText("The review workspace")).toBeInTheDocument()
     expect(where()).toBe("/review/d1?queue=authorisations")
   })
 
   it("keeps a claim with no amount out of the ready batch", async () => {
     await openAuthorisations()
-    expect(screen.getByRole("heading", { name: /Ready to authorise \(1\)/ })).toBeInTheDocument()
-    const stuck = screen.getByRole("list", { name: "Claims that cannot be authorised yet" })
-    expect(within(stuck).queryByRole("checkbox")).toBeNull()
-    expect(within(stuck).getByText(/could not be worked out/)).toBeInTheDocument()
-    expect(within(dTable()).queryByText("A paper without an amount")).toBeNull()
+    expect(dRow("FP-2026-000021").getByRole("checkbox")).toBeInTheDocument()
+    const stuck = dRow("FP-2026-000022")
+    expect(stuck.queryByRole("checkbox")).toBeNull()
+    expect(stuck.getByText(/could not be worked out/)).toBeInTheDocument()
+    expect(stuck.queryByRole("button", { name: "Authorise" })).toBeNull()
+    expect(dRow("FP-2026-000021").getByRole("button", { name: "Authorise" })).toBeInTheDocument()
   })
 
   it("says what authorising does to the budget before anything is pressed, and again in the confirm", async () => {
@@ -329,7 +329,7 @@ describe("the authorisations queue", () => {
       "/api/director/bulk-approve": { approved: 1, total: 52_377.5, skipped: [] },
     })
     renderWithProviders(at(<Authorisations />, "/authorisations"), { route: "/authorisations" })
-    await screen.findByRole("list", { name: "Claims ready to authorise" })
+    await screen.findByRole("table")
     expect(await screen.findAllByText("Authorising them leaves ₹3,00,000 in the 2026-27 budget.")).toHaveLength(1)
     expect(screen.getByRole("img", { name: /Budget: ₹4,00,000 paid/ })).toBeInTheDocument()
     // One primary button authorises every ready claim; the confirm repeats the effect and takes Enter.
@@ -349,7 +349,7 @@ describe("the authorisations queue", () => {
       "/api/claims/d1/director-approve": { remuneration: 52_377.5 },
     })
     renderWithProviders(at(<Authorisations />, "/authorisations"), { route: "/authorisations" })
-    await screen.findByRole("list", { name: "Claims ready to authorise" })
+    await screen.findByRole("table")
     await user.keyboard("a")
     expect(await screen.findByRole("heading", { name: "Authorise this claim?" })).toBeInTheDocument()
     await user.keyboard("{Enter}")

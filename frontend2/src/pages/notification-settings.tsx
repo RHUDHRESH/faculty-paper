@@ -8,7 +8,8 @@ import { Button } from "@/ui/button"
 import { Switch } from "@/ui/field"
 import { Callout, ErrorState, SkeletonRows } from "@/ui/state"
 import { Details } from "@/ui/section"
-import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { PageHeader } from "@/ui/page-header"
+import { Meta, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
 
 type Level = "email" | "in_app" | "off"
@@ -114,17 +115,19 @@ export function NotificationSettings() {
   const groups = p ? groupKinds(p.kinds) : []
 
   return (
-    <div className="page max-w-3xl space-y-8 py-8">
-      <div className="space-y-2">
-        <Button kind="default" size="sm" asChild>
-          <Link to="/notifications">
-            <ArrowLeft />
-            Notifications
-          </Link>
-        </Button>
-        <PageTitle>Notification settings</PageTitle>
-        <Sub>Each switch saves as you touch it.</Sub>
-      </div>
+    <div className="page max-w-3xl space-y-8">
+      <PageHeader
+        title="Notification settings"
+        sub="Choose what you hear about, and where. Each switch saves as you touch it."
+        action={
+          <Button kind="default" asChild>
+            <Link to="/notifications">
+              <ArrowLeft />
+              Notifications
+            </Link>
+          </Button>
+        }
+      />
 
       {query.isPending ? (
         <SkeletonRows rows={6} rowHeight={48} />
@@ -153,21 +156,21 @@ export function NotificationSettings() {
           {groups.map(([group, kinds]) => (
             <section key={group} className="space-y-1" aria-labelledby={`group-${slug(group)}`}>
               <div className="flex items-end justify-between gap-3">
-                <SectionTitle id={`group-${slug(group)}`}>{group}</SectionTitle>
+                <SectionTitle id={`group-${slug(group)}`} className="text-lg">{group}</SectionTitle>
                 {/* On every group: the first heading is off screen by the third. */}
-                <div aria-hidden="true" className="flex shrink-0 gap-6 text-xs font-medium text-fg-subtle">
+                <div aria-hidden="true" className="flex shrink-0 gap-6 text-sm font-medium text-fg-muted">
                   <span className="w-14 text-center">In app</span>
                   <span className="w-14 text-center">Email</span>
                 </div>
               </div>
               <ul className="divide-y divide-line border-y border-line">
                 {kinds.map((k) => (
-                  <li key={k.key} className="flex items-center justify-between gap-3 py-3">
+                  <li key={k.key} className="flex items-center justify-between gap-3 py-4">
                     <div className="min-w-0 flex-1">
-                      <p id={`kind-${k.key}`} className="text-sm font-medium" title={k.description}>
+                      <p id={`kind-${k.key}`} className="text-base font-medium" title={k.description}>
                         {k.label}
                       </p>
-                      <span className="sr-only">{k.description}</span>
+                      <span className="block text-sm text-fg-muted">{k.description}</span>
                     </div>
                     <KindToggles kind={k} onChange={(level) => choose(k, level)} />
                   </li>
@@ -265,13 +268,13 @@ function CalendarFeed() {
             aria-label="Calendar feed link"
             value={link.data?.url ?? "Loading…"}
             onFocus={(e) => e.currentTarget.select()}
-            className="h-8 min-w-0 flex-1 rounded-md bg-sunken px-2 font-mono text-xs text-fg-muted outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="h-10 min-w-0 flex-1 rounded-md bg-sunken px-3 font-mono text-sm text-fg-muted outline-none focus-visible:ring-2 focus-visible:ring-accent"
           />
-          <Button kind="default" size="sm" disabled={!link.data} onClick={() => void copy()}>
+          <Button kind="default" disabled={!link.data} onClick={() => void copy()}>
             <Copy />
             Copy link
           </Button>
-          <Button kind="default" size="sm" asChild>
+          <Button kind="default" asChild>
             <Link to="/calendar">Open the calendar</Link>
           </Button>
         </div>

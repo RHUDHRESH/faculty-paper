@@ -21,10 +21,11 @@ import {
 } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
+import { notificationsOf, useBadges } from "@/app/badges"
 import { cn } from "@/lib/cn"
 import { formatCount } from "@/lib/count"
 import { api } from "@/lib/api"
-import { useApi } from "@/lib/query"
+import { BADGES_KEY, useApi } from "@/lib/query"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/ui/button"
 import { Avatar } from "@/ui/person"
@@ -115,7 +116,11 @@ export function GroupCount({ count }: { count?: number }) {
   )
 }
 
-/** How often the unread count is refetched while the app is open. */
+/**
+ * How often the open panel's rows are refetched. The unread count behind the
+ * badge is not polled here: it rides the shell's one badges request
+ * (`app/badges.ts`).
+ */
 const POLL_MS = 45_000
 
 //: The server writes hrefs against whichever app was current when the
@@ -179,17 +184,12 @@ export function NotificationBell({ className }: { className?: string }) {
   const qc = useQueryClient()
 
   // `unread`, not `count` — the endpoint's own key, whatever API.md said.
-  const unreadQuery = useApi<{ unread: number }>(
-    ["notifications", "unread"],
-    "/api/notifications/unread-count",
-    { refetchInterval: POLL_MS, staleTime: POLL_MS }
-  )
+  const unreadQuery = useBadges(notificationsOf)
   const unread = unreadQuery.data?.unread ?? 0
 
   // The list is a bare array, not an envelope. Only fetched once the bell is
-  // actually opened: polling fifty rows every forty-five seconds to render one
-  // number is fifty rows nobody looked at. While it is open it polls alongside
-  // the count, so the badge and the rows beneath it cannot disagree.
+  // actually opened: fifty rows on a timer to render one number is fifty rows
+  // nobody looked at. While it is open it polls, so the rows stay current.
   const listQuery = useApi<Notification[]>(["notifications", "list", section], listPath(section), {
     enabled: open,
     refetchInterval: open ? POLL_MS : false,
@@ -252,10 +252,9 @@ export function NotificationBell({ className }: { className?: string }) {
   function markRead(id: string): Promise<void> {
     return api(`/api/notifications/${id}/read`, { method: "POST" })
       .then(() => {
-        // The prefix key invalidates both the count behind the badge and the
-        // rows in the panel, which is the whole reason they are nested under
-        // one name rather than being two unrelated keys.
+        // The rows in the panel and the page, and the count behind the badge.
         void qc.invalidateQueries({ queryKey: ["notifications"] })
+        void qc.invalidateQueries({ queryKey: BADGES_KEY })
       })
       .catch(() => {})
   }
@@ -275,6 +274,7 @@ export function NotificationBell({ className }: { className?: string }) {
   async function markAll() {
     try {
       await api("/api/notifications/read-all", { method: "POST" })
+      void qc.invalidateQueries({ queryKey: BADGES_KEY })
       await qc.invalidateQueries({ queryKey: ["notifications"] })
       toast.ok("Marked all read.")
     } catch (err) {

@@ -175,6 +175,20 @@ describe("the faculty tab", () => {
   })
 })
 
+describe("the faculty search", () => {
+  it("narrows the one table by name and says so when nobody matches", async () => {
+    const user = userEvent.setup()
+    mount({}, "/department?tab=faculty")
+    const table = await screen.findByRole("table")
+    expect(within(table).getAllByRole("link").length).toBeGreaterThan(1)
+    await user.type(screen.getByRole("searchbox", { name: "Find a faculty member" }), "Asha")
+    expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2)
+    await user.clear(screen.getByRole("searchbox", { name: "Find a faculty member" }))
+    await user.type(screen.getByRole("searchbox", { name: "Find a faculty member" }), "Zzz")
+    expect(await screen.findByText("No faculty member matches")).toBeInTheDocument()
+  })
+})
+
 describe("the records tab", () => {
   it("names the papers to fix and the people with no Scopus ID, and can remind them", async () => {
     const user = userEvent.setup()
@@ -228,9 +242,12 @@ describe("work assigned", () => {
 
     const section = await screen.findByRole("region", { name: "Work assigned" })
     await within(section).findByText("A joint paper on thin-film sensors")
-    for (const group of ["Open", "In progress", "Done"]) {
-      expect(within(section).getByRole("heading", { name: group })).toBeInTheDocument()
-    }
+    // One table, the ones still open first and the finished last, each with its own status.
+    const titles = within(section).getAllByRole("row").slice(1).map((r) => r.textContent ?? "")
+    expect(titles[0]).toContain("Draft the NAAC criterion 3 narrative")
+    expect(titles[1]).toContain("A joint paper on thin-film sensors")
+    expect(titles[2]).toContain("Finished thing")
+    expect(within(section).getByLabelText("Status of Finished thing")).toHaveValue("DONE")
     expect(within(section).getByText("Co-author pairing")).toBeInTheDocument()
     expect(within(section).getByText(/Ravi Physicist/)).toBeInTheDocument()
     expect(within(section).getByText(/overdue/i)).toBeInTheDocument()

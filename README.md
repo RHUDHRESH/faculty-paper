@@ -1,7 +1,10 @@
 # Faculty Publication Ticket ERP
 
-Vite React SPA + Django Ninja API + Postgres. The app is `frontend2/`; the
-production proxy lives in `frontend2/vercel.json`.
+A college ERP for publication-fee reimbursement claims: faculty file a claim, and it moves through research-cell checking, principal approval, director authorisation and finance payment, one portal per role.
+
+**Stack:** Django 5 with Django Ninja and PostgreSQL (Neon) on Google Cloud Run; React 19 with Vite, TanStack Query and Tailwind CSS in `frontend2/`; Vercel for the SPA
+
+The app is `frontend2/`; the production proxy lives in `frontend2/vercel.json`.
 
 ## Portals
 
@@ -73,3 +76,6 @@ See [DEPLOY.md](DEPLOY.md): **Vercel** (SPA) + **Google Cloud Run** (Django API)
 ```bash
 cd backend && ../.venv/Scripts/python manage.py test core
 ```
+
+---
+Built by [Rhudhresh R](https://github.com/RHUDHRESH)

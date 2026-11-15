@@ -18,6 +18,7 @@ import { Answer } from "@/ui/answer"
 import { PageHeader } from "@/ui/page-header"
 import { Details, Rows, Section } from "@/ui/section"
 import { ImportTask } from "./import-task"
+import { MonthlyFiles } from "./imports-monthly"
 import { useStart } from "@/pages/admin-start"
 import { toast } from "@/ui/toast"
 
@@ -170,6 +171,8 @@ export function Imports() {
       />
 
       <AlreadyLoaded query={stats} />
+
+      <MonthlyFiles />
 
       <Section title="Load a file">
         <Rows>

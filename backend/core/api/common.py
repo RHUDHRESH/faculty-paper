@@ -304,6 +304,18 @@ def health(request: HttpRequest, deep: bool = False):
         db_ok = True
     except Exception:
         db_ok = False
+    # How far away and how full the database is. Read only after the check
+    # above passed, and never able to fail the probe by itself.
+    db_details = None
+    if db_ok:
+        try:
+            from django.db import connection as _conn
+
+            from core.services.db_health import database_details
+
+            db_details = database_details(_conn)
+        except Exception:
+            logger.exception("health: database details unavailable")
     # Uploads written to a container filesystem do not survive a deploy. That
     # failure is invisible — the ticket still lists its attachments — so the
     # health check is the one place it can be noticed before someone looks for
@@ -334,6 +346,7 @@ def health(request: HttpRequest, deep: bool = False):
     payload = {
         "ok": db_ok,
         "db": db_ok,
+        "db_details": db_details,
         **release,
         "media_backend": media_backend,
         "media_persistent": not media_is_ephemeral,

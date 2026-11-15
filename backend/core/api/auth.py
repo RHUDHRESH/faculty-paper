@@ -25,7 +25,7 @@ from django.utils import timezone
 from django.middleware.csrf import get_token
 from ninja import Schema
 from ninja.errors import HttpError
-from core.models import AuditLog, ProfileChangeRequest, Role, User
+from core.models import AuditLog, FacultyMaster, ProfileChangeRequest, Role, User
 
 # ---------- auth ----------
 
@@ -89,6 +89,35 @@ def _login_throttle_key(request: HttpRequest, email: str) -> str:
     return f"login-fail:{_login_unlock_epoch(email)}:{email}:{_client_ip(request)}"
 
 
+def _faculty_list_alias_login(email: str) -> Optional[User]:
+    """The one active account a faculty-list email stands for, else None.
+
+    People sign in with the address the college's faculty list holds for them,
+    which is not always the one on their account. Only when no active account
+    has the typed address: the FacultyMaster rows with that address give their
+    staff ids, and exactly one active account with one of those staff ids is
+    the person. None, or more than one, is no answer -- the caller treats it
+    as an unknown email, so nothing says whether the alias exists.
+    """
+    typed = (email or "").strip()
+    if not typed or User.objects.filter(email__iexact=typed, active=True).exists():
+        return None
+    staff_ids = {
+        s.strip()
+        for s in FacultyMaster.objects.filter(email__iexact=typed)
+        .exclude(staff_id__isnull=True)
+        .values_list("staff_id", flat=True)
+        if s and s.strip()
+    }
+    if not staff_ids:
+        return None
+    matched: dict[int, User] = {}
+    for sid in staff_ids:
+        for u in User.objects.filter(staff_id__iexact=sid, active=True):
+            matched[u.pk] = u
+    return next(iter(matched.values())) if len(matched) == 1 else None
+
+
 @api.post("/auth/login")
 def auth_login(request: HttpRequest, payload: LoginIn):
     import time as _time
@@ -111,7 +140,8 @@ def auth_login(request: HttpRequest, payload: LoginIn):
                 "your password to unlock it immediately.",
             )
         state = {"n": 0, "ts": 0.0}
-    user = authenticate(request, username=email, password=payload.password)
+    alias = _faculty_list_alias_login(email)
+    user = authenticate(request, username=alias.email if alias else email, password=payload.password)
     if not user:
         state = {"n": state["n"] + 1, "ts": now}
         cache.set(key, state, _LOGIN_LOCKOUT_SECONDS)

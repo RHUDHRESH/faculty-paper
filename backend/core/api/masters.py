@@ -262,6 +262,56 @@ def scopus_ids_link(request: HttpRequest, file: UploadedFile = File(...), dry_ru
     return result
 
 
+@api.post("/admin/faculty-list/import", auth=session_auth)
+def faculty_list_import(request: HttpRequest, file: UploadedFile = File(...), dry_run: bool = Form(True)):
+    """Faculty_List.xlsx: check first (dry_run true, writes nothing), then import.
+
+    Idempotent. A different Scopus id or email already on an account is
+    returned as a conflict, never overwritten; nobody is deactivated."""
+    from core.services.faculty_list_import import import_faculty_list, read_faculty_list
+
+    user = require_user(request)
+    if not rbac.can_import_prior(user.role):
+        raise HttpError(403, "Forbidden")
+    try:
+        people = read_faculty_list(io.BytesIO(file.read()))
+    except Exception as exc:
+        raise HttpError(400, f"Could not read the workbook: {exc}") from exc
+    result = import_faculty_list(people, dry_run=dry_run)
+    if not dry_run:
+        AuditLog.objects.create(
+            actor=user, action="FACULTY_LIST_IMPORT", entity="FacultyMaster",
+            detail_json=json.dumps({**result["counts"], "updated_fields": result["updated_fields"],
+                                    "not_in_list": result["not_in_list"], "file": (file.name or "")[:120]}),
+        )
+    return result
+
+
+@api.post("/admin/settled-claims/import", auth=session_auth)
+def settled_claims_import(request: HttpRequest, file: UploadedFile = File(...), dry_run: bool = Form(True)):
+    """Claim_Settled_Upto_<month>.xlsx: check first (dry_run true), then import.
+
+    Adds only the paid history the ledger does not hold; an amount that
+    differs is reported, never overwritten."""
+    from core.services.settled_claims_import import import_settled_claims, read_settled_claims
+
+    user = require_user(request)
+    if not rbac.can_import_prior(user.role):
+        raise HttpError(403, "Forbidden")
+    try:
+        rows = read_settled_claims(io.BytesIO(file.read()))
+    except Exception as exc:
+        raise HttpError(400, f"Could not read the workbook: {exc}") from exc
+    result = import_settled_claims(rows, dry_run=dry_run, actor=user, filename=file.name or "Claim_Settled")
+    if not dry_run:
+        AuditLog.objects.create(
+            actor=user, action="SETTLED_CLAIMS_IMPORT", entity="PaidLedger",
+            detail_json=json.dumps({"rows": result["rows"], **result["counts"],
+                                    "new_total_amount": result["new_total_amount"], "file": (file.name or "")[:120]}),
+        )
+    return result
+
+
 @api.post("/admin/faculty-master/import", auth=session_auth)
 def faculty_master_import(request: HttpRequest, file: UploadedFile = File(...)):
     user = require_user(request)

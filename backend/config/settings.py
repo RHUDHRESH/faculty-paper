@@ -123,18 +123,58 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 
 
+# Hosts that are on this machine or this private network: no TLS is forced on
+# them. A bare name with no dot ("db" in docker-compose) is a private-network
+# service name, not an address on the internet.
+_LOCAL_HOSTS = {"", "localhost", "127.0.0.1", "::1"}
+
+# A transaction-mode pooler (Supabase's, PgBouncer's) listens here. It hands a
+# different server connection to each transaction, so a connection must not be
+# held open between requests and server-side cursors cannot be used.
+POOLER_PORT = 6543
+
+
+def _is_local_host(host: str) -> bool:
+    return host in _LOCAL_HOSTS or host.startswith("127.") or "." not in host
+
+
+def _env_int(*names: str, default: int) -> int:
+    """The first of these environment variables that holds a whole number."""
+    for name in names:
+        raw = (os.getenv(name) or "").strip()
+        if raw:
+            try:
+                return int(raw)
+            except ValueError:
+                continue
+    return default
+
+
 def _database_from_url(url: str) -> dict:
-    """Parse postgres URL including Supabase (sslmode=require)."""
+    """Parse a postgres URL into a Django DATABASES entry, production-ready.
+
+    Works for Neon, Supabase, Render Postgres and Cloud SQL alike: nothing here
+    is specific to one provider. What it adds to the bare connection:
+
+    * a connect timeout, so a database that does not answer fails in seconds
+      instead of holding a web thread (DB_CONNECT_TIMEOUT, default 10);
+    * TCP keepalives, so a connection silently dropped by a firewall or load
+      balancer is noticed instead of hanging;
+    * application_name, so the database's own views say who is connected;
+    * TLS (sslmode=require) for every host that is not local, and full
+      certificate checking (verify-full) when DB_SSLROOTCERT names the CA file;
+    * short-lived connections behind a transaction pooler (port 6543).
+    """
+    from urllib.parse import parse_qs
+
     parsed = urlparse(url)
     name = (parsed.path or "/").lstrip("/") or "postgres"
     # strip query from path if any
     if "?" in name:
         name = name.split("?", 1)[0]
-    opts = {}
+    opts: dict = {}
     socket_dir = None
     if parsed.query:
-        from urllib.parse import parse_qs
-
         qs = parse_qs(parsed.query)
         sslmode = (qs.get("sslmode") or [None])[0]
         if sslmode:
@@ -148,19 +188,48 @@ def _database_from_url(url: str) -> dict:
         # the connection fell back to a default socket that does not exist.
         socket_dir = (qs.get("host") or [None])[0]
     host = socket_dir or parsed.hostname or ""
-    # Supabase always needs SSL
-    if ("supabase" in host or host.endswith(".neon.tech")) and "sslmode" not in opts:
-        opts["sslmode"] = "require"
-    return {
+    port = parsed.port or 5432
+
+    opts["connect_timeout"] = _env_int("DB_CONNECT_TIMEOUT", default=10)
+    opts["application_name"] = (os.getenv("DB_APP_NAME") or "").strip() or "faculty-paper-api"
+
+    if not socket_dir:
+        # Dead-peer detection: probe after 30 s idle, every 10 s, give up after 5.
+        opts.update(
+            keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=5
+        )
+        # TLS on anything that is not local. An explicit sslmode in the URL (or
+        # DB_SSLMODE) wins, so a private network without TLS can still say so.
+        env_sslmode = (os.getenv("DB_SSLMODE") or "").strip()
+        if env_sslmode:
+            opts["sslmode"] = env_sslmode
+        elif "sslmode" not in opts and not _is_local_host(host):
+            opts["sslmode"] = "require"
+        # Verify the server's certificate and name, not just encrypt.
+        root_cert = (os.getenv("DB_SSLROOTCERT") or "").strip()
+        if root_cert:
+            if opts.get("sslmode") not in ("verify-ca", "verify-full"):
+                opts["sslmode"] = "verify-full"
+            opts["sslrootcert"] = root_cert
+
+    conn_max_age = _env_int("DB_CONN_MAX_AGE", "CONN_MAX_AGE", default=60)
+    entry = {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": name,
         "USER": unquote(parsed.username or ""),
         "PASSWORD": unquote(parsed.password or ""),
         "HOST": host,
         # A socket has no port, and passing one makes libpq try TCP instead.
-        "PORT": "" if socket_dir else str(parsed.port or 5432),
+        "PORT": "" if socket_dir else str(port),
         "OPTIONS": opts,
+        # Before reusing a kept-open connection, check it still works.
+        "CONN_HEALTH_CHECKS": True,
+        "CONN_MAX_AGE": conn_max_age,
     }
+    if not socket_dir and port == POOLER_PORT:
+        entry["DISABLE_SERVER_SIDE_CURSORS"] = True
+        entry["CONN_MAX_AGE"] = 0
+    return entry
 
 
 # Kill a single runaway SQL statement after this many milliseconds. Off by
@@ -170,6 +239,16 @@ def _database_from_url(url: str) -> dict:
 # deployment is 120000, and a query a report needs that runs longer than two
 # minutes should be an index or a job, not a held connection.
 _db_statement_timeout = int(os.getenv("DB_STATEMENT_TIMEOUT", "0"))
+
+
+def _with_statement_timeout(entry: dict, milliseconds: int) -> dict:
+    """Postgres's server-side statement_timeout, set per connection at connect
+    time. libpq takes it through the options parameter; the value is
+    milliseconds. Zero leaves it off."""
+    if milliseconds > 0:
+        entry["OPTIONS"]["options"] = f"-c statement_timeout={milliseconds}"
+    return entry
+
 
 _db_url = (
     os.getenv("DJANGO_DATABASE_URL")
@@ -206,16 +285,7 @@ if _use_sqlite:
         }
     }
 elif _db_url.startswith("postgres"):
-    DATABASES = {"default": _database_from_url(_db_url)}
-    DATABASES["default"]["CONN_MAX_AGE"] = int(os.getenv("CONN_MAX_AGE", "60"))
-    DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
-    if _db_statement_timeout > 0:
-        # Postgres's server-side statement_timeout, set per connection at
-        # connect time. libpq takes it through the options parameter; the
-        # value is milliseconds.
-        DATABASES["default"]["OPTIONS"]["options"] = (
-            f"-c statement_timeout={_db_statement_timeout}"
-        )
+    DATABASES = {"default": _with_statement_timeout(_database_from_url(_db_url), _db_statement_timeout)}
 else:
     DATABASES = {
         "default": {

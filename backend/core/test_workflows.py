@@ -740,7 +740,7 @@ class UiEntryPoints(Flow):
     ROUTES = [
         "/papers/new", "/papers", "/clearing", "/approvals", "/authorisations", "/payments",
         "/department", "/research", "/discover", "/scout", "/collaborate", "/messages",
-        "/discussions", "/leaderboard", "/calendar", "/reports", "/reports/build", "/accreditation",
+        "/discussions", "/leaderboard", "/calendar", "/reports", "/reports/studio", "/accreditation",
         "/ledger", "/duplicates", "/flags", "/archive", "/audit", "/faults", "/people",
         "/people/matches", "/requests", "/budget", "/policy", "/settings", "/settings/notifications",
         "/notifications", "/reference", "/imports", "/batches", "/data", "/data/health", "/me",

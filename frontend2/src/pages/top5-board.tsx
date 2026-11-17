@@ -43,7 +43,8 @@ export type Top5Payload = {
   generated_at: string
   snip: Top5Row[]
   /** Null for a head of department. */
-  remuneration: Top5Row[] | null
+  /** Left out entirely for the money-blind roles (a head of department). */
+  remuneration?: Top5Row[] | null
   count: Top5Row[]
 }
 

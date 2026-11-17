@@ -58,9 +58,12 @@ class TheMigrationCanBeUndone(TransactionTestCase):
 
     def test_back_and_forth(self):
         executor = MigrationExecutor(connection)
-        latest = [n for n in executor.loader.graph.leaf_nodes() if n[0] == "core"][0]
-        previous = next(iter(executor.loader.graph.node_map[latest].parents)).key
-        self.assertTrue(latest[1].startswith("0087"), latest)
+        # The index migration by name, not "the newest one": later migrations sit on top of it.
+        target = next(n for n in executor.loader.graph.nodes if n[0] == "core" and n[1].startswith("0087"))
+        previous = next(iter(executor.loader.graph.node_map[target].parents)).key
+        latest = [n for n in executor.loader.graph.leaf_nodes() if n[0] == "core"]
+        self.assertEqual(len(latest), 1, latest)
+        latest = latest[0]
         try:
             self._migrate(previous)
             for table, names in WANTED.items():

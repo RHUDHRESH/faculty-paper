@@ -166,10 +166,10 @@ class Permissions(_Top5):
         body = self._get(self.head)
         self.assertEqual([r["name"] for r in body["snip"]], ["Mina"])
         self.assertEqual([r["name"] for r in body["count"]], ["Mina"])
-        self.assertIn("remuneration", body)
-        self.assertIsNone(body["remuneration"])
+        # Omitted, not nulled: a money-blind role never receives the key.
+        self.assertNotIn("remuneration", body)
         self.assertNotIn("2000", json.dumps(body))
-        self.assertEqual(money_keys_in({k: v for k, v in body.items() if k != "remuneration"}), [])
+        self.assertEqual(money_keys_in(body), [])
 
     def test_head_cannot_ask_for_another_department(self):
         self._get(self.head, expect=403, department="ECE")

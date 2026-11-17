@@ -105,7 +105,7 @@ describe("Top5Board", () => {
   })
 
   it("is the head's view: two lists, no incentive list and no department filter", async () => {
-    mount(HOD, { ...FULL, department: "Physics", remuneration: null })
+    mount(HOD, (({ remuneration: _omitted, ...rest }) => ({ ...rest, department: "Physics" }))(FULL))
     await screen.findByTestId("top5-snip")
     expect(screen.getByTestId("top5-count")).toBeInTheDocument()
     expect(screen.queryByTestId("top5-remuneration")).toBeNull()

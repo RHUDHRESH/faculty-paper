@@ -199,7 +199,7 @@ def top(everyone: list[dict[str, Any]], *, department: str = "", money: bool = T
     out: dict[str, Any] = {}
     for name in LISTS:
         if name == "remuneration" and not money:
-            out[name] = None
+            # Omitted, not nulled: the money-blind roles never get the key at all.
             continue
         ranked = sorted(
             (p for p in pool if p[name] > 0),

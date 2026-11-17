@@ -58,6 +58,8 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 
+from core.services import integrations
+
 logger = logging.getLogger(__name__)
 
 #: A ceiling, not an expectation. A hosted model answers a nine-journal
@@ -148,15 +150,15 @@ class Health:
 
 
 def base_url() -> str:
-    return (getattr(settings, "AI_BASE_URL", "") or "").strip().rstrip("/")
+    return integrations.get("ai.base_url").rstrip("/")
 
 
 def api_key() -> str:
-    return (getattr(settings, "AI_API_KEY", "") or "").strip()
+    return integrations.get("ai.api_key")
 
 
 def model_name() -> str:
-    return (getattr(settings, "AI_MODEL", "") or "").strip()
+    return integrations.get("ai.model")
 
 
 def fast_model_name() -> str:

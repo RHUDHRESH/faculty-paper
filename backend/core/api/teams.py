@@ -64,6 +64,8 @@ def _team_dict(team: Team) -> dict[str, Any]:
         "mentor_id": team.mentor_id,
         "mentor_name": team.mentor.name if team.mentor_id else team.mentor_name,
         "active": team.active,
+        "publications_count": len(team.publications or []),
+        "publications": team.publications or [],
         "members": [
             {
                 "id": m.id,
@@ -307,6 +309,10 @@ def fyp_teams_summary(request: HttpRequest):
             else None
         ),
         "claimed": qs.filter(claims__in=holding_claims()).distinct().count(),
+        "teams_with_publications": sum(
+            1 for p in qs.values_list("publications", flat=True) if p
+        ),
+        "publications": sum(len(p or []) for p in qs.values_list("publications", flat=True)),
         "mentors_unmatched": _unmatched_mentors(qs),
     }
 

@@ -25,6 +25,7 @@ from core.api.common import api, require_user, session_auth
 from core.models import (AuditLog, Authorship, Claim, ClaimStatus, PaidLedger, PriorPayment, Publication,
                          PublicationMetrics, Role, User)
 from core.services import coauthors as graph
+from core.services import integrations
 from core.services import publications as pubs
 from core.services.normalize import normalize_doi, normalize_title
 from core.services.remuneration import MAX_ELIGIBLE_AUTHORS
@@ -610,10 +611,8 @@ def admin_queue_harvest(request: HttpRequest, payload: HarvestIn):
 @api.post("/admin/publications/scopus-sync", auth=session_auth)
 def admin_queue_scopus_sync(request: HttpRequest, limit: Optional[int] = None):
     """Queue the Scopus AU-ID sync for every member with a Scopus id."""
-    from django.conf import settings
-
     user = _super_admin(request)
-    if not getattr(settings, "SCOPUS_API_KEY", ""):
+    if not integrations.get("scopus.api_key"):
         raise HttpError(400, "Scopus is not connected on this server. Ask the system admin to add the Scopus key.")
     from django_q.tasks import async_task
 

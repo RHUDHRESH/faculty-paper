@@ -45,7 +45,7 @@ from typing import Any, Callable, Iterator
 
 from django.conf import settings
 
-from core.services import anthropic_provider, harness, ollama, openai_compat
+from core.services import anthropic_provider, harness, integrations, ollama, openai_compat
 
 logger = logging.getLogger(__name__)
 
@@ -174,10 +174,10 @@ def provider_name() -> str:
     provider; with neither, ``AI_DEFAULT_PROVIDER`` -- Ollama on a laptop,
     "none" in production (see settings).
     """
-    configured = (getattr(settings, "AI_PROVIDER", "") or "").strip().lower()
+    configured = integrations.get("ai.provider").lower()
     if configured:
         return configured
-    if (getattr(settings, "AI_API_KEY", "") or "").strip():
+    if integrations.get("ai.api_key"):
         return "openai"
     if anthropic_provider.api_key():
         return "anthropic"

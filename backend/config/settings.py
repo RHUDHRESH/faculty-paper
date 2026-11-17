@@ -442,6 +442,16 @@ CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_NAME = "csrftoken"
 
 SCOPUS_API_KEY = os.getenv("SCOPUS_API_KEY") or os.getenv("ELSEVIER_API_KEY") or ""
+# Optional Elsevier institution token, sent beside the key when the college has one.
+SCOPUS_INST_TOKEN = (os.getenv("SCOPUS_INST_TOKEN") or "").strip()
+# The address given to Crossref and OpenAlex for their polite pool. Unset, the
+# built-in default in core/services/search/upstream.py is used.
+SEARCH_CONTACT_EMAIL = (os.getenv("SEARCH_CONTACT_EMAIL") or "").strip()
+# Keys and addresses saved from the Integrations page (core/services/integrations.py)
+# are encrypted with a key derived from INTEGRATIONS_KEY, or from DJANGO_SECRET_KEY
+# when that is not set. Reads of them are memoised for a few seconds; never in tests.
+INTEGRATIONS_KEY = (os.getenv("INTEGRATIONS_KEY") or "").strip()
+INTEGRATIONS_CACHE_SECONDS = 0 if _RUNNING_TESTS else float(os.getenv("INTEGRATIONS_CACHE_SECONDS", "5"))
 # Optional. The filing form's paper lookup reads one work by DOI from OpenAlex,
 # which is free without a key; a key only raises the daily budget the title
 # search falls back on when Crossref is down (core/services/paper_lookup.py).

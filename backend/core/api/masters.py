@@ -277,7 +277,7 @@ def faculty_list_import(request: HttpRequest, file: UploadedFile = File(...), dr
         people = read_faculty_list(io.BytesIO(file.read()))
     except Exception as exc:
         raise HttpError(400, f"Could not read the workbook: {exc}") from exc
-    result = import_faculty_list(people, dry_run=dry_run)
+    result = import_faculty_list(people, dry_run=dry_run, filename=file.name or "Faculty_List")
     if not dry_run:
         AuditLog.objects.create(
             actor=user, action="FACULTY_LIST_IMPORT", entity="FacultyMaster",

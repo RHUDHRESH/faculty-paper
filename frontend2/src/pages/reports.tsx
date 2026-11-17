@@ -2,7 +2,7 @@ import { paperTitle } from "@/lib/names"
 import { useMemo } from "react"
 import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
-import { ArrowDown, ArrowUp, Download, Minus, X } from "lucide-react"
+import { ArrowDown, ArrowUp, Download, FilePlus2, Minus, X } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { api } from "@/lib/api"
@@ -29,6 +29,7 @@ import { Answer, PrintStamp } from "./reports-print"
 import { Answer as AnswerFigures } from "@/ui/answer"
 import { filterBar } from "@/ui/filter-bar"
 import { MoreMenu } from "@/pages/more-menu"
+import { Top5Board } from "@/pages/top5-board"
 
 /**
  * The college's oversight report — a small set of large figures, with the
@@ -502,11 +503,17 @@ function CollegeReports() {
                 { label: "Print this report", onSelect: () => window.print() },
               ]}
             />
-            <Button kind="primary" asChild>
+            <Button kind="default" asChild>
               <a href={exportHref("xlsx")} download>
                 <Download />
                 Download the claims as Excel
               </a>
+            </Button>
+            <Button kind="primary" asChild>
+              <Link to="/reports/studio">
+                <FilePlus2 />
+                Make a report
+              </Link>
             </Button>
           </span>
         }
@@ -650,6 +657,8 @@ function CollegeReports() {
               },
             ]}
           />
+
+          <Top5Board className="scroll-mt-6" />
 
           {data.month_unrecorded && data.month_unrecorded.count > 0 && (
             <p className="text-sm text-fg-muted">

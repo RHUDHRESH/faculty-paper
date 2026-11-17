@@ -26,6 +26,7 @@ from core.api.desks import *  # noqa: F401,F403
 from core.api.brief import *  # noqa: F401,F403
 from core.api.principal_reports import *  # noqa: F401,F403
 from core.api.dashboard import *  # noqa: F401,F403
+from core.api.top5 import *  # noqa: F401,F403
 from core.api.discussions import *  # noqa: F401,F403
 from core.api.calendar import *  # noqa: F401,F403
 from core.api.events import *  # noqa: F401,F403
@@ -45,12 +46,14 @@ from core.api.superadmin import *  # noqa: F401,F403
 from core.api.operations import *  # noqa: F401,F403
 from core.api.admin import *  # noqa: F401,F403
 from core.api.masters import *  # noqa: F401,F403
+from core.api.conflicts import *  # noqa: F401,F403
 from core.api.finance import *  # noqa: F401,F403
 from core.api.payout_statements import *  # noqa: F401,F403
 from core.api.institution import *  # noqa: F401,F403
 from core.api.restore import *  # noqa: F401,F403
 from core.api.media_import import *  # noqa: F401,F403
 from core.api.data_health import *  # noqa: F401,F403
+from core.api.integrations_admin import *  # noqa: F401,F403
 from core.api.scopus_profiles import *  # noqa: F401,F403
 from core.api.my_payments import *  # noqa: F401,F403
 from core.api.applicant import *  # noqa: F401,F403
@@ -98,5 +101,7 @@ from core.api.journal_check import *  # noqa: F401,F403
 from core.api.proof_locker import *  # noqa: F401,F403
 from core.api.insights import *  # noqa: F401,F403
 from core.api.export_table import *  # noqa: F401,F403
+from core.api.report_studio import *  # noqa: F401,F403
 from core.api.paper_candidates import *  # noqa: F401,F403
 from core.api.shell import *  # noqa: F401,F403
+from core.api.api_tokens import *  # noqa: F401,F403

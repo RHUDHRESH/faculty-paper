@@ -28,6 +28,7 @@ import { Section } from "@/ui/section"
 import { Delayed, ErrorState, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { toast } from "@/ui/toast"
+import { Top5Board } from "@/pages/top5-board"
 
 /**
  * A head of department's first screen. It answers the three questions a head
@@ -276,6 +277,8 @@ export function HodHome() {
               },
             ]}
           />
+
+          <Top5Board />
 
           <p className="text-sm text-fg-muted" data-testid="report-answer">
             {leadSentence(b)}

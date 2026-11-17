@@ -19,6 +19,7 @@ import { deptUrl, headLabel, n, NoHeads, type Brief } from "@/pages/principal-pa
 import { isReady } from "@/pages/principal/ready"
 import { useApprovals } from "@/pages/principal/use-approvals"
 import { packHref } from "@/pages/principal/year-column"
+import { Top5Board } from "@/pages/top5-board"
 import type { TrackPayload } from "@/pages/track-data"
 
 /**
@@ -168,6 +169,8 @@ export function PrincipalHome() {
           },
         ]}
       />
+
+      <Top5Board />
 
       <Section title="Waiting for you">
         {queue.isError ? (

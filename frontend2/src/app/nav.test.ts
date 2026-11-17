@@ -190,7 +190,7 @@ describe("the office sidebar", () => {
       "/search", "/", "/clearing", "/approvals", "/authorisations", "/payments", "/department",
       "/papers", "/papers/new", "/research", "/discover", "/scout", "/collaborate", "/messages",
       "/discussions", "/leaderboard", "/calendar", "/publications", "/reports", "/reports/brief",
-      "/reports/build", "/journals", "/accreditation", "/ledger", "/statements", "/duplicates",
+      "/reports/studio", "/journals", "/accreditation", "/ledger", "/statements", "/duplicates",
       "/flags", "/archive", "/faults", "/jobs", "/audit", "/people", "/people/matches", "/requests",
       "/budget", "/policy", "/settings", "/reference", "/imports", "/batches", "/data",
       "/data/health", "/data/record",
@@ -362,7 +362,7 @@ describe("the Convocation sidebar", () => {
 
   it("drops the folded destinations from the sidebar and redirects them", () => {
     const to = NAV.map((i) => i.to)
-    for (const gone of ["/u", "/network", "/goals", "/programme", "/impact"]) expect(to).not.toContain(gone)
+    for (const gone of ["/u", "/network", "/goals", "/programme", "/impact", "/reports/build"]) expect(to).not.toContain(gone)
     // The wall stays a real page, found by name and not listed in a sidebar.
     expect(NAV.find((i) => i.to === "/wall")?.findOnly).toBe(true)
     expect(REDIRECTS).toEqual({
@@ -371,6 +371,7 @@ describe("the Convocation sidebar", () => {
       "/goals": "/research?tab=me#this-year",
       "/programme": "/research?tab=me",
       "/impact": "/research",
+      "/reports/build": "/reports/studio",
     })
   })
 

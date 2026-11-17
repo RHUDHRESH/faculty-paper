@@ -274,7 +274,7 @@ export function PrincipalReportsHub() {
           <Section title="Make your own">
             <Rows>
               <Tool to="/reports" label="Analysis" purpose="Output by department, journal, quartile and year." />
-              <Tool to="/reports/build" label="Build a report" purpose="Choose what to count, then download." />
+              <Tool to="/reports/studio" label="Report studio" purpose="Make a report any way you like, save it and send it on a schedule." />
             </Rows>
           </Section>
         </div>

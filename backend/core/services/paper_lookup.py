@@ -43,6 +43,7 @@ from django.db.models import Q
 
 from core.models import ScimagoJournal, SnipSource
 from core.services.discover import categories_of, find_journal
+from core.services import integrations
 from core.services.normalize import normalize_doi, normalize_issn, normalize_title
 from core.services.scimago import (
     engineering_class,
@@ -156,7 +157,7 @@ def parse_reference(text: str | None) -> Reference:
 
 def _openalex_params() -> dict[str, str]:
     params = {"mailto": upstream.contact()}
-    key = (getattr(settings, "OPENALEX_API_KEY", "") or "").strip()
+    key = integrations.get("openalex.api_key")
     if key:
         # Optional. Without one a single work is still free; a key raises the
         # daily budget the title search draws on.

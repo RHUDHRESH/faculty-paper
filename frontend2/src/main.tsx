@@ -76,6 +76,7 @@ const Calendar = page(() => import("@/pages/calendar"), "Calendar")
 const Audit = page(() => import("@/pages/audit"), "Audit")
 const Faults = page(() => import("@/pages/faults"), "Faults")
 const DataFixes = page(() => import("@/pages/data-fixes"), "DataFixes")
+const Conflicts = page(() => import("@/pages/conflicts"), "Conflicts")
 const Calculator = page(() => import("@/pages/calculator"), "Calculator")
 const Jobs = page(() => import("@/pages/jobs"), "Jobs")
 const Help = page(() => import("@/pages/help"), "Help")
@@ -124,11 +125,12 @@ const ProofLocker = page(() => import("@/pages/proof-locker"), "ProofLocker")
 const Payments = page(() => import("@/pages/payments"), "Payments")
 const PaymentsDone = page(() => import("@/pages/payments"), "PaymentsDone")
 const Publications = page(() => import("@/pages/publications"), "Publications")
-const ReportBuilder = page(() => import("@/pages/report-builder"), "ReportBuilder")
+const ReportStudio = page(() => import("@/pages/report-studio"), "ReportStudio")
 const Reports = page(() => import("@/pages/reports"), "Reports")
 const Track = page(() => import("@/pages/track"), "Track")
 const AdminHub = page(() => import("@/pages/hub"), "AdminHub")
 const AdminStart = page(() => import("@/pages/admin-start"), "AdminStart")
+const Integrations = page(() => import("@/pages/integrations"), "Integrations")
 const MoneyHub = page(() => import("@/pages/hub"), "MoneyHub")
 const ReportsHub = page(() => import("@/pages/hub"), "ReportsHub")
 const YearBrief = page(() => import("@/pages/brief"), "YearBrief")
@@ -146,6 +148,7 @@ const Person = page(() => import("@/pages/people"), "Person")
 const PeoplePasswords = page(() => import("@/pages/people"), "PeoplePasswords")
 const Policy = page(() => import("@/pages/policy"), "Policy")
 const Profile = page(() => import("@/pages/profile"), "Profile")
+const ApiDocs = page(() => import("@/pages/api-docs"), "ApiDocs")
 const Research = page(() => import("@/pages/research"), "Research")
 const Events = page(() => import("@/pages/events"), "Events")
 const Scout = page(() => import("@/pages/scout"), "Scout")
@@ -212,10 +215,12 @@ const PRELOADS: [string, Page][] = [
   ["/calendar", Calendar],
   ["/department", Department],
   ["/publications", Publications],
-  ["/reports/build", ReportBuilder],
+  ["/reports/studio", ReportStudio],
   ["/track", Track],
   ["/admin", AdminHub],
   ["/admin/start", AdminStart],
+  ["/admin/integrations", Integrations],
+  ["/admin/conflicts", Conflicts],
   ["/money", MoneyHub],
   ["/reports/all", ReportsHub],
   ["/reports/brief", YearBrief],
@@ -256,6 +261,7 @@ const PRELOADS: [string, Page][] = [
   ["/safeguards", Safeguards],
   ["/data", Data],
   ["/me", Profile],
+  ["/api-docs", ApiDocs],
 ]
 
 const LAST_ROLE = "last-role"
@@ -461,6 +467,8 @@ function App() {
           <Route path="/track" element={<Track />} />
           <Route path="/admin" element={<AdminHub />} />
           <Route path="/admin/start" element={<AdminStart />} />
+          <Route path="/admin/integrations" element={<Integrations />} />
+          <Route path="/admin/conflicts" element={<Conflicts />} />
           <Route path="/money" element={<MoneyHub />} />
           <Route path="/reports/all" element={<ReportsHub />} />
           <Route path="/reports/brief" element={<YearBrief />} />
@@ -468,7 +476,7 @@ function App() {
           <Route path="/reports/departments/:name" element={<DepartmentPage />} />
           <Route path="/reports/papers" element={<ReportPapers />} />
           <Route path="/reports" element={<Reports />} />
-          <Route path="/reports/build" element={<ReportBuilder />} />
+          <Route path="/reports/studio" element={<ReportStudio />} />
           <Route path="/journals" element={<Journals />} />
           <Route path="/journals/:title" element={<JournalRecord />} />
           <Route path="/accreditation" element={<Accreditation />} />
@@ -507,6 +515,7 @@ function App() {
           <Route path="/data/record" element={<RecordQuality />} />
           <Route path="/data" element={<Data />} />
           <Route path="/me" element={<Profile />} />
+          <Route path="/api-docs" element={<ApiDocs />} />
           <Route path="/wall" element={<WallOfFame />} />
           <Route path="/privacy" element={<Privacy />} />
           {import.meta.env.DEV && <Route path="/gallery" element={<Gallery />} />}

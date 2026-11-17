@@ -84,6 +84,7 @@ function AccountMenu({
       <MenuContent side={side} align={avatarOnly ? "end" : "start"} className="min-w-[13rem]">
         {/* No name-and-role block here: the trigger it opens from already says who this is. */}
         <MenuItem onSelect={() => nav("/me")}>Your profile</MenuItem>
+        <MenuItem onSelect={() => nav("/api-docs")}>API documentation</MenuItem>
         <MenuItem onSelect={() => nav("/help")}>Help and guides</MenuItem>
         <MenuSeparator />
         <MenuLabel>Appearance</MenuLabel>

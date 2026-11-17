@@ -18,6 +18,7 @@ import {
   FileCheck,
   FileText,
   FlaskConical,
+  GitCompareArrows,
   Flag,
   History,
   Home,
@@ -43,7 +44,9 @@ import {
   HeartPulse,
   Route,
   ListChecks,
+  Plug,
   Wrench,
+  Code,
 } from "lucide-react"
 
 import type { Role } from "@/app/auth"
@@ -110,6 +113,8 @@ export const REDIRECTS: Record<string, string> = {
   "/goals": "/research?tab=me#this-year",
   "/programme": "/research?tab=me",
   "/impact": "/research",
+  // The old Build a report page became the Report studio.
+  "/reports/build": "/reports/studio",
 }
 
 const ALL_STAFF: Role[] = [
@@ -461,6 +466,14 @@ const PAGES: NavItem[] = [
     keywords: ["account", "profile", "password", "photo", "scopus id", "orcid", "change name", "sign out"],
   },
   {
+    to: "/api-docs",
+    label: "API documentation",
+    icon: Code,
+    findOnly: true,
+    purpose: "How to read your own data from Excel, Google Sheets, Python or Power BI.",
+    keywords: ["api", "token", "excel", "power query", "power bi", "google sheets", "python", "curl", "export", "csv", "integration"],
+  },
+  {
     to: "/u/me/stats",
     label: "Your stats",
     icon: BarChart3,
@@ -568,12 +581,14 @@ const PAGES: NavItem[] = [
     keywords: ["papers", "list", "which papers", "quartile", "no department", "retracted", "download"],
   },
   {
-    to: "/reports/build",
-    label: "Build a report",
+    // `/api/reports/run` and friends: the same doors as Analysis, plus a head of
+    // department, who gets their own department's rows and no money columns.
+    to: "/reports/studio",
+    label: "Report studio",
     icon: BarChart3,
-    roles: ALL_STAFF,
+    roles: [...ALL_STAFF, "HOD"],
     group: "Look at",
-    keywords: ["export", "excel", "xlsx", "pdf", "chart", "breakdown", "custom"],
+    keywords: ["build a report", "make a report", "export", "excel", "xlsx", "pdf", "chart", "breakdown", "custom", "schedule", "template", "pivot", "grid", "live link", "google sheets"],
   },
   {
     to: "/journals",
@@ -659,6 +674,15 @@ const PAGES: NavItem[] = [
     roles: OFFICE,
     group: "Set up",
     keywords: ["old erp", "no amount", "untitled", "quartile", "missing", "paid for nothing", "data fix"],
+  },
+  {
+    to: "/admin/conflicts",
+    label: "Data conflicts",
+    icon: GitCompareArrows,
+    // Reading is for whoever may import; the page says who may settle one.
+    roles: OFFICE,
+    group: "Set up",
+    keywords: ["conflict", "differs", "mismatch", "different email", "different scopus id", "different amount", "import", "faculty list", "settled claims", "which one is right", "pause account", "disagree"],
   },
   {
     to: "/jobs",
@@ -883,6 +907,15 @@ const PAGES: NavItem[] = [
     keywords: ["set up", "setup", "first run", "go live", "new host", "move host", "restore", "fresh install", "checklist", "what is left", "get started", "start"],
   },
   {
+    to: "/admin/integrations",
+    label: "Integrations",
+    icon: Plug,
+    // `_super` in api/integrations_admin.py: the keys are the super admin's alone.
+    roles: ["SUPER_ADMIN"],
+    group: "Set up",
+    keywords: ["api key", "keys", "ai key", "scopus key", "elsevier", "openalex", "claude", "anthropic", "groq", "gemini", "test connection", "quota", "rate limit", "usage", "ai provider"],
+  },
+  {
     to: "/money",
     label: "Money",
     icon: Wallet,
@@ -931,6 +964,7 @@ const PURPOSE: Record<string, string> = {
   "/imports": "Bring in the ERP workbook, the faculty list and past payments. Preview before you commit.",
   "/reference": "The journal quartiles and SNIP values that price a claim.",
   "/batches": "The monthly Scopus run that turns new papers into ones that can be priced.",
+  "/admin/conflicts": "Differences between the college's files and the app, settled by clicking. Nothing changes until you choose.",
   "/data/fixes": "Imported claims that are missing an amount, a title or a quartile, one row each to put right.",
   "/data/record": "Duplicate papers, misspelt names and odd dates in the publication record.",
   "/data/health": "Broken links, duplicate IDs and missing files, with fixes, and the backups.",
@@ -949,7 +983,7 @@ const PURPOSE: Record<string, string> = {
   "/settings": "The college's name, branding and sign-in notes.",
   "/reports": "Output by department, journal, quartile and year.",
   "/reports/brief": "One page for the governing council: this year against last, per teacher.",
-  "/reports/build": "Choose the columns and download Excel or PDF.",
+  "/reports/studio": "Make a report any way you like, save it, send it on a schedule or open it in Excel.",
   "/accreditation": "NAAC and NIRF tables, in the order the submissions ask for.",
   "/publications": "Search every paper the college has claimed or published.",
   "/journals": "A journal's quartile, SNIP and standing, and the college's history with it.",
@@ -958,6 +992,7 @@ const PURPOSE: Record<string, string> = {
   "/flags": "Doubts raised on claims, and how each was answered.",
   "/admin": "The pages that keep the system right, in four groups.",
   "/admin/start": "What is left before people can sign in, in order.",
+  "/admin/integrations": "The AI, Scopus and OpenAlex keys: set them, test them, and see how much they are used.",
   "/money": "What is spent, the rules behind an amount, and the monthly statements.",
   "/reports/all": "Every report and lookup in one place.",
 }
@@ -991,7 +1026,7 @@ export const HUBS: Record<HubKey, Hub> = {
       {
         title: "Data",
         blurb: "Where the records come from, and whether they are right.",
-        items: ["/imports", "/data/fixes", "/batches", "/reference", "/data/record", "/data/health", "/duplicates", "/data"],
+        items: ["/imports", "/admin/conflicts", "/data/fixes", "/batches", "/reference", "/data/record", "/data/health", "/duplicates", "/data"],
       },
       {
         title: "Money",
@@ -1001,7 +1036,7 @@ export const HUBS: Record<HubKey, Hub> = {
       {
         title: "System",
         blurb: "What is running, what went wrong, and who did what.",
-        items: ["/admin/start", "/jobs", "/faults", "/audit", "/settings"],
+        items: ["/admin/start", "/admin/integrations", "/jobs", "/faults", "/audit", "/settings"],
       },
     ],
   },
@@ -1020,7 +1055,7 @@ export const HUBS: Record<HubKey, Hub> = {
       {
         title: "Reports",
         blurb: "Figures to read, present or download.",
-        items: ["/reports", "/reports/brief", "/reports/build", "/accreditation"],
+        items: ["/reports", "/reports/brief", "/reports/studio", "/accreditation"],
       },
       {
         title: "Look something up",

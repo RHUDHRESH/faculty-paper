@@ -27,7 +27,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from core.models import ScoutRun, User
-from core.services import ai, anthropic_provider
+from core.services import ai, anthropic_provider, integrations
 from core.services import ai_harness as harness
 from core.services import coauthors as graph
 from core.services import research_picture as picture
@@ -146,7 +146,7 @@ def scopus_recent(topics: list[str], *, per_topic: int = 5, max_topics: int = 3)
     """
     from core.services import scopus
 
-    if not (getattr(settings, "SCOPUS_API_KEY", "") or ""):
+    if not integrations.get("scopus.api_key"):
         return []
     since = timezone.localdate().year - 3
     out: list[dict[str, Any]] = []

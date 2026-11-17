@@ -10,6 +10,7 @@ from urllib.parse import quote, urlencode
 import httpx
 from django.conf import settings
 
+from core.services import integrations
 from core.services.normalize import normalize_doi, normalize_issn
 
 SCOPUS_BASE = "https://api.elsevier.com/content"
@@ -35,7 +36,7 @@ class ScopusError(Exception):
 
 
 def _api_key() -> str:
-    key = getattr(settings, "SCOPUS_API_KEY", "") or ""
+    key = integrations.get("scopus.api_key")
     if not key or key == "your-scopus-api-key":
         raise ScopusError("SCOPUS_API_KEY is not configured", code="unauthorized")
     return key
@@ -51,8 +52,13 @@ def scopus_fetch(url: str, timeout: float = 30.0, *, throttled: bool = False) ->
     if "apiKey=" not in url:
         url = f"{url}{sep}apiKey={quote(key)}"
     headers = {"Accept": "application/json", "X-ELS-APIKey": key}
+    inst_token = integrations.get("scopus.inst_token")
+    if inst_token:
+        headers["X-ELS-Insttoken"] = inst_token
     with httpx.Client(timeout=timeout) as client:
         res = client.get(url, headers=headers)
+        # Counts the call and notes the quota headers for the Integrations page.
+        integrations.record_call("scopus", headers=getattr(res, "headers", None))
         text = res.text.strip()
         if text.startswith("<") or text.startswith("<?xml"):
             raise ScopusError("API Error: Bad Request Structure", code="bad_payload")

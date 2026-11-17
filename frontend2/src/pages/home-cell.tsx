@@ -18,6 +18,7 @@ import { Button } from "@/ui/button"
 import { Section } from "@/ui/section"
 import { InlineError } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
+import { Top5Board } from "@/pages/top5-board"
 
 /**
  * The first desk's Home (research cell and research coordinator).
@@ -360,7 +361,9 @@ export function CellHome() {
               { value: d?.past_sla, label: `Late, past ${sla} days`, zero: "None late", to: "/clearing", tone: "critical" },
             ]}
           />
-          {down && <p className="text-sm text-fg-muted">{down}</p>}
+          {/* The office desk is refused by the server; only the coordinator reads it. */}
+          {coordinator && <Top5Board />}
+          {down &&<p className="text-sm text-fg-muted">{down}</p>}
 
           <Section
             id="attention"

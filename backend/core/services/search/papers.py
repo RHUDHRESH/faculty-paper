@@ -28,6 +28,7 @@ from urllib.parse import quote
 import httpx
 from django.conf import settings
 
+from core.services import integrations
 from core.services.normalize import normalize_doi, normalize_issn, normalize_title
 from core.services.search import resolve, upstream
 
@@ -203,7 +204,7 @@ def _from_crossref(work: dict[str, Any]) -> dict[str, Any]:
 
 
 def scopus_configured() -> bool:
-    key = getattr(settings, "SCOPUS_API_KEY", "") or ""
+    key = integrations.get("scopus.api_key")
     return bool(key) and key != "your-scopus-api-key"
 
 

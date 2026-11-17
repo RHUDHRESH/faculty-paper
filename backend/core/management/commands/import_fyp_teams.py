@@ -23,7 +23,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--academic-year",
             default=None,
-            help='As "2025-26". Read off the sheet name ("25-26") when not given.',
+            help='As "2025-26". Read off the sheet name ("25-26") when not given, '
+            "else 2025-26 for the one-row-per-student sheets.",
         )
 
     def handle(self, *args, **opts):
@@ -41,6 +42,26 @@ class Command(BaseCommand):
             f"Sheet {result['sheet']!r}, academic year {result['academic_year'] or 'not stated'}: "
             f"{result['teams']} teams read."
         )
+        for sh in result["sheets"]:
+            out.write(
+                f"  [{sh['sheet']}] {sh['layout']}: {sh['rows_read']} rows, "
+                f"{sh['teams']} teams, {sh['students']} students, {sh['mentors']} mentors, "
+                f"{sh['rows_skipped']} rows skipped, "
+                f"{sh['teams_mentor_unmatched']} teams with a mentor who has no account "
+                f"({sh['mentor_ids_unmatched']} Faculty IDs)"
+            )
+            for why, n in sh["skipped_because"].items():
+                out.write(f"      skipped {n}: {why}")
+        if result["mentor_conflicts"]:
+            out.write(
+                f"  teams whose students name different mentors: {result['mentor_conflicts_total']} "
+                f"(the commonest, else the first named, was used)"
+            )
+        if result["publications_read"]:
+            out.write(
+                f"  publications read: {result['publications_read']} "
+                f"(stored on their teams)"
+            )
         out.write(f"  created: {result['created']}")
         out.write(f"  updated: {result['updated']}")
         out.write(f"  unchanged: {result['unchanged']}")

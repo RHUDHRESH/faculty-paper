@@ -1072,6 +1072,11 @@ class Team(models.Model):
     #: entered by hand. A student-project claim is paid per team, so where the
     #: team came from is part of why the claim is payable.
     imported_at = models.DateTimeField(blank=True, null=True)
+    #: The articles the roster lists for this team: a list of {article_title,
+    #: source_title, document_type, issn, publication_date (ISO), scopus_eid,
+    #: doi (normalized), scopus_link, article_link}. Kept as the workbook gave
+    #: them; nothing here is verified or paid on.
+    publications = models.JSONField(default=list, blank=True)
 
     active = models.BooleanField(default=True)
     created_by = models.ForeignKey(
@@ -1255,6 +1260,54 @@ class PaidLedger(models.Model):
         # `staff_id__iexact` (a person's own payments) is `UPPER(staff_id) =
         # UPPER(value)` on PostgreSQL; see PriorPayment.
         indexes = [models.Index(Upper("staff_id"), name="ledger_staff_upper")]
+
+
+class ImportConflict(models.Model):
+    """A difference between one of the college's files and the app, waiting for a person.
+
+    The two monthly importers (faculty list, settled claims) list what differs
+    and never overwrite it. Their check step and their import step both note
+    each difference here, once, by `key`, so the office can settle it by
+    clicking (`services/import_conflicts.py`) instead of editing a record by
+    hand. `payload` is the report row exactly as the importer produced it; an
+    action is refused when the record no longer matches it.
+    """
+
+    class Kind(models.TextChoices):
+        FACULTY = "faculty", "A faculty list value differs"
+        AMOUNT = "amount", "A settled amount differs"
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        RESOLVED = "resolved", "Resolved"
+        DISMISSED = "dismissed", "Dismissed"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    kind = models.CharField(max_length=12, choices=Kind.choices)
+    source_file = models.CharField(max_length=255, blank=True, default="")
+    detected_at = models.DateTimeField(default=timezone.now)
+    #: Stable across runs: "faculty:<staff_id>:<field>" or
+    #: "amount:<staff_id>:<title hash>:<month>". One row per key, ever.
+    key = models.CharField(max_length=191, unique=True)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.OPEN)
+    #: The action that settled it ("use_list", "keep_app", "update_ledger", "keep_ledger").
+    resolution = models.CharField(max_length=32, blank=True, default="")
+    resolution_note = models.TextField(blank=True, default="")
+    resolved_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="import_conflicts_resolved"
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    #: Set while this conflict's account is switched off by "pause the account";
+    #: cleared by "reactivate". Pausing is reversible and does not settle it.
+    paused_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-detected_at", "key"]
+        indexes = [models.Index(fields=["status", "kind"], name="conflict_status_kind")]
+
+    def __str__(self) -> str:
+        return self.key
 
 
 class ResearchThreshold(models.Model):
@@ -3329,3 +3382,124 @@ class ProofFile(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["owner", "content_hash"], name="prooffile_owner_hash_unique"),
         ]
+
+
+class ApiToken(models.Model):
+    """A personal access token: read-only API access as one user.
+
+    Only a hash of the secret is stored. The secret itself ("sec_" and 40
+    url-safe characters) is shown once, in the response that creates the
+    token, and cannot be recovered afterwards. `prefix` (the first 8 characters
+    of the secret) is kept in the clear so a person can tell their tokens
+    apart and the office can find one to revoke.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="api_tokens")
+    name = models.CharField(max_length=80)
+    prefix = models.CharField(max_length=8, db_index=True)
+    #: HMAC-SHA256 of the secret, hex. Unique so a lookup is one indexed read.
+    secret_hash = models.CharField(max_length=64, unique=True)
+    #: A subset of core.services.api_tokens.SCOPES.
+    scopes = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(blank=True, null=True)
+    last_used_ip = models.CharField(max_length=64, blank=True, default="")
+    use_count = models.PositiveIntegerField(default=0)
+    expires_at = models.DateTimeField(blank=True, null=True)
+    revoked_at = models.DateTimeField(blank=True, null=True)
+    revoked_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.prefix}... ({self.user_id})"
+
+
+class ApiTokenUsage(models.Model):
+    """How many requests one token made on one day."""
+
+    token = models.ForeignKey(ApiToken, on_delete=models.CASCADE, related_name="daily_usage")
+    day = models.DateField()
+    count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["token", "day"], name="apitokenusage_token_day"),
+        ]
+class SavedReport(models.Model):
+    """A report somebody built in the Report studio and kept.
+
+    `definition` is the studio's own JSON (dataset, columns, filters, groups,
+    aggregates, pivot, sort), never SQL. Whoever runs it runs it as
+    themselves: the definition says what to ask, the viewer's role decides
+    which rows and which fields they may be answered with.
+
+    `feed_token_hash` is the SHA-256 of the secret in a feed link (the link
+    itself is shown once, when it is made). Null means no feed.
+    """
+
+    class Visibility(models.TextChoices):
+        PRIVATE = "private", "Only me"
+        ROLE = "role", "People in certain roles"
+        EVERYONE = "everyone", "Everyone who signs in"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="saved_reports")
+    name = models.CharField(max_length=120)
+    description = models.TextField(blank=True, default="")
+    definition = models.JSONField(default=dict)
+    visibility = models.CharField(max_length=10, choices=Visibility.choices, default=Visibility.PRIVATE)
+    #: Role names the report is shared with when `visibility` is "role".
+    roles = models.JSONField(default=list, blank=True)
+    feed_token_hash = models.CharField(max_length=64, blank=True, null=True, unique=True)
+    feed_created_at = models.DateTimeField(blank=True, null=True)
+    feed_last_read_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class ReportSchedule(models.Model):
+    """A saved report that is emailed on a rhythm.
+
+    Each recipient gets the report as *they* would see it (their own rows,
+    their own money rule), not as the person who set the schedule would.
+    The timing lives in a django-q `Schedule` named `schedule_name`.
+    """
+
+    class Frequency(models.TextChoices):
+        WEEKLY = "weekly", "Every week"
+        MONTHLY = "monthly", "Every month"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    report = models.ForeignKey(SavedReport, on_delete=models.CASCADE, related_name="schedules")
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="report_schedules")
+    frequency = models.CharField(max_length=8, choices=Frequency.choices)
+    #: Weekly: 0 (Monday) to 6. Monthly: 1 to 28.
+    day = models.PositiveSmallIntegerField()
+    #: Hour of the day in India time, 0 to 23.
+    hour = models.PositiveSmallIntegerField(default=8)
+    format = models.CharField(max_length=8, default="xlsx")
+    recipients = models.ManyToManyField(User, related_name="report_deliveries", blank=True)
+    schedule_name = models.CharField(max_length=64, blank=True, default="")
+    last_sent_at = models.DateTimeField(blank=True, null=True)
+    last_result = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["report", "created_by"], name="one_report_schedule_per_person"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.report_id} {self.frequency}"

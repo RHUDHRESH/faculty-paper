@@ -17,6 +17,7 @@ import { PageHeader } from "@/ui/page-header"
 import { Section } from "@/ui/section"
 import { InlineError, Skeleton } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
+import { Top5Board } from "@/pages/top5-board"
 
 /**
  * The super admin's first screen (docs/ux/29). Three figures say whether
@@ -300,6 +301,7 @@ export function AdminHome() {
               { value: counts.data?.counts.filed, label: "Waiting to be cleared", zero: "Nothing is waiting", to: "/clearing" },
             ]}
           />
+          <Top5Board />
           {attention.isError ? (
             <InlineError message="Could not check the system's health." onRetry={() => void attention.refetch()} />
           ) : !attention.data ? (

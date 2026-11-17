@@ -16,6 +16,7 @@ from django.db.models import Max
 from django.utils import timezone
 
 from core.models import FormulaConfig, Role, StoredFile, User
+from core.services import integrations
 
 #: A backup older than this is reported; the scheduled one runs weekly and
 #: the data-health page can take one on demand.
@@ -160,11 +161,11 @@ def _worker_check() -> dict[str, Any]:
 
 
 def _scopus_check() -> dict[str, Any]:
-    ok = bool(getattr(settings, "SCOPUS_API_KEY", "") or "")
+    ok = bool(integrations.get("scopus.api_key"))
     return _check(
         "scopus", "The Scopus key is set", ok,
         "Scopus lookups and the monthly run can use it." if ok
-        else "Without a Scopus key the monthly run cannot fetch quartiles or SNIP. Set SCOPUS_API_KEY on the server.",
+        else "Without a Scopus key the monthly run cannot fetch quartiles or SNIP. Add the key on the Integrations page.",
         "/reference", "Open reference data",
     )
 

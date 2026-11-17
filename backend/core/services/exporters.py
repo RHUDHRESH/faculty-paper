@@ -65,6 +65,7 @@ def render(
     title: str = "Report",
     subtitle: str = "",
     cover: bool = True,
+    header_lines: list[str] | None = None,
 ) -> bytes:
     """One pack, in the asked-for shape.
 
@@ -72,11 +73,14 @@ def render(
     and may carry `"kinds"`: one entry per column, `text`, `number`, `money`
     or `date`, or None to work it out. `cover=False` leaves the contents page
     out of a workbook, for a single table that is the whole file.
+    `header_lines` are written above the table of an xlsx (one per row, then
+    a blank row), for what the reader should know before the figures: the
+    filters a report was run with.
     """
     if fmt not in FORMATS:
         raise ValueError(f"Unknown format {fmt!r}")
     if fmt == "xlsx":
-        return _xlsx(pack, title, subtitle, with_cover=cover)
+        return _xlsx(pack, title, subtitle, with_cover=cover, header_lines=header_lines)
     return {
         "csv": _csv,
         "json": _json,
@@ -98,19 +102,21 @@ def render_table(
     *,
     kinds: list[str | None] | None = None,
     generated_line: str = "",
+    header_lines: list[str] | None = None,
 ) -> bytes:
     """One table as one file, for the table-export endpoint.
 
     `rows` must be aligned with `columns`. `kinds` is one entry per column
     (see `render`). `generated_line` is printed under the subtitle of a PDF:
-    who asked for the file and when.
+    who asked for the file and when. `header_lines` go above the table in an
+    xlsx and under the subtitle in a PDF; a CSV stays a bare table.
     """
     if fmt not in TABLE_FORMATS:
         raise ValueError(f"Unknown format {fmt!r}")
     if fmt == "pdf":
-        return _table_pdf(title, subtitle, generated_line, columns, rows, kinds)
+        return _table_pdf(title, subtitle, generated_line, columns, rows, kinds, header_lines)
     pack = {title: {"columns": list(columns), "rows": rows, "kinds": kinds}}
-    return render(pack, fmt, title=title, subtitle=subtitle, cover=False)
+    return render(pack, fmt, title=title, subtitle=subtitle, cover=False, header_lines=header_lines)
 
 
 # ---------------------------------------------------------------- xlsx ----
@@ -194,6 +200,7 @@ def _xlsx(
     title: str,
     subtitle: str,
     with_cover: bool = True,
+    header_lines: list[str] | None = None,
 ) -> bytes:
     """A workbook somebody can open in front of a board without apologising.
 
@@ -260,15 +267,24 @@ def _xlsx(
         rows = list(sheet["rows"])
         kinds = _kinds_for(columns, rows, sheet.get("kinds"))
 
+        # A block of plain lines above the table (a report's filters), then a
+        # blank row. `top` is the table's header row, 1 when there is no block.
+        for line in header_lines or []:
+            safe_append(ws, [line])
+            ws.cell(row=ws.max_row, column=1).font = Font(color="FF5A6472")
+        top_row = 1
+        if header_lines:
+            safe_append(ws, [])  # the blank row between the lines and the table
+            top_row = len(header_lines) + 2
         safe_append(ws, columns)
-        for cell in ws[1]:
+        for cell in ws[top_row]:
             cell.font = header_font
             cell.fill = header_fill
             cell.alignment = Alignment(vertical="center", wrap_text=True, horizontal="left")
             cell.border = Border(bottom=thin)
-        ws.row_dimensions[1].height = 26
+        ws.row_dimensions[top_row].height = 26
 
-        for r_index, row in enumerate(rows, start=2):
+        for r_index, row in enumerate(rows, start=top_row + 1):
             safe_append(ws, _date_cells(row, kinds))
             for c_index, kind in enumerate(kinds, start=1):
                 cell = ws.cell(row=r_index, column=c_index)
@@ -312,10 +328,10 @@ def _xlsx(
                 max(widest + 3, floor), 60
             )
 
-        ws.freeze_panes = "A2"
+        ws.freeze_panes = f"A{top_row + 1}"
         if rows:
             ws.auto_filter.ref = (
-                f"A1:{get_column_letter(len(columns))}{len(rows) + 1}"
+                f"A{top_row}:{get_column_letter(len(columns))}{top_row + len(rows)}"
             )
 
         # Printing is not an afterthought here: a principal signs a printed
@@ -325,7 +341,7 @@ def _xlsx(
         ws.page_setup.fitToWidth = 1
         ws.page_setup.fitToHeight = 0
         ws.sheet_properties.pageSetUpPr.fitToPage = True
-        ws.print_title_rows = "1:1"
+        ws.print_title_rows = f"{top_row}:{top_row}"
         ws.oddHeader.left.text = title
         ws.oddFooter.right.text = "Page &P of &N"
 
@@ -554,6 +570,7 @@ def _table_pdf(
     columns: list[str],
     rows: list[list[Any]],
     kinds: list[str | None] | None,
+    header_lines: list[str] | None = None,
 ) -> bytes:
     """A table to read and sign: landscape A4, any number of columns.
 
@@ -620,6 +637,8 @@ def _table_pdf(
     ]
     if subtitle:
         story.append(Paragraph(escape(subtitle), note))
+    for line in header_lines or []:
+        story.append(Paragraph(escape(line), note))
     if generated_line:
         story.append(Paragraph(escape(generated_line), note))
     story.append(Spacer(1, 4 * mm))

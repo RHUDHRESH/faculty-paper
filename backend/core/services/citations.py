@@ -37,6 +37,7 @@ from django.utils import timezone
 
 from core.models import CitationCount, CitationHistory, Claim, ClaimStatus
 from core.services.normalize import normalize_doi
+from core.services import integrations
 from core.services.notify import notify
 from core.services.search import upstream
 
@@ -88,7 +89,7 @@ def fetch_counts(dois: list[str]) -> dict[str, tuple[int, str | None]]:
         "select": "id,doi,cited_by_count",
         "mailto": upstream.contact(),
     }
-    key = getattr(settings, "OPENALEX_API_KEY", "")
+    key = integrations.get("openalex.api_key")
     if key:
         params["api_key"] = key
     payload = upstream.get_json(OPENALEX_WORKS, params, read_timeout=20.0)

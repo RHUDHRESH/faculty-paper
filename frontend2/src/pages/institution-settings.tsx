@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 
+import { useAuth } from "@/app/auth"
 import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Field, Input } from "@/ui/field"
@@ -8,6 +9,7 @@ import { Section } from "@/ui/section"
 import { ErrorState, SkeletonRows } from "@/ui/state"
 import { toast } from "@/ui/toast"
 
+import { AdminApiTokens } from "./api-access"
 import { ChangeHistory } from "./admin-b-parts"
 
 /**
@@ -27,6 +29,7 @@ type Institution = {
 }
 
 export function InstitutionSettings() {
+  const { me } = useAuth()
   const { data, isLoading, isError, error, refetch } = useApi<Institution>(
     ["institution-admin"],
     "/api/admin/settings"
@@ -152,6 +155,8 @@ export function InstitutionSettings() {
           </div>
         </Section>
       </div>
+
+      {me?.role === "SUPER_ADMIN" && <AdminApiTokens />}
 
       <ChangeHistory entity="system_setting" id="institution" />
     </div>

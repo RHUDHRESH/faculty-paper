@@ -51,6 +51,11 @@ def hub_counts(role: str) -> dict[str, dict[str, Any]]:
     dup = DuplicateFinding.objects.filter(status=DuplicateFinding.Status.OPEN).count()
     out["/duplicates"] = _entry(dup, "caution" if dup else None)
 
+    from core.services import import_conflicts
+
+    open_conflicts = import_conflicts.counts()["open"]
+    out["/admin/conflicts"] = _entry(open_conflicts, "caution" if open_conflicts else None)
+
     faults = _faults_now()
     total = sum(f["count"] for g in faults["groups"] for f in g["faults"] if f["severity"] in ("critical", "warning"))
     urgent = int(faults.get("urgent") or 0)

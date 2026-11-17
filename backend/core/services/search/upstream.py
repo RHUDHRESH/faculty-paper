@@ -86,7 +86,9 @@ def contact() -> str:
     supplying an address that bounces, which is worse for the polite pool than
     sending nothing.
     """
-    return getattr(settings, "SEARCH_CONTACT_EMAIL", "") or DEFAULT_CONTACT
+    from core.services import integrations
+
+    return integrations.get("openalex.mailto") or DEFAULT_CONTACT
 
 
 def user_agent() -> str:
@@ -118,6 +120,10 @@ def get_json(
         timeout=_timeout(read_timeout), headers=merged, follow_redirects=True
     ) as client:
         response = client.get(url, params=params)
+        if "openalex.org" in url:
+            from core.services import integrations
+
+            integrations.record_call("openalex")
         response.raise_for_status()
         return response.json()
 

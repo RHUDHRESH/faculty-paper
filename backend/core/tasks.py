@@ -321,3 +321,11 @@ def sync_google_calendars(user_ids: list[str] | None = None) -> dict:
     from core.services import google_calendar
 
     return google_calendar.sync_all(user_ids)
+
+
+def send_report_schedule(schedule_id: str) -> dict:
+    """A scheduled studio report (schedule "report-schedule-<id>"): rendered as
+    each recipient and emailed (core.services.report_studio.deliver)."""
+    from core.services import report_studio
+
+    return report_studio.deliver(schedule_id)

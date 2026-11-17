@@ -63,6 +63,7 @@ const DETAILS: Detail[] = [
   { pattern: "/u/me/stats", label: "Your stats", own: true },
   { pattern: "/u/:id", label: "Profile", own: true },
   { pattern: "/settings/notifications", label: "Notification settings", own: true },
+  { pattern: "/api-docs", label: "API documentation", parent: "/me", own: true },
 ]
 
 const matches = (pattern: string, pathname: string) =>

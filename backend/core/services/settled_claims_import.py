@@ -26,7 +26,8 @@ Separately, a DOI the app does not hold yet is filled into a paper of the
 same person and title that has none.
 
 Running it twice writes nothing the second time. A check (dry run) writes
-nothing at all.
+nothing but a note of each amount_differs row for the Data conflicts screen
+(`import_conflicts`), which the import step notes too.
 """
 from __future__ import annotations
 
@@ -41,6 +42,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from core.management.commands.rebuild_from_erp import ident, num, s, when
+from core.services.import_conflicts import note_conflicts
 from core.models import FacultyMaster, PaidLedger, PriorImport, PriorPayment, Publication, User
 from core.services.fyp_roster import staff_key
 from core.services.normalize import normalize_doi, normalize_title
@@ -253,12 +255,11 @@ def import_settled_claims(rows: list[dict[str, Any]], *, dry_run: bool = True, a
                 money = [a for a in seen if a is not None]
                 if money and not any(_same_amount(a, row["amount"]) for a in money):
                     kind = "amount_differs"
-                    if len(differs) < MAX_AMOUNT_ROWS:
-                        differs.append({
-                            "staff_id": row["staff_id"], "name": row["name"], "title": row["title"],
-                            "ledger_amount": money[0], "file_amount": row["amount"],
-                            "month": row["month"].isoformat() if row["month"] else None,
-                        })
+                    differs.append({
+                        "staff_id": row["staff_id"], "name": row["name"], "title": row["title"],
+                        "ledger_amount": money[0], "file_amount": row["amount"],
+                        "month": row["month"].isoformat() if row["month"] else None,
+                    })
         elif _is_zero_row(row):
             kind = "zero_amount"
         else:
@@ -299,13 +300,16 @@ def import_settled_claims(rows: list[dict[str, Any]], *, dry_run: bool = True, a
         with transaction.atomic():
             _write(to_write, fills, actor, filename)
 
+    # Every difference is noted, however many the report lists.
+    note_conflicts("amount", differs, filename)
+
     return {
         "dry_run": dry_run,
         "rows": len(rows),
         "counts": counts,
         "new_total_amount": round(new_total, 2),
         "by_month": [{"month": m, "new": v["new"], "amount": round(v["amount"], 2)} for m, v in sorted(by_month.items())],
-        "amount_differs": differs,
+        "amount_differs": differs[:MAX_AMOUNT_ROWS],
         "unmatched_staff": list(unmatched.values()),
     }
 

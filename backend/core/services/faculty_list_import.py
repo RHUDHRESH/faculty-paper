@@ -19,7 +19,8 @@ What it does, per person:
 * a person with no account and no usable email is listed as needing one.
 
 Nobody is deactivated or deleted. Running it twice changes nothing the second
-time. A check (dry run) rolls back everything it did.
+time. A check (dry run) rolls back everything it did, except that each conflict
+is noted for the Data conflicts screen (`import_conflicts`) by both steps.
 """
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ from django.db import transaction
 from core.models import FacultyMaster, Role, User
 from core.management.commands.sync_faculty_users import pick_email
 from core.services.fyp_roster import staff_key
+from core.services.import_conflicts import note_conflicts
 from core.services.issue_passwords import HASHER, new_password
 from core.services.scopus import author_profile_url
 from core.services.scopus_profiles import normalize_scopus_id
@@ -217,7 +219,7 @@ def _same(a: Any, b: Any) -> bool:
     return (a or "") == (b or "")
 
 
-def import_faculty_list(people: list[dict[str, Any]], *, dry_run: bool = True) -> dict[str, Any]:
+def import_faculty_list(people: list[dict[str, Any]], *, dry_run: bool = True, filename: str = "") -> dict[str, Any]:
     """Apply (or, with dry_run, only count) the list. See the module docstring."""
     out: dict[str, Any] = {
         "dry_run": dry_run,
@@ -385,4 +387,6 @@ def import_faculty_list(people: list[dict[str, Any]], *, dry_run: bool = True) -
         )
         if dry_run:
             transaction.set_rollback(True)
+    # Both steps note each conflict for the Data conflicts screen, once, by key.
+    note_conflicts("faculty", out["conflicts"], filename)
     return out

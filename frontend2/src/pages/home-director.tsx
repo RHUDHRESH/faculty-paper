@@ -20,6 +20,7 @@ import { Section } from "@/ui/section"
 import { InlineError, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { thresholdFlag } from "@/ui/research-threshold"
+import { Top5Board } from "@/pages/top5-board"
 
 /**
  * The Director's first screen.
@@ -184,6 +185,8 @@ export function DirectorHome() {
               },
             ]}
           />
+
+          <Top5Board />
 
           {(n > 0 || (stripBudget?.allocated ?? null) != null) && (
             <div className="max-w-2xl space-y-3">

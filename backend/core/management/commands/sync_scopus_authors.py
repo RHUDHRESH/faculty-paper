@@ -12,6 +12,7 @@ import json
 from django.core.management.base import BaseCommand, CommandError
 
 from core.models import User
+from core.services import integrations
 from core.services.scopus_sync import sync_scopus_authors
 
 
@@ -23,9 +24,7 @@ class Command(BaseCommand):
         parser.add_argument("--staff", nargs="*", default=None, help="Only these staff ids.")
 
     def handle(self, *args, limit=None, staff=None, **opts):
-        from django.conf import settings
-
-        if not getattr(settings, "SCOPUS_API_KEY", ""):
+        if not integrations.get("scopus.api_key"):
             raise CommandError("SCOPUS_API_KEY is not set.")
         users = None
         if staff:

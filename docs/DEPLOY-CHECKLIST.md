@@ -75,6 +75,7 @@ services, so nothing ships until you click it.
 | `AI_FAST_MODEL` | optional; unset uses `AI_MODEL` | thread assistant |
 | `SCOPUS_API_KEY` | Elsevier key | Scopus sync, verify, enrich |
 | `OPENALEX_API_KEY` | optional | higher OpenAlex budget for harvest |
+| `INTEGRATIONS_KEY` | optional long random string | encrypts keys saved on the Integrations page; unset, a key derived from `DJANGO_SECRET_KEY` is used. A key saved in the app wins over the variables above; clearing it hands the job back to them. Changing this (or the secret key) makes saved keys unreadable, so set them again |
 | `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` / `EMAIL_USE_TLS` / `DEFAULT_FROM_EMAIL` | e.g. Brevo `smtp-relay.brevo.com`, `2525`, TLS true | alert email (free plan blocks 25/465/587) |
 | `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID` | optional | payment WhatsApp |
 

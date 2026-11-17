@@ -60,6 +60,7 @@ from core.services.author_names import (
     name_score,
     surname_and_initial_agree,
 )
+from core.services import integrations
 from core.services.normalize import clean_venue, normalize_doi, normalize_title
 
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ def _params(extra: dict[str, Any]) -> dict[str, Any]:
 
     params = dict(extra)
     params["mailto"] = upstream.contact()
-    key = getattr(settings, "OPENALEX_API_KEY", "")
+    key = integrations.get("openalex.api_key")
     if key:
         params["api_key"] = key
     return params

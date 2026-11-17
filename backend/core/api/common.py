@@ -161,7 +161,11 @@ IMPERSONATOR_KEY = "impersonator_id"
 #: which works a figure out and stores nothing, and Ask the data's suggested
 #: questions, which count and store nothing (asking a typed question is not
 #: here: it spends the viewed person's AI allowance and writes the audit).
-_WRITES_ALLOWED_WHILE_VIEWING = {"/api/admin/stop-impersonating", "/api/calculate", "/api/insights/run"}
+_WRITES_ALLOWED_WHILE_VIEWING = {
+    "/api/admin/stop-impersonating", "/api/calculate", "/api/insights/run",
+    # The Report studio: running or exporting a definition changes nothing.
+    "/api/reports/run", "/api/reports/export",
+}
 
 #: The expensive endpoints run under a per-account fixed-window cap. The
 #: numbers come from settings (AI_DAILY_LIMIT and friends); the counter

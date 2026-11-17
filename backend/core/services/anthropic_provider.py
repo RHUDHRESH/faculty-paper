@@ -23,6 +23,8 @@ from typing import Any, Callable, Iterator
 
 from django.conf import settings
 
+from core.services import integrations
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "claude-haiku-4-5"
@@ -87,11 +89,11 @@ class Health:
 
 
 def api_key() -> str:
-    return (getattr(settings, "ANTHROPIC_API_KEY", "") or "").strip()
+    return integrations.get("anthropic.api_key")
 
 
 def model_name() -> str:
-    return (getattr(settings, "AI_MODEL", "") or "").strip() or DEFAULT_MODEL
+    return integrations.get("ai.model") or DEFAULT_MODEL
 
 
 def resolve_model(fast: bool = False) -> str:

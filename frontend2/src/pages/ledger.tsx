@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useEffect, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, useSearchParams } from "react-router-dom"
@@ -25,6 +26,7 @@ import { Answer } from "@/ui/answer"
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/ui/dialog"
 import { toast } from "@/ui/toast"
 import { ClaimNo, FaceName } from "./admin-b-parts"
+import { paperColumns, type PaperFigures } from "@/pages/paper-columns"
 import { unshout } from "@/lib/names"
 
 /**
@@ -51,6 +53,7 @@ type Marker = "REVERSAL" | "MONTH_NOT_RECORDED" | "DUPLICATE"
 type LedgerRow = {
   id: string
   claim_id: string | null
+  claim_no?: string | null
   /** "YYYY-MM", or null on an imported row that carried no month. */
   payout_month: string | null
   department: string | null
@@ -66,6 +69,8 @@ type LedgerRow = {
   /** What the research threshold kept back from the claim behind this payment. */
   held_back?: number
   markers?: Marker[]
+  /** The paper's figures (`paper_fields`): the same on every report. */
+  figures?: PaperFigures | null
   created_at: string | null
 }
 
@@ -470,10 +475,12 @@ function Amount({ value }: { value: number }) {
   )
 }
 
+const figure = paperColumns<LedgerRow>((r) => r.figures, (r) => r.journal_title)
+
 const columns: Column<LedgerRow>[] = [
   {
     key: "faculty",
-    header: "Paid to",
+    header: "Faculty",
     className: "w-[15rem] max-w-[15rem]",
     exportValue: (r) => [r.faculty_name || "Name not recorded", r.staff_id, r.department].filter(Boolean).join(", "),
     cell: (r) => (
@@ -490,19 +497,26 @@ const columns: Column<LedgerRow>[] = [
   },
   {
     key: "paper",
-    header: "Paper",
-    exportValue: (r) => [unshout(r.paper_title) || "Title not recorded", r.journal_title].filter(Boolean).join(", "),
+    header: "Title",
+    exportValue: (r) => unshout(r.paper_title) || null,
     cell: (r) => (
       <span className="block min-w-0 max-w-[26rem]">
         <span className="block truncate">{unshout(r.paper_title) || "Title not recorded"}</span>
-        <Meta className="block truncate">{r.journal_title || "Journal not recorded"}</Meta>
+        <Meta className="block truncate">{r.journal_title || "–"}</Meta>
         <Markers row={r} />
       </span>
     ),
   },
+  figure.journal,
+  figure.issn,
+  figure.category,
+  figure.quartile,
+  figure.snip,
+  figure.totalAuthors,
+  figure.authorPosition,
   {
     key: "month",
-    header: "Month",
+    header: "Month paid",
     className: "w-28 whitespace-nowrap",
     exportValue: (r) => (hasMonth(r) ? monthLabel(r.payout_month) : "Not recorded"),
     cell: (r) =>
@@ -518,7 +532,7 @@ const columns: Column<LedgerRow>[] = [
   },
   {
     key: "amount",
-    header: "Amount",
+    header: "Amount paid",
     align: "right",
     className: "w-32",
     exportKind: "money",
@@ -530,6 +544,14 @@ const columns: Column<LedgerRow>[] = [
       </span>
     ),
   },
+  { key: "staff_id", header: "Staff ID", defaultHidden: true, exportValue: (r) => r.staff_id, cell: (r) => r.staff_id },
+  { key: "department", header: "Department", defaultHidden: true, exportValue: (r) => r.department, cell: (r) => r.department },
+  figure.academicYear,
+  figure.doi,
+  figure.documentType,
+  figure.indexing,
+  { key: "claim_no", header: "Claim number", defaultHidden: true, exportValue: (r) => r.claim_no ?? null, cell: (r) => r.claim_no },
+  figure.remark,
 ]
 
 /** The research threshold, beside the payment it reduced. */
@@ -903,7 +925,7 @@ function MonthBars({
                   onFocus={() => setAt(i)}
                   onBlur={() => setAt(null)}
                   aria-pressed={on}
-                  aria-label={`${monthLabel(m.month)}, ${money(m.amount)}, ${m.count} payments`}
+                  aria-label={`${monthLabel(m.month)}, ${money(m.amount)}, ${plural(m.count, "payment")}`}
                   className="group flex h-full min-w-0 flex-1 items-end rounded-t-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                 >
                   <span

@@ -149,7 +149,10 @@ export function DataFixes() {
     <div className="page space-y-10">
       <PageHeader title="Fix imported claims" sub="Missing an amount, title, quartile or claimant." spot="spot-audit" />
 
-      <ErpRemark />
+      {/* The re-mark endpoints are super-admin only (api/erp_remark.py). The
+          coordinator shares this page, so the panel is not offered to them: it
+          would only meet a refusal and print a red banner. */}
+      {me?.role === "SUPER_ADMIN" ? <ErpRemark /> : null}
 
       {isLoading ? (
         <SkeletonRows rows={5} rowHeight={72} />
@@ -216,9 +219,12 @@ export function DataFixes() {
                 title="Nothing left to fix here"
                 message="Every claim in this list has what it needs."
                 action={
-                  <Button kind="default" asChild>
-                    <Link to="/ledger?problem=no-ledger">Open the ledger checks</Link>
-                  </Button>
+                  // The ledger is not the office's to open, only the super admin's.
+                  can(me?.role).open("/ledger") ? (
+                    <Button kind="default" asChild>
+                      <Link to="/ledger?problem=no-ledger">Open the ledger checks</Link>
+                    </Button>
+                  ) : undefined
                 }
               />
             ) : (

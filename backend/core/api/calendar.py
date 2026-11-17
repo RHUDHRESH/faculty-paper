@@ -648,17 +648,25 @@ def delete_event(request: HttpRequest, event_id: str):
     return {"ok": True}
 
 
+#: How many rows one request returns at most, and by default.
+NOTIFICATIONS_PAGE = 30
+NOTIFICATIONS_MAX = 100
+
+
 @api.get("/notifications", auth=session_auth)
 def notifications(
     request: HttpRequest,
     section: Optional[str] = None,
     unread: bool = False,
-    limit: int = 50,
+    state: Optional[str] = None,
+    limit: int = NOTIFICATIONS_PAGE,
+    offset: int = 0,
 ):
     """The bell's rows, newest first, less every kind the person switched off.
 
-    `section` is the bell's tab (papers, people, work, updates); `unread`
-    keeps only what has not been read.
+    `section` is the bell's tab (papers, people, work, updates); `state` is
+    "unread" or "read" (`unread=true` is the older spelling of the first).
+    Paged: `limit` rows (at most 100) after the first `offset`.
     """
     from core.services import notify as notify_service
 
@@ -666,9 +674,12 @@ def notifications(
     qs = notify_service.visible_to(user)
     if section in notify_service.SECTIONS:
         qs = notify_service.in_section(qs, section)
-    if unread:
+    if unread or state == "unread":
         qs = qs.filter(read=False)
-    items = list(qs.order_by("-created_at")[: max(1, min(limit, 200))])
+    elif state == "read":
+        qs = qs.filter(read=True)
+    start = max(0, offset)
+    items = list(qs.order_by("-created_at", "-id")[start : start + max(1, min(limit, NOTIFICATIONS_MAX))])
     # "Approved for payment" and "Paid" are the moments a claimant has a paper
     # worth telling colleagues about, so those two offer "Share to the feed" --
     # for their own filed paper only (`social.published_papers`). Rows from
@@ -687,40 +698,42 @@ def notifications(
     ) if candidates else set()
     return [
         {
-            **notify_service.serialize(n),
+            **row,
             "share_paper_id": n.claim_id if offers_share(n) and n.claim_id in shareable else None,
         }
-        for n in items
+        for n, row in zip(items, notify_service.serialize_many(items))
     ]
 
 
 @api.get("/notifications/unread-count", auth=session_auth)
 def notifications_unread_count(request: HttpRequest):
-    """The 45-second poll only needs this number — the full list loads when
-    the bell is actually opened."""
+    """The number on the bell: one count, the same rows the list shows.
+
+    The shell's badge poll only needs this; the list loads when it is opened."""
     from core.services import notify as notify_service
 
-    user = require_user(request)
-    return {"unread": notify_service.visible_to(user).filter(read=False).count()}
+    return {"unread": notify_service.unread_count(require_user(request))}
 
 
 @api.post("/notifications/{note_id}/read", auth=session_auth)
 def notification_read(request: HttpRequest, note_id: str):
+    """Mark one read. Answers with the new count so the bell can update at once."""
+    from core.services import notify as notify_service
+
     user = require_user(request)
-    note = get_object_or_404(Notification, pk=note_id, user=user)
-    if not note.read:
-        note.read = True
-        note.save(update_fields=["read"])
-    return {"ok": True}
+    if not notify_service.mark_read(user, note_id):
+        raise HttpError(404, "That notification is not yours, or is gone.")
+    return {"ok": True, "unread": notify_service.unread_count(user)}
 
 
 @api.post("/notifications/read-all", auth=session_auth)
-def notifications_read_all(request: HttpRequest):
+def notifications_read_all(request: HttpRequest, section: Optional[str] = None):
+    """Mark everything read, or only one tab's (`section`)."""
+    from core.services import notify as notify_service
+
     user = require_user(request)
-    Notification.objects.filter(user=user, read=False).update(read=True)
-    return {"ok": True}
-
-
+    marked = notify_service.mark_all_read(user, section)
+    return {"ok": True, "marked": marked, "unread": notify_service.unread_count(user)}
 
 
 __all__ = [

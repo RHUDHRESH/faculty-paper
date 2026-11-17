@@ -44,7 +44,7 @@ from django.conf import settings
 from django.core import signing
 from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.template.loader import render_to_string
 from django.utils import timezone
 
@@ -112,6 +112,9 @@ KINDS: dict[str, Kind] = {
         Kind("citation", "New citations",
              "When a paper of yours is cited again. Checked once a day.",
              _PAPERS, "papers", EMAIL, "claimant"),
+        Kind("paper_found", "Papers found on your record",
+             "When a Scopus check finds a paper of yours that has not been filed yet.",
+             _PAPERS, "papers", IN_APP, "claimant"),
         Kind("digest", "Weekly summary",
              "Monday morning, only when there is something in it: your papers' "
              "progress, papers found on your record, your department's pace, or "
@@ -122,6 +125,10 @@ KINDS: dict[str, Kind] = {
              _REMINDERS, "updates", EMAIL, "claimant"),
         Kind("desk", "Papers waiting on your desk",
              "When a paper reaches a queue you work from.",
+             "Your desk", "work", IN_APP, "staff"),
+        Kind("import_result", "Imports and batches",
+             "When a file you uploaded has been imported, or a batch you started has "
+             "finished or failed.",
              "Your desk", "work", IN_APP, "staff"),
         Kind("follow", "New followers",
              "When somebody starts following you.",
@@ -169,6 +176,14 @@ KINDS: dict[str, Kind] = {
 
 SECTIONS = ("papers", "people", "work", "updates")
 
+#: Who works a desk: the office, the Principal, the Director and Finance.
+DESK_ROLES = ("SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR", "PRINCIPAL", "DIRECTOR", "FINANCE")
+
+#: The queue pages a desk alert opens. When the paper moves on, the alert is
+#: done with (`settle_desk_alerts`), so the bell never counts work that has
+#: already been done.
+DESK_PATHS = ("/admin/clearing", "/clearing", "/principal", "/approvals", "/authorisations", "/finance", "/payments")
+
 #: The one button in each kind's email, taking the reader to the exact page.
 EMAIL_ACTIONS: dict[str, str] = {
     "claim_approved": "See the paper",
@@ -177,6 +192,8 @@ EMAIL_ACTIONS: dict[str, str] = {
     "claim_not_accepted": "See the reason",
     "claim_status": "See the paper",
     "citation": "See who cited it",
+    "paper_found": "See the papers",
+    "import_result": "See the result",
     "digest": "Open this week in the app",
     "nudge_cutoff": "Finish your draft",
     "desk": "Open the queue",
@@ -224,9 +241,13 @@ def applies_to(kind: Kind, user: User) -> bool:
     if kind.audience == "research":
         return claimant and user.faculty_type == "RESEARCH"
     if kind.audience == "staff":
-        return not claimant
+        # Everybody who works a desk. This used to be "not a claimant", which
+        # is the super admin alone (every other role can file a paper), so the
+        # Principal, the Director, Finance and the office were sent desk
+        # alerts they could not find, or switch off, on their own settings page.
+        return user.role in DESK_ROLES
     if kind.audience == "principal":
-        return user.role == rbac.Role.PRINCIPAL
+        return user.role in rbac.PRINCIPAL_SEATS
     return True
 
 
@@ -330,15 +351,27 @@ def set_preferences(
 
 
 def visible_to(user: User):
-    """This person's alerts, less every kind they switched off."""
-    qs = Notification.objects.filter(user=user)
-    off = off_kinds(user)
-    if off:
-        qs = qs.exclude(kind__in=off)
-        if GENERAL in off:
-            # A kind nobody registered reads as general, so it goes with it.
-            qs = qs.filter(kind__in=list(KINDS))
-    return qs
+    """This person's alerts, less every kind they switched off.
+
+    One query, and no second one to find out what is switched off: the
+    preference is a subquery, so the bell's number (polled every two minutes
+    by every open tab) costs a single indexed count.
+    """
+    switched_off = NotificationPreference.objects.filter(
+        user=user, kind=OuterRef("kind"), level=OFF
+    )
+    general_off = NotificationPreference.objects.filter(user=user, kind=GENERAL, level=OFF)
+    return (
+        Notification.objects.filter(user=user)
+        .exclude(Exists(switched_off))
+        # A kind nobody registered reads as general, so it goes with it.
+        .exclude(~Q(kind__in=list(KINDS)) & Exists(general_off))
+    )
+
+
+def unread_count(user: User) -> int:
+    """What the bell says: what is in the list, unread. The two cannot differ."""
+    return visible_to(user).filter(read=False).count()
 
 
 def in_section(qs, section: str):
@@ -348,20 +381,112 @@ def in_section(qs, section: str):
     return qs.filter(kind__in=keys)
 
 
+def mark_read(user: User, note_id: str) -> bool:
+    """Mark one of this person's alerts read. False when it is not theirs."""
+    now = timezone.now()
+    row = Notification.objects.filter(pk=note_id, user=user)
+    if not row.exists():
+        return False
+    row.filter(read=False).update(read=True, read_at=now)
+    return True
+
+
+def mark_all_read(user: User, section: str | None = None) -> int:
+    """Mark what this person can see read: all of it, or one tab's worth.
+
+    Alerts of a kind they switched off are not in their list and are left as
+    they are, so switching the kind back on does not bring back old news as
+    "unread" -- they are read along with the rest when it is all of it.
+    """
+    now = timezone.now()
+    if section in SECTIONS:
+        qs = in_section(visible_to(user), section).filter(read=False)
+        return Notification.objects.filter(pk__in=list(qs.values_list("pk", flat=True))).update(
+            read=True, read_at=now
+        )
+    return Notification.objects.filter(user=user, read=False).update(read=True, read_at=now)
+
+
+def settle_desk_alerts(claim_id: str) -> int:
+    """A paper moved on, so the desk alerts asking somebody to deal with it are done.
+
+    Without this the Principal's bell kept saying "1 to approve" for a paper
+    already approved, and the number never matched the work.
+    """
+    if not claim_id:
+        return 0
+    query = Q()
+    for path in DESK_PATHS:
+        query |= Q(href__startswith=path)
+    return Notification.objects.filter(query, claim_id=claim_id, kind="desk", read=False).update(
+        read=True, read_at=timezone.now()
+    )
+
+
 def _plain(text: str | None) -> str | None:
     from core.social_notify import plain  # social_notify imports this module
 
     return plain(text) if text else text
 
 
-def serialize(n: Notification) -> dict[str, Any]:
+#: Where an alert's href points, to find out whether the thing still exists.
+_CLAIM_HREF = re.compile(r"^/(?:papers|department/papers|review)/([0-9a-f]{32})")
+_POST_HREF = re.compile(r"^/discussions/p/([0-9a-f]{32})")
+_THREAD_HREF = re.compile(r"^/(?:discussions|messages/c|messages/o)/([0-9a-f]{32})$")
+_QUERY_CLAIM = re.compile(r"[?&]claim=([0-9a-f]{32})")
+
+
+def _referenced(n: Notification) -> tuple[str, str] | None:
+    """(what, id) an alert's link leads to, when it is something that can be deleted."""
+    href = (n.href or "").split("#")[0]
+    for kind, rx in (("claim", _CLAIM_HREF), ("post", _POST_HREF), ("thread", _THREAD_HREF)):
+        found = rx.match(href)
+        if found:
+            return kind, found.group(1)
+    found = _QUERY_CLAIM.search(href)
+    if found:
+        return "claim", found.group(1)
+    if n.claim_id:
+        return "claim", n.claim_id
+    return None
+
+
+def gone_ids(items: list[Notification]) -> set[str]:
+    """The ids of alerts whose link leads to something that no longer exists.
+
+    A paper withdrawn and deleted, a post taken down, a thread removed: the
+    alert stays (it was true when it was written) but must not open a page that
+    says "not found". At most three queries however long the list.
+    """
+    wanted: dict[str, set[str]] = {"claim": set(), "post": set(), "thread": set()}
+    refs: dict[str, tuple[str, str]] = {}
+    for n in items:
+        ref = _referenced(n)
+        if ref:
+            refs[n.id] = ref
+            wanted[ref[0]].add(ref[1])
+    from core.models import Claim, FeedPost, Thread
+
+    alive = {
+        "claim": set(Claim.objects.filter(pk__in=wanted["claim"]).values_list("pk", flat=True)) if wanted["claim"] else set(),
+        "post": set(FeedPost.objects.filter(pk__in=wanted["post"]).values_list("pk", flat=True)) if wanted["post"] else set(),
+        "thread": set(Thread.objects.filter(pk__in=wanted["thread"]).values_list("pk", flat=True)) if wanted["thread"] else set(),
+    }
+    return {nid for nid, (what, ref_id) in refs.items() if ref_id not in alive[what]}
+
+
+def serialize(n: Notification, *, gone: bool = False) -> dict[str, Any]:
     return {
         "id": n.id,
         "title": n.title,
         # Rows written before mention codes were flattened still read cleanly.
         "body": _plain(n.body),
-        "href": n.href,
+        # A link to something deleted is dropped, so the row says it is gone
+        # instead of opening a dead page.
+        "href": None if gone else n.href,
+        "gone": gone,
         "read": n.read,
+        "read_at": n.read_at.isoformat() if n.read_at else None,
         "created_at": n.created_at.isoformat(),
         "kind": n.kind,
         "section": kind_of(n.kind).section,
@@ -375,6 +500,11 @@ def serialize(n: Notification) -> dict[str, Any]:
         ),
         "emailed": n.emailed_at is not None,
     }
+
+
+def serialize_many(items: list[Notification]) -> list[dict[str, Any]]:
+    gone = gone_ids(items)
+    return [serialize(n, gone=n.id in gone) for n in items]
 
 
 # --------------------------------------------------------------------------- #
@@ -851,3 +981,51 @@ def send_test_email(user: User) -> tuple[bool, str]:
         logger.exception("email_test_failed user=%s", user.pk)
         return False, f"The mail server refused it: {exc.__class__.__name__}. Check the EMAIL_ settings."
     return True, f"Sent to {user.email}. It can take a minute to arrive."
+
+
+def send_test_notification(user: User) -> dict[str, Any]:
+    """One test alert on every channel, and what each channel did.
+
+    For the super admin's "Send me a test notification". Each channel says
+    plainly whether it is set up, and, if it is, whether the message went; a
+    channel that is not set up is a finding, not an error. Nothing here raises.
+    """
+    from core.services import whatsapp
+
+    note = notify(
+        user,
+        GENERAL,
+        "Test notification",
+        "If you can read this in your notifications, the bell is working.",
+        "/notifications",
+    )
+    in_app = (
+        {"ok": True, "id": note.id, "message": "It is in your notifications now."}
+        if note is not None
+        else {"ok": False, "id": None,
+              "message": "You have switched off \"Other updates\", so the test was not written."}
+    )
+
+    sent, message = send_test_email(user)
+    email = {"configured": email_enabled(), "sent": sent, "message": message}
+
+    phone = whatsapp.normalise_phone(user.phone)
+    opted_in = settings_for(user).whatsapp_opt_in
+    configured = whatsapp.enabled()
+    if not configured:
+        wa_message = "WhatsApp is not set up (WHATSAPP_TOKEN and WHATSAPP_PHONE_ID)."
+    elif not phone:
+        wa_message = "Your account has no usable phone number."
+    elif not opted_in:
+        wa_message = "You have not switched on WhatsApp in your notification settings."
+    else:
+        wa_sent = whatsapp.send_alert(user, "Test notification", "If you can read this, WhatsApp is working.")
+        wa_message = "Sent to WhatsApp." if wa_sent else "WhatsApp refused it. See the server log."
+    whatsapp_report = {
+        "configured": configured,
+        "has_phone": bool(phone),
+        "opted_in": opted_in,
+        "sent": configured and bool(phone) and opted_in and wa_message == "Sent to WhatsApp.",
+        "message": wa_message,
+    }
+    return {"in_app": in_app, "email": email, "whatsapp": whatsapp_report, "smtp": smtp_status()}

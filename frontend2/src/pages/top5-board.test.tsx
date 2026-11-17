@@ -85,7 +85,7 @@ describe("Top5Board", () => {
     mount(PRINCIPAL, FULL)
     await screen.findByTestId("top5-snip")
     await screen.findByRole("option", { name: "Chemistry" })
-    fireEvent.change(screen.getByLabelText("Period"), { target: { value: "month" } })
+    fireEvent.click(screen.getByRole("tab", { name: "Monthly" }))
     await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith("/api/dashboard/top5?period=month"))
     fireEvent.change(screen.getByLabelText("Department"), { target: { value: "Chemistry" } })
     await waitFor(() =>
@@ -93,15 +93,47 @@ describe("Top5Board", () => {
     )
   })
 
+  it("chooses the period from a vertical strip, with a month picker for Monthly", async () => {
+    mount(FINANCE, { ...FULL, choices: { months: ["2026-09", "2026-08"], academic_years: [2026, 2025], calendar_years: [2026] } })
+    await screen.findByTestId("top5-snip")
+    const strip = screen.getByRole("tablist", { name: "Period" })
+    expect(strip).toHaveAttribute("aria-orientation", "vertical")
+    expect(within(strip).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Monthly", "Yearly", "All time"])
+    expect(screen.getByRole("tab", { name: "All time" })).toHaveAttribute("aria-selected", "true")
+    expect(screen.queryByLabelText("Month")).toBeNull()
+    fireEvent.click(screen.getByRole("tab", { name: "Monthly" }))
+    fireEvent.change(await screen.findByLabelText("Month"), { target: { value: "2026-08" } })
+    await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith("/api/dashboard/top5?period=month&month=2026-08"))
+    fireEvent.click(screen.getByRole("tab", { name: "Yearly" }))
+    fireEvent.change(await screen.findByLabelText("Year"), { target: { value: "c2026" } })
+    await waitFor(() =>
+      expect(vi.mocked(api)).toHaveBeenCalledWith("/api/dashboard/top5?period=year&year=2026&academic=false")
+    )
+  })
+
+  it("never clips a figure: the full value is there, nowrap, and the name is what gives way", async () => {
+    mount(PRINCIPAL, {
+      ...FULL,
+      remuneration: [row(1, "A Very Long Name Indeed Of A Professor Emeritus", 766000.5)],
+      snip: [row(1, "A Very Long Name Indeed Of A Professor Emeritus", 32.7)],
+    })
+    const pay = await screen.findByTestId("top5-remuneration")
+    const value = within(pay).getByText("₹7,66,000.50")
+    expect(value.closest("td")).toHaveClass("whitespace-nowrap")
+    const name = within(pay).getByRole("link", { name: /A Very Long Name/ })
+    expect(name).toHaveClass("truncate")
+    expect(name.closest("td")).toHaveClass("max-w-0")
+    expect(within(screen.getByTestId("top5-snip")).getByText("32.70").closest("td")).toHaveClass("whitespace-nowrap")
+    // Whole rupees stay whole.
+    expect(within(pay).queryByText(/\.00/)).toBeNull()
+    // Three lists wait for room: the grid is a container query, not the window.
+    expect(pay.parentElement?.parentElement).toHaveClass("@container")
+  })
+
   it("offers the three periods", async () => {
     mount(FINANCE, FULL)
     await screen.findByTestId("top5-snip")
-    const period = screen.getByLabelText("Period")
-    expect(within(period).getAllByRole("option").map((o) => o.textContent)).toEqual([
-      "All time",
-      "This academic year",
-      "This month",
-    ])
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Monthly", "Yearly", "All time"])
   })
 
   it("is the head's view: two lists, no incentive list and no department filter", async () => {
@@ -111,7 +143,7 @@ describe("Top5Board", () => {
     expect(screen.queryByTestId("top5-remuneration")).toBeNull()
     expect(screen.queryByText("Incentive paid")).toBeNull()
     expect(screen.queryByLabelText("Department")).toBeNull()
-    expect(screen.getByLabelText("Period")).toBeInTheDocument()
+    expect(screen.getByRole("tablist", { name: "Period" })).toBeInTheDocument()
     expect(vi.mocked(api)).not.toHaveBeenCalledWith("/api/meta/departments")
   })
 

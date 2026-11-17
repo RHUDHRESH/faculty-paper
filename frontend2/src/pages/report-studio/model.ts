@@ -52,6 +52,8 @@ export type Definition = {
   sort: SortKey[]
   limit: number
   top_n: number | null
+  /** A file ends with a Total and an Average row (the Paid papers register). */
+  totals?: boolean
 }
 
 export type ResultColumn = { key: string; label: string; type: FieldType }
@@ -324,6 +326,7 @@ export function readDefinition(raw: unknown, fallbackDataset = ""): Definition {
     ),
     limit: typeof r.limit === "number" && r.limit > 0 ? r.limit : base.limit,
     top_n: typeof r.top_n === "number" && r.top_n > 0 ? r.top_n : null,
+    ...(r.totals === true ? { totals: true } : {}),
   }
 }
 
@@ -474,6 +477,7 @@ export function buildRunBody(def: Definition, dataset: Dataset | undefined) {
     sort: def.sort.filter((s) => s.field),
     limit: def.limit,
     top_n: def.top_n,
+    ...(def.totals && !pivot && def.group_by.length === 0 && def.aggregates.length === 0 ? { totals: true } : {}),
   }
 }
 

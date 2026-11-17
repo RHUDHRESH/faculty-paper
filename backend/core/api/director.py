@@ -16,6 +16,7 @@ from core.api.common import (
     _needs_second_approval,
     _notify_admins,
     _notify_finance,
+    desk_line,
     _notify_principal,
     _refuse_own_claim,
     api,
@@ -60,6 +61,7 @@ from core.services import flags as flag_service
 from core.services import notify as notify_service
 from core.services import claim_numbers, payment_guards, payments_desk, rbac
 from core.services import review_marks
+from core.services.rupees import rupees
 from core.services import research_threshold
 from core.services.student_projects import claim_holding
 from core.services.verify import apply_verify_to_claim, verify_publication
@@ -118,7 +120,7 @@ def director_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
     _notify_finance(
         claim,
         f"Authorised for payment \u00b7 {claim.ticket_number}",
-        f"\u20b9{amount:,.0f} for {claim.owner.name}: {claim.paper_title}",
+        desk_line(claim, amount),
     )
     return claim_to_dict(claim)
 
@@ -306,7 +308,7 @@ def director_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
         _notify_finance(
             claim,
             f"Authorised for payment \u00b7 {claim.ticket_number}",
-            f"\u20b9{(claim.remuneration or 0):,.0f} for {claim.owner.name}: {claim.paper_title}",
+            desk_line(claim, claim.remuneration),
         )
     return {"approved": approved, "total": round(total, 2), "skipped": skipped}
 
@@ -476,12 +478,12 @@ def _mark_one_paid(
         _notify_principal(
             claim,
             f"Amount changed after authorisation · {claim.ticket_number}",
-            f"Authorised at ₹{drift[0]:,.0f}, now ₹{drift[1]:,.0f} for {claim.owner.name}. "
+            f"Authorised at {rupees(drift[0])}, now {rupees(drift[1])} for {claim.owner.name}. "
             "It is waiting for your approval again.",
         )
         raise PayRefusal(
             409,
-            f"The amount changed after the Director authorised it (₹{drift[0]:,.2f} to ₹{drift[1]:,.2f}). "
+            f"The amount changed after the Director authorised it ({rupees(drift[0])} to {rupees(drift[1])}). "
             "Nothing was paid. It has gone back to the Principal to approve the new amount.",
             code="amount_changed", authorised=drift[0], recomputed=drift[1],
         )
@@ -626,7 +628,7 @@ def _pay_under_lock(
                     _withdraw_approvals(claim)
                     _transition(
                         claim, user, ClaimStatus.CLEARED, "AMOUNT_CHANGED_SEND_BACK",
-                        f"Authorised at ₹{authorised:,.2f}; it now prices at ₹{now_full:,.2f}.",
+                        f"Authorised at {rupees(authorised)}; it now prices at {rupees(now_full)}.",
                     )
                     AuditLog.objects.create(
                         actor=user, action="PAYMENT_BLOCKED_AMOUNT_CHANGED", entity="Claim", entity_id=claim.id,
@@ -785,8 +787,8 @@ def pay_check(request: HttpRequest, claim_id: str):
             if abs(now_full - claim.authorised_amount) > 0.005:
                 problems.append({
                     "code": "amount_changed",
-                    "message": f"Authorised at ₹{claim.authorised_amount:,.2f}, but the figures now give "
-                               f"₹{now_full:,.2f}. Paying will send it back to the Principal.",
+                    "message": f"Authorised at {rupees(claim.authorised_amount)}, but the figures now give "
+                               f"{rupees(now_full)}. Paying will send it back to the Principal.",
                 })
     return {
         "claim_id": claim.id,

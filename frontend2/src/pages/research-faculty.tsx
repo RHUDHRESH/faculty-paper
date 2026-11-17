@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 import { Pencil, Search } from "lucide-react"
@@ -441,7 +442,7 @@ export function ResearchThresholdPanel({ userId, name }: { userId: string; name:
       {s.unset ? (
         <Callout tone="caution" title="Threshold not set">
           Until one is set, {name} is paid as regular faculty and every incentive is paid in full.
-          {s.needs_rupee_threshold ? ` They still carry the old rule of ${s.old_quota} papers a year, which decides nothing now.` : ""}
+          {s.needs_rupee_threshold ? ` They still carry the old rule of ${plural(s.old_quota, "paper")} a year, which decides nothing now.` : ""}
         </Callout>
       ) : (
         <div className="text-sm">

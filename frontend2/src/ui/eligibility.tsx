@@ -384,6 +384,7 @@ export function ConditionTickList({
             >
               <CheckboxPrimitive.Root
                 id={`tick-${c.id}`}
+                aria-label={`I confirm: ${c.label}`}
                 checked={on}
                 onCheckedChange={(v) => {
                   const next = { ...ticks }
@@ -532,6 +533,7 @@ export function ClaimEligibilityGate({
                 >
                   <CheckboxPrimitive.Root
                     id={`ack-${c.id}`}
+                    aria-label={`I confirm: ${c.label}`}
                     checked={on}
                     onCheckedChange={(v) =>
                       setTicked((s) => {

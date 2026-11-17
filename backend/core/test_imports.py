@@ -126,7 +126,7 @@ class FacultyListServiceTests(TestCase):
         five = User.objects.get(email="five@x.edu")
         self.assertEqual(five.faculty_type, "RESEARCH")
         self.assertEqual(five.department, "CSE")  # the college's own spelling, R&D dropped
-        self.assertEqual(three.department, "ECE - R&D")  # matches nothing: kept as given
+        self.assertEqual(three.department, "ECE")  # the college code, whatever the list spells (R&D dropped)
         self.assertEqual({c["staff_id"] for c in r["created"]}, {"TS003", "TS005"})
         # no email: master row only
         self.assertEqual(r["needs_email"], [{"staff_id": "TS004", "name": "Mr. No Email Four"}])
@@ -360,7 +360,7 @@ class SettledServiceTests(TestCase):
         self.assertEqual(r["rows"], 8)
         self.assertEqual(r["counts"], {
             "already_recorded": 2, "new": 3, "amount_differs": 1, "zero_amount": 2, "unmatched_staff": 1,
-            "unparseable_amount": 1, "doi_filled": 1, "skipped_no_title": 0,
+            "unparseable_amount": 1, "doi_filled": 1, "skipped_no_title": 0, "claim_at_zero": 0,
         })
         self.assertEqual(r["new_total_amount"], 1200.0)
         self.assertEqual(r["by_month"], [{"month": "2026-09", "new": 5, "amount": 1200.0}])
@@ -375,9 +375,9 @@ class SettledServiceTests(TestCase):
         r = import_settled_claims(self.rows, dry_run=False, actor=self.t1)
         self.assertFalse(r["dry_run"])
         ledger = PaidLedger.objects.filter(raw_json__contains="settled_claims_import")
-        # Gamma, Delta, Zeta (0), Eta (0); Epsilon has no money so no ledger row
-        self.assertEqual(ledger.count(), 4)
-        self.assertEqual(sorted(ledger.values_list("amount", flat=True)), [0, 0, 200, 1000])
+        # Gamma, Delta, Zeta (0), Eta (0); Epsilon's amount is blank, so it is a settled paper at 0
+        self.assertEqual(ledger.count(), 5)
+        self.assertEqual(sorted(ledger.values_list("amount", flat=True)), [0, 0, 0, 200, 1000])
         gamma = ledger.get(paper_title="Gamma Paper")
         self.assertEqual((gamma.kind, gamma.cycle, gamma.claim_id, gamma.payout_month),
                          ("PAYMENT", 1, None, dt.date(2026, 9, 1)))
@@ -394,6 +394,7 @@ class SettledServiceTests(TestCase):
         self.assertEqual(priors.count(), 5)
         eps = priors.get(paper_title="Epsilon Paper")
         self.assertIsNone(eps.amount_paid)
+        self.assertEqual(ledger.get(paper_title="Epsilon Paper").amount, 0)
         self.assertEqual(priors.get(paper_title="Gamma Paper").doi, "10.1/gamma")
         # the existing rows were not touched
         self.assertEqual(PaidLedger.objects.get(paper_title="Beta Paper").amount, 600)
@@ -423,15 +424,16 @@ class SettledServiceTests(TestCase):
         r = import_settled_claims(read_settled_claims(save(wb)), dry_run=True)
         self.assertEqual(r["counts"]["new"], 1)
 
-    def test_a_paper_twice_in_one_file_is_written_once(self):
+    def test_a_paper_twice_in_one_file_is_written_twice_and_flagged(self):
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.append(SC_HEAD)
         ws.append(sc_row(SEP, 1, "TS001", "Twice", 100))
         ws.append(sc_row(SEP, 2, "TS001", "twice", 100))
         r = import_settled_claims(read_settled_claims(save(wb)), dry_run=False, actor=self.t1)
-        self.assertEqual((r["counts"]["new"], r["counts"]["already_recorded"]), (1, 1))
-        self.assertEqual(PaidLedger.objects.filter(paper_title__iexact="twice").count(), 1)
+        self.assertEqual((r["counts"]["new"], r["counts"]["already_recorded"]), (2, 0))
+        self.assertEqual(PaidLedger.objects.filter(paper_title__iexact="twice").count(), 2)
+        self.assertEqual(r["double_payments"]["count"], 1)
 
 
 class SettledEndpointTests(TestCase):
@@ -460,12 +462,12 @@ class SettledEndpointTests(TestCase):
         self.assertFalse(AuditLog.objects.filter(action="SETTLED_CLAIMS_IMPORT").exists())
         r = self.post(self.admin, dry_run="false")
         self.assertEqual(r.status_code, 200, r.content)
-        self.assertEqual(PaidLedger.objects.count(), 7)
+        self.assertEqual(PaidLedger.objects.count(), 8)
         log = AuditLog.objects.get(action="SETTLED_CLAIMS_IMPORT")
         self.assertEqual(json.loads(log.detail_json)["new"], 6)
         again = self.post(self.admin, dry_run="false").json()
         self.assertEqual((again["counts"]["new"], again["counts"]["already_recorded"]), (0, 8))
-        self.assertEqual(PaidLedger.objects.count(), 7)
+        self.assertEqual(PaidLedger.objects.count(), 8)
 
     def test_bad_file_is_a_400(self):
         c = Client()
@@ -497,5 +499,5 @@ class CommandTests(TestCase):
         call_command("import_settled_claims", sc, stdout=out)
         self.assertFalse(PaidLedger.objects.exists())
         call_command("import_settled_claims", sc, "--apply", stdout=out)
-        self.assertEqual(PaidLedger.objects.count(), 7)
+        self.assertEqual(PaidLedger.objects.count(), 8)
         self.assertTrue(AuditLog.objects.filter(action="SETTLED_CLAIMS_IMPORT").exists())

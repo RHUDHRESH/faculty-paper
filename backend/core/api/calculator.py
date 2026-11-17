@@ -28,7 +28,7 @@ from core.services import calculator, claim_numbers, rbac
 from core.services.cell_safe import csv_writer
 from core.services.normalize import normalize_doi
 
-CALCULATOR_ROLES = (*rbac.ADMIN_ROLES, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE)
+CALCULATOR_ROLES = (*rbac.ADMIN_ROLES, *rbac.PRINCIPAL_SEATS, Role.DIRECTOR, Role.FINANCE)
 
 
 def _require_calculator(request: HttpRequest) -> User:

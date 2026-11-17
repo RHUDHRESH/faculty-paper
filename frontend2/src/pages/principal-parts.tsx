@@ -105,6 +105,11 @@ export type Brief = {
   notes: string[]
 }
 
+/** The bucket for papers whose people have no department on their account (college_totals.NO_DEPARTMENT). */
+export const NO_DEPARTMENT = "No department on the account"
+/** The list of those accounts, for whoever can fix them. */
+export const NO_DEPARTMENT_PATH = "/people/no-department"
+
 export const n = (v: number | null | undefined) => (v == null ? "Not recorded" : v.toLocaleString("en-IN"))
 
 /** A rupee figure without paise: a council page is read in rupees. */

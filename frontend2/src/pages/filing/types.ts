@@ -194,7 +194,7 @@ export type VerifyResult = {
     notes?: string[]
     message?: string | null
   } | null
-  scopus_status?: "ok" | "not_configured" | "unavailable"
+  scopus_status?: "ok" | "not_configured" | "unavailable" | "own_key_required"
 }
 
 /** `POST /api/lookup/file-check` -- whether an attached file shows the paper

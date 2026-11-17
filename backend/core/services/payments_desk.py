@@ -103,6 +103,27 @@ def threshold_totals(qs) -> dict[str, Any]:
     return {"held_back_count": agg["n"] or 0, "held_back": _round(agg["s"])}
 
 
+def attach_paper_fields(rows: Iterable[dict[str, Any]], claims: Iterable[Any]) -> None:
+    """Put `figures` on each claim dict: the paper's ISSN, category, quartile, SNIP,
+    authors, position, document type, indexing, remark and academic year.
+
+    They come from `paper_fields`, the one resolver every report reads, so a
+    claim shows the same figures here as in the statement, the ledger and the
+    Report studio. An unknown figure is None, never a word.
+    """
+    from core.services import paper_fields
+
+    claims = list(claims)
+    found = paper_fields.for_claims(claims)
+    by_id = {c.pk: c for c in claims}
+    for r in rows:
+        c = by_id.get(r.get("id"))
+        if c is None:
+            continue
+        month = c.payout_month or (c.paid_at.date() if c.paid_at else None)
+        r["figures"] = {**found[c.pk], "academic_year": paper_fields.academic_year(month) if month else None}
+
+
 def attach_ledger(rows: Iterable[dict[str, Any]]) -> None:
     """Put `ledger_paid` (net of reversals) and `ledger_rows` on each claim dict.
 

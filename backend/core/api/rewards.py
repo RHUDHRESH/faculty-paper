@@ -39,7 +39,7 @@ from core.models import (
     WallCheer,
     WallPin,
 )
-from core.services import achievements, records
+from core.services import achievements, placeholders, records
 
 # ---------- badges ----------
 
@@ -295,9 +295,18 @@ def _card(key: str, group: list[records.PaperRecord], pinned_key: Optional[str])
     lead = min(group, key=lambda r: (r.claim_id is None, r.on))
     authors: dict[str, dict[str, Any]] = {}
     for r in group:
+        # An account that stands for "nobody" (the import's "Not Found") is
+        # not somebody to congratulate.
+        if placeholders.is_placeholder_name(r.author_name):
+            continue
         who = r.user_id or f"name:{r.author_name.lower()}"
-        authors.setdefault(who, {"id": r.user_id, "name": r.author_name, "department": r.department})
-    departments = sorted({(r.department or "").strip() for r in group if (r.department or "").strip()}, key=str.lower)
+        authors.setdefault(
+            who, {"id": r.user_id, "name": r.author_name, "department": placeholders.clean_department(r.department)}
+        )
+    departments = sorted(
+        {placeholders.clean_department(r.department) for r in group if placeholders.clean_department(r.department)},
+        key=str.lower,
+    )
     return {
         "key": key,
         "title": lead.title,
@@ -332,6 +341,11 @@ def _wall(department: str, month: Optional[date]) -> dict[str, Any]:
     dept = department.strip().lower()
     by_month: dict[str, list[tuple[str, list[records.PaperRecord]]]] = defaultdict(list)
     for key, group in _papers().items():
+        # A paper whose only "author" is the import's "Not Found" has nobody to
+        # celebrate, so it is not on the wall.
+        group = [r for r in group if not placeholders.is_placeholder_name(r.author_name)]
+        if not group:
+            continue
         if dept and not any(r.department.lower() == dept for r in group):
             continue
         # A paper appears once, in the month the college first recognised it.
@@ -359,7 +373,7 @@ def _wall(department: str, month: Optional[date]) -> dict[str, Any]:
 def _departments() -> list[str]:
     seen: dict[str, str] = {}
     for d in User.objects.filter(active=True).exclude(department__isnull=True).values_list("department", flat=True):
-        d = (d or "").strip()
+        d = placeholders.clean_department(d)
         if d and d.lower() not in seen:
             seen[d.lower()] = d
     return sorted(seen.values(), key=str.lower)

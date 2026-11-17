@@ -16,6 +16,8 @@ import {
   columnsFor,
   DeptTable,
   n,
+  NO_DEPARTMENT,
+  NO_DEPARTMENT_PATH,
   NoHeads,
   PackChecks,
   papersUrl,
@@ -132,7 +134,9 @@ export function YearBrief() {
             </div>
 
             <Part title={b.partial ? `${b.year} so far, and last year in full` : "This year against last"}>
-              <table className="w-full max-w-3xl border-collapse text-base">
+              {/* On a phone the five columns are wider than the screen; the table scrolls inside itself, the page does not. */}
+              <div className="max-w-3xl overflow-x-auto" tabIndex={0} role="region" aria-label={`${b.year} against ${b.year - 1}`}>
+              <table className="w-full border-collapse text-base max-sm:text-sm">
                 <thead>
                   <tr className="border-b border-fg text-left text-sm text-fg-muted">
                     <th className="py-2 pr-4 font-medium">
@@ -195,6 +199,7 @@ export function YearBrief() {
                   </tr>
                 </tbody>
               </table>
+              </div>
             </Part>
 
             <Part title="Five years" note="Earlier years are divided by today's roll of teachers; no headcount history is kept.">
@@ -226,12 +231,16 @@ export function YearBrief() {
               {b.unassigned_papers > 0 && (
                 <p className="mt-3 text-sm text-fg-muted">
                   <Link
-                    to={papersUrl({ year: b.year, department: "Department not recorded" })}
+                    to={papersUrl({ year: b.year, department: NO_DEPARTMENT })}
                     className="text-accent underline-offset-4 hover:underline"
                   >
                     {n(b.unassigned_papers)} papers of {b.year}
                   </Link>{" "}
-                  carry no department, so no row above holds them.
+                  are by people with no department on their account, so no row above holds them.{" "}
+                  <Link to={NO_DEPARTMENT_PATH} className="text-accent underline-offset-4 hover:underline">
+                    See the accounts to fix
+                  </Link>
+                  .
                 </p>
               )}
             </Part>

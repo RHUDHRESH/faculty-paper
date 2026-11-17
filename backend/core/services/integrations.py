@@ -15,6 +15,11 @@ derived from ``DJANGO_SECRET_KEY`` with HKDF. Losing the key makes the saved
 secrets unreadable, which is reported as "set it again" and falls back to the
 environment rather than failing a request.
 
+``get(name, user)`` also answers for a person: their own key (core/services/
+user_keys.py) when the college's policy allows it and they brought one, else
+the order above. Left out, ``user`` is the signed-in person of the request being
+served; background jobs have none and get the college's value.
+
 Usage counts live here too, in ``integration_usage.<provider>`` rows (calls
 today, calls this month, the last connection test, and for Scopus the last
 quota headers seen). The AI figures are counted from ``AIUsage`` instead,
@@ -35,6 +40,8 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+
+from core.services import user_keys
 
 logger = logging.getLogger("core.integrations")
 
@@ -65,6 +72,8 @@ SPECS: dict[str, Spec] = {
     "openalex.mailto": Spec("openalex", "Contact email", "SEARCH_CONTACT_EMAIL", False,
                             "Sent to OpenAlex and Crossref so they route us to the faster, polite pool."),
     "openalex.api_key": Spec("openalex", "API key", "OPENALEX_API_KEY", True, "Optional. Raises the daily allowance."),
+    "semanticscholar.api_key": Spec("semanticscholar", "API key", "SEMANTIC_SCHOLAR_API_KEY", True,
+                                    "Optional. Raises the lookup allowance."),
 }
 
 PROVIDERS: dict[str, dict[str, Any]] = {
@@ -191,8 +200,17 @@ def resolve(name: str) -> tuple[str, str, bool]:
     return "", "none", unreadable
 
 
-def get(name: str) -> str:
-    """The value in force: set in the app, else the environment, else empty."""
+def get(name: str, user: Any = user_keys.AMBIENT) -> str:
+    """The value in force for this person (or, with ``user=None``, for the college).
+
+    The person's own key when the college's policy allows it and they have one;
+    otherwise the college's: set in the app, else the environment, else empty.
+    Left out, ``user`` is the person of the request being served, and nobody
+    (the college) in a background job or a thread. See core/services/user_keys.py.
+    """
+    mine = user_keys.override(name, user)
+    if mine is not None:
+        return mine
     return resolve(name)[0]
 
 
@@ -334,8 +352,13 @@ def _update_usage(provider: str, change) -> None:
         logger.debug("usage not recorded for %s", provider, exc_info=True)
 
 
-def record_call(provider: str, *, headers: Any = None) -> None:
-    """Count one outbound call, and note Scopus's quota headers when it sent them."""
+def record_call(provider: str, *, headers: Any = None, user: Any = user_keys.AMBIENT) -> None:
+    """Count one outbound call, and note Scopus's quota headers when it sent them.
+
+    A call made on a person's own key is counted on that key, not the college's.
+    """
+    if user_keys.record_call(provider, user):
+        return
 
     def change(data: dict[str, Any]) -> None:
         data["day_calls"] = int(data.get("day_calls", 0)) + 1
@@ -381,7 +404,7 @@ def _ai_usage() -> dict[str, int]:
     from core.models import AIUsage
     from core.services.ai_harness import _BILLABLE, _day_start, _month_start
 
-    rows = AIUsage.objects.filter(outcome__in=_BILLABLE)
+    rows = AIUsage.objects.filter(outcome__in=_BILLABLE, own_key=False)
     return {
         "today": rows.filter(created_at__gte=_day_start()).count(),
         "month": rows.filter(created_at__gte=_month_start()).count(),
@@ -392,13 +415,14 @@ def provider_state(provider: str) -> dict[str, Any]:
     from core.services import ai
 
     meta = PROVIDERS[provider]
-    primary = field_state(meta["primary"])
+    primary = field_state(meta["primary"])  # the college's own value, whoever is looking
     row = _usage_row(provider)
     day, month = _stamp()
     if provider in ("ai", "anthropic"):
         # The model-call ledger counts every call, whichever key made it. Show it
         # on the row of the provider that is actually answering.
-        answering = {"openai": "ai", "anthropic": "anthropic"}.get(ai.provider_name())
+        with user_keys.acting_as(None):
+            answering = {"openai": "ai", "anthropic": "anthropic"}.get(ai.provider_name())
         usage = _ai_usage() if answering == provider else {"today": 0, "month": 0}
     else:
         usage = {

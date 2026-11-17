@@ -22,6 +22,7 @@ from django.conf import settings
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, FeedPost, Mention, Post, Thread, ThreadParticipant, ThreadSubscription, User
 from core.services import rbac
+from core.services.ellipsis import ellipsize
 from core.services import thread_agent
 from core import discussions, social, social_notify
 
@@ -158,7 +159,7 @@ def _notify_thread(thread: Thread, post: Post, actor: User) -> None:
         # a comment -- so their switch for that kind holds here too.
         social_notify.notify(
             uid, "mention" if uid in mentioned else "comment",
-            f"{actor.name} in “{thread.title[:80]}”", excerpt,
+            f"{actor.name} in “{ellipsize(thread.title, 80)}”", excerpt,
             f"/discussions/{thread.id}", actor=actor,
         )
 

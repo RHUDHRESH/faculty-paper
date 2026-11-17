@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { paperTitle } from "@/lib/names"
 import { HodPapers } from "@/pages/hod-papers"
 import { useEffect, useId, useState } from "react"
@@ -352,7 +353,7 @@ function GeneralQuery() {
           <Button kind="primary" asChild>
             <a href={`/api/reports/search/export?${exportParams.toString()}`} target="_blank" rel="noreferrer">
               <Download />
-              Download {data ? `these ${total.toLocaleString("en-IN")} claims` : "these claims"}
+              Download {data ? `these ${plural(total, "claim")}` : "these claims"}
             </a>
           </Button>
         }
@@ -481,7 +482,7 @@ function GeneralQuery() {
         <div role="status" aria-live="polite">
           {!isLoading && !isError && (
             <Meta className="tabular">
-              {total === 1 ? "1 claim" : `${total.toLocaleString("en-IN")} claims`}
+              {total === 1 ? "1 claim" : `${plural(total, "claim")}`}
               {filtered ? " matching these filters" : ""}
               {seeMoney && data && total > 0 ? ` · ${money(data.total_amount)} total` : ""}
             </Meta>

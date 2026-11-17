@@ -80,8 +80,10 @@ def search(
             skipped.append(
                 sources.not_configured(
                     "scopus",
-                    "Scopus is not set up on this server, so it was not searched. "
-                    "Crossref and OpenAlex need no key and were.",
+                    papers.scopus_off_detail(
+                        "Scopus is not set up on this server, so it was not searched. "
+                        "Crossref and OpenAlex need no key and were."
+                    ),
                 )
             )
     if "venues" in wanted:

@@ -30,7 +30,7 @@ from django.utils import timezone
 
 from core.models import AuditLog, Claim, ClaimAction, ClaimStatus, PaidLedger, Role, User
 from core.services import data_fixes as base
-from core.services import payment_guards
+from core.services import payment_guards, placeholders
 from core.services.normalize import normalize_title
 
 KINDS = tuple(k for k, _label, _why in base.KINDS)
@@ -154,7 +154,7 @@ def row_for(claim: Claim, issues: list[str], *, with_suggestion: bool = True, la
         "year": claim.publication_year,
         "status": claim.status,
         "owner": {"user_id": claim.owner_id, "name": claim.owner.name or claim.owner.email},
-        "department": claim.owner.department,
+        "department": placeholders.clean_department(claim.owner.department) or None,
         "amount": claim.remuneration,
         "quartile": claim.quartile,
         "claimed_quartile": claim.self_reported_quartile,

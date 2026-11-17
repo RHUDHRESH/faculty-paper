@@ -17,9 +17,12 @@ def ago(days: int):
 
 
 def pub(title, when, *, quartile="", cites=0, venue="Signal Journal"):
+    # Linked the way the Scopus sync links a paper (an EID), because "new names"
+    # shares the leaderboard's first-paper rule, which counts Scopus-linked papers only.
     return Publication.objects.create(
         title=title, year=when.year if when else 2024, date=when, quartile=quartile, citations=cites,
         venue=venue, topics_json="[]", source="record",
+        eid=f"2-s2.0-{abs(hash(title)) % 10**11:011d}",
     )
 
 
@@ -27,7 +30,7 @@ def by(p, *people, outsiders=()):
     for i, user in enumerate(people, start=1):
         Authorship.objects.create(
             publication=p, user=user, position=i, display_name=user.name,
-            author_key=f"u:{user.id}", is_college=True,
+            author_key=f"u:{user.id}", is_college=True, match_method="scopus",
         )
     for j, name in enumerate(outsiders, start=len(people) + 1):
         Authorship.objects.create(

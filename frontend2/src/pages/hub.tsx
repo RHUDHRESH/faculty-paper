@@ -98,7 +98,7 @@ export function AdminHub() {
 /** What is spent, the rules behind an amount, and the statements. */
 export function MoneyHub() {
   const { me } = useAuth()
-  if (me?.role === "PRINCIPAL") return <PrincipalMoneyHub />
+  if (me?.role === "PRINCIPAL" || me?.role === "VICE_PRINCIPAL") return <PrincipalMoneyHub />
   // The Director and Finance get the year's position first, and a live line
   // under each page (`money-desk.tsx`); everyone else keeps the plain hub.
   if (me?.role === "DIRECTOR" || me?.role === "FINANCE") return <MoneyDesk role={me.role} />
@@ -109,7 +109,7 @@ export function MoneyHub() {
 export function ReportsHub() {
   const { me } = useAuth()
   // The Principal is asked questions, not for reports: her hub is the questions.
-  if (me?.role === "PRINCIPAL") return <PrincipalReportsHub />
+  if (me?.role === "PRINCIPAL" || me?.role === "VICE_PRINCIPAL") return <PrincipalReportsHub />
   // A head is asked "are we on track?", not for reports either.
   if (me?.role === "HOD") return <HodReportsHub />
   return <Hub hub="reports" />

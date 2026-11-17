@@ -1,7 +1,11 @@
 """The report-grade leaderboard: many categories, many views, one source.
 
-Counted from the publication record (`Publication` / `Authorship`, the same
-source Home and My research read), never from money: no amount is selected.
+Counted from the Scopus-linked papers on people's records (`Publication` /
+`Authorship`, filtered by the same "Scopus-linked" rule the faculty directory
+uses) and from nothing else: no claim, no paid-ledger row, no spreadsheet of
+the college's own. A paper's quartile and SNIP come from the journal tables by
+ISSN and year (`journal_figures`), its citations are the Scopus figure the
+app stores, and no amount is selected anywhere.
 
 Built in two layers so a 0.1-CPU host pays once:
 
@@ -14,8 +18,15 @@ Built in two layers so a 0.1-CPU host pays once:
 
 Rules a reader could doubt, each pinned by core/test_honours_board.py:
 
-- **Score** is the college's weighting: Q1=4, Q2=3, Q3=2, Q4=1, anything
-  else in the record 1.
+- **Score** (the overall board) is the weighted sum the research coordinator
+  sets (`leaderboard_weights`), 0 to 100. Most improved is the change in that
+  score between the two periods, Newcomers ranks people whose first paper is
+  recent by it, and a department's figure is the total (and average) of its
+  members' scores, each worked out among the whole college. Nothing here reads
+  quartile points from a claim or the ledger.
+- **Who is on a paper**: only authorships matched by an identifier, the record
+  or a person's own confirmation (`STRONG_MATCHES`); a name-only match is a
+  guess and is treated as somebody outside the college.
 - **When** is the publication date; a paper with only a year counts from
   1 January of that year, and one with neither counts in all time only.
 - **Nobody with nothing is ranked.** A zero is shown as "--", not as a tie
@@ -35,16 +46,24 @@ import threading
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
+from django.db.models import Max
 from django.utils import timezone
 
-from core.models import Authorship, Publication, User
-from core.services import aggregate_cache
+from core.models import Authorship, Publication, Team, User
+from core.services import aggregate_cache, leaderboard_weights as lw
+from core.services.journal_figures import Journals
 from core.services.leaderboard import Span, before as _before_academic, span as _span_academic
 from core.services.paper_facts import RANKED_ROLES
+
+#: How an authorship may have been matched to a person and still count here: by an
+#: identifier (Scopus id, author id, ORCID), by the record itself, or by a person's own
+#: confirmation. A match on the name alone ("name", "name_dept", an alias) is a guess and
+#: never counts towards a Scopus leaderboard.
+STRONG_MATCHES = ("record", "scopus", "scopus_sheet", "scopus_id", "author_id", "orcid", "manual", "confirmed")
 
 WEIGHTS = {"Q1": 4, "Q2": 3, "Q3": 2, "Q4": 1}
 OTHER = 1
@@ -132,6 +151,10 @@ class Paper:
     citations: int
     topics: tuple[str, ...]
     members: dict[str, Optional[int]] = field(default_factory=dict)  # uid -> position
+    corresponding: set[str] = field(default_factory=set)  # uids marked corresponding author
+    #: The journal's SNIP for the paper's year, from the journal tables (0 when the journal is in none).
+    snip: float = 0.0
+    eid: str = ""
     others: set[str] = field(default_factory=set)  # author keys of everybody else
     international: bool = False
 
@@ -141,6 +164,10 @@ class Record:
     people: dict[str, dict[str, Any]]
     papers: list[Paper]
     first_seen: dict[str, date]
+    #: mentor uid -> the Scopus-linked papers their student teams' rosters name by EID.
+    mentored: dict[str, list[Paper]] = field(default_factory=dict)
+    #: The newest time anybody's Scopus profile was synced; None before the first sync.
+    synced_at: Optional[datetime] = None
 
 
 _MEMO: tuple[float, int, Record] | None = None
@@ -187,27 +214,44 @@ def _build() -> Record:
             "department": (dept or "").strip() or None,
             "designation": designation or None,
         }
+    # Only papers the Scopus sync linked: flagged by it or carrying an EID. The
+    # rule is the faculty directory's own, so the two pages cannot disagree.
+    from core.api.faculty_directory import _SCOPUS_LINKED  # an API module: imported late, as a service must
+
     pub_ids = set(
-        Authorship.objects.filter(user_id__in=people.keys()).values_list("publication_id", flat=True)
+        Authorship.objects.filter(user_id__in=people.keys(), match_method__in=STRONG_MATCHES)
+        .filter(_SCOPUS_LINKED)
+        .values_list("publication_id", flat=True)
     )
+    rows = list(
+        Publication.objects.filter(id__in=pub_ids).values(
+            "id", "title", "year", "date", "venue", "issn", "eid", "scopus_citations", "topics_json"
+        )
+    )
+    journals = Journals(r["issn"] for r in rows)
     papers: dict[str, Paper] = {}
-    for p in Publication.objects.filter(id__in=pub_ids).values(
-        "id", "title", "year", "date", "venue", "quartile", "citations", "topics_json"
-    ):
+    for p in rows:
         when = p["date"] or (date(p["year"], 1, 1) if p["year"] else None)
+        quartile, snip = journals.lookup(p["issn"], when.year if when else p["year"])
         papers[p["id"]] = Paper(
             id=p["id"], title=p["title"] or "", when=when, year=when.year if when else None,
-            venue=(p["venue"] or "").strip(), quartile=(p["quartile"] or "").strip().upper(),
-            citations=p["citations"] or 0, topics=_topics(p["topics_json"]),
+            venue=(p["venue"] or "").strip(), quartile=quartile,
+            # The Scopus figure the app stores; a paper Scopus has not counted has none.
+            citations=p["scopus_citations"] or 0, topics=_topics(p["topics_json"]),
+            snip=float(snip or 0.0), eid=(p["eid"] or "").strip().lower(),
         )
-    for pid, uid, pos, key, country in Authorship.objects.filter(publication_id__in=papers.keys()).values_list(
-        "publication_id", "user_id", "position", "author_key", "institution_country"
+    for pid, uid, pos, key, country, corresponding, method in Authorship.objects.filter(
+        publication_id__in=papers.keys()
+    ).values_list(
+        "publication_id", "user_id", "position", "author_key", "institution_country", "is_corresponding", "match_method"
     ):
         paper = papers[pid]
-        if uid in people:
+        if uid in people and method in STRONG_MATCHES:
             # A person on a paper twice (two matched rows) keeps their best position.
             old = paper.members.get(uid)
             paper.members[uid] = pos if old is None else (min(old, pos) if pos else old)
+            if corresponding:
+                paper.corresponding.add(uid)
         else:
             paper.others.add(f"u:{uid}" if uid else key)
         c = (country or "").strip().upper()
@@ -220,7 +264,30 @@ def _build() -> Record:
                 continue
             if uid not in first_seen or paper.when < first_seen[uid]:
                 first_seen[uid] = paper.when
-    return Record(people=people, papers=list(papers.values()), first_seen=first_seen)
+    return Record(
+        people=people, papers=list(papers.values()), first_seen=first_seen,
+        mentored=_mentored(people, papers),
+        synced_at=User.objects.aggregate(t=Max("scopus_synced_at"))["t"],
+    )
+
+
+def _mentored(people: dict[str, dict[str, Any]], papers: dict[str, Paper]) -> dict[str, list[Paper]]:
+    """Per mentor, the linked papers their teams' rosters name by Scopus EID.
+
+    A roster article with no EID, or an EID that matches no linked paper, is
+    not counted: the roster is the college's own list and is evidence only
+    when Scopus agrees.
+    """
+    by_eid = {p.eid: p for p in papers.values() if p.eid}
+    out: dict[str, set[str]] = defaultdict(set)
+    for mentor, listed in Team.objects.filter(active=True, mentor__isnull=False).values_list("mentor_id", "publications"):
+        if mentor not in people or not isinstance(listed, list):
+            continue
+        for item in listed:
+            eid = str(item.get("scopus_eid") or "").strip().lower() if isinstance(item, dict) else ""
+            if eid in by_eid:
+                out[mentor].add(eid)
+    return {m: [by_eid[e] for e in sorted(eids)] for m, eids in out.items()}
 
 
 def record() -> Record:
@@ -299,8 +366,8 @@ def _ranks(values: dict[str, float]) -> dict[str, tuple[Optional[int], bool]]:
 
 def _buckets(values: list[float]) -> list[dict[str, Any]]:
     """A histogram: nothing (zero or less) on its own, then up to 8 equal bins.
-    Every measure is a whole number."""
-    live = [int(v) for v in values if v > 0]
+    Every measure is a whole number but the weighted score, which rounds up."""
+    live = [math.ceil(v) for v in values if v > 0]
     out = [{"bucket": "0", "lo": None, "hi": 0, "count": sum(1 for v in values if v <= 0)}]
     if not live:
         return out
@@ -340,16 +407,34 @@ def board(
     *, category: str, period: str, department: str = "", topic: str = "", journal: str = "",
     on: Optional[date] = None,
 ) -> dict[str, Any]:
-    """Viewer-independent, so cached for everyone."""
+    """Viewer-independent, so cached for everyone.
+
+    The overall score depends on the saved weights, so the weights in force are
+    part of its cache key: saving new ones is seen at once, not in a minute.
+    """
     on = on or today()
-    params = {"c": category, "p": period, "d": _dept_key(department), "t": topic, "j": journal, "on": on.isoformat()}
+    weights = lw.current()["weights"]
+    params = {
+        "c": category, "p": period, "d": _dept_key(department), "t": topic, "j": journal, "on": on.isoformat(),
+        "w": lw.fingerprint(weights) if weights else "",
+    }
     return aggregate_cache.cached(
         "honours_board", params,
-        lambda: _board(category=category, period=period, department=department, topic=topic, journal=journal, on=on),
+        lambda: _board(category=category, period=period, department=department, topic=topic, journal=journal,
+                       on=on, weights=weights),
     )
 
 
-def _board(*, category: str, period: str, department: str, topic: str, journal: str, on: date) -> dict[str, Any]:
+def preview(*, weights: dict[str, int], period: str, department: str = "", on: Optional[date] = None) -> dict[str, Any]:
+    """The overall board under weights nobody has saved. Never cached, never stored."""
+    return _board(category="score", period=period, department=department, topic="", journal="",
+                  on=on or today(), weights=weights)
+
+
+def _board(
+    *, category: str, period: str, department: str, topic: str, journal: str, on: date,
+    weights: Optional[dict[str, int]] = None,
+) -> dict[str, Any]:
     rec = record()
     names = _dept_names(rec.people)
     dept_of = {uid: _dept_key(p["department"]) for uid, p in rec.people.items()}
@@ -364,12 +449,12 @@ def _board(*, category: str, period: str, department: str, topic: str, journal: 
     by_person_now: dict[str, list[Paper]] = defaultdict(list)
     by_person_then: dict[str, list[Paper]] = defaultdict(list)
     by_person_year: dict[str, Counter] = defaultdict(Counter)
+    by_person_all: dict[str, list[Paper]] = defaultdict(list)
     for p in papers:
         in_now, in_then = _holds(now, p.when), _holds(then, p.when)
         for uid in p.members:
-            if uid not in population:
-                continue
             by_person_year[uid][p.year] += 1
+            by_person_all[uid].append(p)
             if in_now:
                 by_person_now[uid].append(p)
             if in_then:
@@ -380,25 +465,57 @@ def _board(*, category: str, period: str, department: str, topic: str, journal: 
     if category == "newcomer":
         eligible = {u for u in population if rec.first_seen.get(u) and rec.first_seen[u] >= newcomer_since}
 
-    def value(t_now: dict[str, Any], t_then: Optional[dict[str, Any]]) -> float:
-        if category == "rising":
-            return t_now["score"] - (t_then["score"] if t_then else 0)
-        if category == "newcomer":
-            return t_now["score"]
-        return t_now[category]
-
+    everyone = set(rec.people)
     tallies: dict[str, dict[str, Any]] = {}
     before_tallies: dict[str, dict[str, Any]] = {}
-    for uid in eligible:
+    for uid in everyone:
         tallies[uid] = _tally(by_person_now.get(uid, []), uid, dept_of)
         before_tallies[uid] = _tally(by_person_then.get(uid, []), uid, dept_of)
-    values = {u: value(tallies[u], before_tallies[u]) for u in eligible}
+
+    # The weighted score (core.services.leaderboard_weights), from Scopus-linked
+    # papers only. Percentiles are taken among the people it is worked out for:
+    # the board's own scope for the Overall board, the whole college for the
+    # figures every other board and the department table are built from.
+    in_scope_ids = {p.id for p in papers}
+
+    def weighted(win: Span, by_person: dict[str, list[Paper]], tally_of: dict[str, dict[str, Any]], who: set[str]):
+        anchor = min(on, win.end) if win.end else on
+        figures = {}
+        for uid in who:
+            mentored = [p for p in rec.mentored.get(uid, []) if p.id in in_scope_ids and _holds(win, p.when)]
+            figures[uid] = lw.metrics(
+                tally=tally_of[uid], now_papers=by_person.get(uid, []), all_papers=by_person_all.get(uid, []),
+                mentored=mentored, anchor=anchor, uid=uid,
+            )
+        return lw.score_all(figures, weights or lw.DEFAULTS)
+
+    college = weighted(now, by_person_now, tallies, everyone)
+    college_then = weighted(then, by_person_then, before_tallies, everyone) if then is not None else None
+    scored = scored_then = None
+    if category == "score":
+        same = eligible == everyone
+        scored = college if same else weighted(now, by_person_now, tallies, eligible)
+        if then is not None:
+            scored_then = college_then if same else weighted(then, by_person_then, before_tallies, eligible)
+        values = {u: scored[u]["score"] for u in eligible}
+    elif category == "rising":
+        # Change in the weighted score between the two periods, both from Scopus dates.
+        values = {u: round(college[u]["score"] - (college_then[u]["score"] if college_then else 0), 2) for u in eligible}
+    elif category == "newcomer":
+        values = {u: college[u]["score"] for u in eligible}
+    else:
+        values = {u: tallies[u][category] for u in eligible}
     ranks = _ranks(values)
 
     # Movement: where the same measure put them the period before.
     prev_ranks: dict[str, tuple[Optional[int], bool]] = {}
     if then is not None and category not in ("rising",):
-        prev_values = {u: value(before_tallies[u], None) for u in eligible}
+        if scored_then is not None:
+            prev_values = {u: scored_then[u]["score"] for u in eligible}
+        elif category == "newcomer":
+            prev_values = {u: college_then[u]["score"] for u in eligible}
+        else:
+            prev_values = {u: before_tallies[u][category] for u in eligible}
         prev_ranks = _ranks(prev_values)
 
     years = list(range(on.year - SPARK_YEARS + 1, on.year + 1))
@@ -419,9 +536,10 @@ def _board(*, category: str, period: str, department: str, topic: str, journal: 
             "joint": joint,
             "person": rec.people[uid],
             "value": values[uid],
-            "papers": t["papers"], "score": t["score"], "q1": t["q1"], "first": t["first"],
+            "papers": t["papers"], "score": college[uid]["score"], "q1": t["q1"], "first": t["first"],
             "cited": t["cited"], "h_index": t["h_index"],
             "breakdown": t["breakdown"],
+            **({"contributions": lw.contributions(scored[uid]["parts"])} if scored else {}),
             "spark": [by_person_year[uid][y] for y in years],
             "move": move,
             "new": new,
@@ -432,7 +550,6 @@ def _board(*, category: str, period: str, department: str, topic: str, journal: 
     # Departments: each paper once per department.
     # Across the whole college whatever the scope: a head looking at their own
     # department still compares it with the others, per teacher.
-    everyone = set(rec.people)
     active_now = {m for p in papers if _holds(now, p.when) for m in p.members}
     heads: Counter = Counter(dept_of[u] for u in everyone if dept_of[u])
     dept_now: dict[str, list[Paper]] = defaultdict(list)
@@ -446,14 +563,18 @@ def _board(*, category: str, period: str, department: str, topic: str, journal: 
                 dept_now[d].append(p)
             if _holds(then, p.when):
                 dept_then[d].append(p)
+    newcomers_college = {u: bool(rec.first_seen.get(u) and rec.first_seen[u] >= newcomer_since) for u in everyone}
     departments = []
     for d, n in heads.items():
         t = _tally(dept_now.get(d, []), None, dept_of, d)
-        tb = _tally(dept_then.get(d, []), None, dept_of, d)
-        if category == "rising":
-            v = t["score"] - tb["score"]
+        members = [u for u in everyone if dept_of[u] == d]
+        total = round(sum(college[u]["score"] for u in members), 2)
+        if category == "score":
+            v = total
+        elif category == "rising":
+            v = round(total - sum(college_then[u]["score"] for u in members), 2) if college_then else total
         elif category == "newcomer":
-            v = sum(1 for r in ranked if dept_of[r["person"]["id"]] == d)
+            v = round(sum(college[u]["score"] for u in members if newcomers_college.get(u)), 2)
         else:
             v = t[category]
         departments.append({
@@ -461,9 +582,10 @@ def _board(*, category: str, period: str, department: str, topic: str, journal: 
             "faculty": n,
             "value": v,
             "per_faculty": round(v / n, 2) if n else 0,
-            "papers": t["papers"], "score": t["score"], "q1": t["q1"], "cited": t["cited"],
+            "papers": t["papers"], "score": total, "q1": t["q1"], "cited": t["cited"],
             "papers_per_faculty": round(t["papers"] / n, 2) if n else 0,
-            "score_per_faculty": round(t["score"] / n, 2) if n else 0,
+            # The department's total of its members' weighted scores, and the average per member.
+            "score_per_faculty": round(total / n, 2) if n else 0,
             "active": sum(1 for u in everyone if dept_of[u] == d and u in active_now),
             "trend": [{"year": y, "papers": dept_year[d][y]} for y in years],
         })
@@ -523,7 +645,9 @@ def _board(*, category: str, period: str, department: str, topic: str, journal: 
         "spark_years": years,
         "method": {
             "weights": {**WEIGHTS, "other": OTHER},
-            "source": "publication record",
+            "source": lw.SOURCE,
+            "scopus_synced_at": rec.synced_at.isoformat() if rec.synced_at else None,
+            "scoring": {"weights": lw.describe(weights or lw.current()["weights"]), "normalisation": lw.NORMALISATION},
             "papers_in_record": len(rec.papers),
             "newcomer_months": NEWCOMER_MONTHS,
             "updated": timezone.now().isoformat(),

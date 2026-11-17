@@ -1,8 +1,10 @@
+import type { UseQueryResult } from "@tanstack/react-query"
 import { Link } from "react-router-dom"
 import { FileText } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { HOME_DATA, homeTrack } from "@/app/home-data"
+import { plural } from "@/lib/count"
 import { deptLabel } from "@/lib/names"
 import { useApi } from "@/lib/query"
 import { Answer } from "@/ui/answer"
@@ -37,7 +39,7 @@ import type { TrackPayload } from "@/pages/track-data"
 const SHOWN = 10
 
 /** The year in one figure: the change on last year, or the count when a part year cannot be compared. */
-function yearFigure(b: Brief) {
+export function yearFigure(b: Brief) {
   const t = b.totals
   if (b.partial || t.change == null) return { value: n(t.papers), label: `papers ${b.partial ? "so far " : ""}in ${b.year}`, tone: "neutral" as const }
   const sign = t.change > 0 ? "+" : t.change < 0 ? "−" : ""
@@ -46,6 +48,86 @@ function yearFigure(b: Brief) {
     label: `papers in ${b.year} against ${b.year - 1}: ${n(t.papers)} against ${n(t.papers_prev)}`,
     tone: t.change > 0 ? ("positive" as const) : t.change < 0 ? ("caution" as const) : ("neutral" as const),
   }
+}
+
+/**
+ * The departments to call about, and the council pack. Read-only, so the
+ * Vice principal's Home reuses it as it is.
+ */
+export function DepartmentsToCallAbout({ brief }: { brief: UseQueryResult<Brief> }) {
+  const b = brief.data
+  const toSettle = b ? b.pack.filter((c) => !c.ok).length : 0
+  return (
+    <Section title="Departments to call about">
+      {brief.isError ? (
+        <InlineError message="Could not load the year. Nothing has changed." onRetry={() => brief.refetch()} />
+      ) : !b ? (
+        <SkeletonRows rows={2} rowHeight={48} />
+      ) : (
+        <>
+          <Table
+            rows={b.push.slice(0, 3)}
+            columns={
+              [
+                {
+                  key: "dept",
+                  header: "Department",
+                  exportValue: (d) => deptLabel(d.department),
+                  cell: (d) => (
+                    <Link to={deptUrl(d.department, b.year)} className="font-medium text-accent underline-offset-4 hover:underline">
+                      {deptLabel(d.department)}
+                    </Link>
+                  ),
+                },
+                { key: "why", header: "Why", exportValue: (d) => d.reasons[0], cell: (d) => `${d.reasons[0]}.` },
+                {
+                  key: "head",
+                  header: "Head",
+                  empty: "No head set",
+                  exportValue: (d) => (d.head ? headLabel(d.head) : null),
+                  cell: (d) => (d.head ? headLabel(d.head) : null),
+                },
+              ] as Column<Brief["push"][number]>[]
+            }
+            getKey={(d) => d.department}
+            tools={{ id: "principal-home-departments", title: `Departments to call about, ${b.year}` }}
+            empty={{ title: `No department stands out as behind in ${b.year}`, message: "Nothing to call about." }}
+          />
+          <NoHeads depts={b.push.slice(0, 3)} />
+          <p className="mt-2 text-sm">
+            <Link to="/reports/departments" className="text-accent underline-offset-4 hover:underline">
+              View all departments
+            </Link>
+            {" · "}
+            <Link to="/reports/brief" className="text-accent underline-offset-4 hover:underline">
+              Open the brief
+            </Link>
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button kind="quiet" asChild>
+              <a href={packHref(b.year)} download>
+                <FileText />
+                Download the council pack
+              </a>
+            </Button>
+            <span className="text-sm text-fg-muted" role="status">
+              {toSettle === 0 ? (
+                "Nothing to settle. It is ready."
+              ) : (
+                <>
+                  <Link to="/reports/brief#pack" className="text-accent underline-offset-4 hover:underline">
+                    {plural(toSettle, "thing")} to settle before it goes
+                  </Link>
+                  {/* Said here, so "4 things" is not a riddle: the checks that are not ready, in one line. */}
+                  {b ? `: ${b.pack.filter((c) => !c.ok).map((c) => c.label).join(", ")}.` : null}
+                </>
+              )}
+            </span>
+          </div>
+        </>
+      )}
+    </Section>
+  )
 }
 
 export function PrincipalHome() {
@@ -135,8 +217,6 @@ export function PrincipalHome() {
     },
   ]
 
-  const toSettle = b ? b.pack.filter((c) => !c.ok).length : 0
-
   return (
     <div className="page space-y-8">
       <PageHeader title="Home" sub="Claims waiting for your approval and how the year is going." action={action} />
@@ -208,71 +288,7 @@ export function PrincipalHome() {
         )}
       </Section>
 
-      <Section title="Departments to call about">
-        {brief.isError ? (
-          <InlineError message="Could not load the year. Nothing has changed." onRetry={() => brief.refetch()} />
-        ) : !b ? (
-          <SkeletonRows rows={2} rowHeight={48} />
-        ) : (
-          <>
-            <Table
-              rows={b.push.slice(0, 3)}
-              columns={
-                [
-                  {
-                    key: "dept",
-                    header: "Department",
-                    exportValue: (d) => deptLabel(d.department),
-                    cell: (d) => (
-                      <Link to={deptUrl(d.department, b.year)} className="font-medium text-accent underline-offset-4 hover:underline">
-                        {deptLabel(d.department)}
-                      </Link>
-                    ),
-                  },
-                  { key: "why", header: "Why", exportValue: (d) => d.reasons[0], cell: (d) => `${d.reasons[0]}.` },
-                  {
-                    key: "head",
-                    header: "Head",
-                    empty: "No head set",
-                    exportValue: (d) => (d.head ? headLabel(d.head) : null),
-                    cell: (d) => (d.head ? headLabel(d.head) : null),
-                  },
-                ] as Column<Brief["push"][number]>[]
-              }
-              getKey={(d) => d.department}
-              tools={{ id: "principal-home-departments", title: `Departments to call about, ${b.year}` }}
-              empty={{ title: `No department stands out as behind in ${b.year}`, message: "Nothing to call about." }}
-            />
-            <NoHeads depts={b.push.slice(0, 3)} />
-            <p className="mt-2 text-sm">
-              <Link to="/reports/departments" className="text-accent underline-offset-4 hover:underline">
-                View all departments
-              </Link>
-              {" · "}
-              <Link to="/reports/brief" className="text-accent underline-offset-4 hover:underline">
-                Open the brief
-              </Link>
-            </p>
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <Button kind="quiet" asChild>
-                <a href={packHref(b.year)} download>
-                  <FileText />
-                  Download the council pack
-                </a>
-              </Button>
-              <span className="text-sm text-fg-muted" role="status">
-                {toSettle === 0 ? (
-                  "Nothing to settle. It is ready."
-                ) : (
-                  <Link to="/reports/brief#pack" className="text-accent underline-offset-4 hover:underline">
-                    {toSettle} {toSettle === 1 ? "thing" : "things"} to settle before it goes
-                  </Link>
-                )}
-              </span>
-            </div>
-          </>
-        )}
-      </Section>
+      <DepartmentsToCallAbout brief={brief} />
 
       <YourPapers />
 

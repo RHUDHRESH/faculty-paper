@@ -6,6 +6,7 @@ import { can, useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { formatCount } from "@/lib/count"
 import { useApi } from "@/lib/query"
+import { paperColumns, registerTotals, type PaperFigures } from "@/pages/paper-columns"
 import { ErpLegend } from "@/pages/pay-parts"
 import { BankFileButton, type BankExports } from "@/pages/bank-file"
 import { PrintStamp } from "@/pages/reports-print"
@@ -59,6 +60,8 @@ type Row = {
   authorised_on: string | null
   paid_on: string | null
   held_back?: number
+  /** The paper's figures (`paper_fields`), the same as in the Paid register and the Report studio. */
+  figures?: PaperFigures | null
 }
 
 type Issue = { ticket: string | null; claim_id: string; ledger: number; claim: number; problem: string }
@@ -153,10 +156,11 @@ export function Statements() {
     ? paidRows.filter((r) => [r.name, r.staff_id, r.department, r.paper_title, r.ticket, r.voucher].some((v) => String(v ?? "").toLowerCase().includes(needle)))
     : paidRows
 
+  const figure = paperColumns<Row>((r) => r.figures, (r) => r.journal)
   const columns: Column<Row>[] = [
     {
       key: "who",
-      header: "Paid to",
+      header: "Faculty",
       className: "w-64",
       exportValue: (r) => [r.name, r.staff_id, r.department].filter(Boolean).join(", "),
       cell: (r) => (
@@ -168,7 +172,7 @@ export function Statements() {
     },
     {
       key: "paper",
-      header: "Paper",
+      header: "Title",
       exportValue: (r) => [unshout(r.paper_title) || "Title not recorded", r.ticket].filter(Boolean).join(", "),
       cell: (r) => (
         <div className="min-w-0">
@@ -191,10 +195,17 @@ export function Statements() {
         </div>
       ),
     },
-    { key: "voucher", header: "Voucher", className: "w-44 whitespace-nowrap", empty: "None", exportValue: (r) => r.voucher, cell: (r) => r.voucher },
+    figure.journal,
+    figure.issn,
+    figure.category,
+    figure.quartile,
+    figure.snip,
+    figure.totalAuthors,
+    figure.authorPosition,
+    { key: "voucher", header: "Voucher", className: "w-44 whitespace-nowrap", empty: "None", defaultHidden: true, exportValue: (r) => r.voucher, cell: (r) => r.voucher },
     {
       key: "amount",
-      header: "Amount",
+      header: "Amount paid",
       align: "right",
       className: "w-52",
       exportKind: "money",
@@ -208,6 +219,16 @@ export function Statements() {
         </div>
       ),
     },
+    { key: "staff_id", header: "Staff ID", defaultHidden: true, exportValue: (r) => r.staff_id, cell: (r) => r.staff_id },
+    { key: "department", header: "Department", defaultHidden: true, exportValue: (r) => r.department, cell: (r) => r.department },
+    { key: "month_paid", header: "Month paid", defaultHidden: true, exportValue: () => s?.label ?? null, cell: () => s?.label ?? null },
+    figure.academicYear,
+    figure.doi,
+    figure.documentType,
+    figure.indexing,
+    { key: "claim_no", header: "Claim number", defaultHidden: true, exportValue: (r) => r.ticket, cell: (r) => r.ticket },
+    { key: "status", header: "Status", defaultHidden: true, exportValue: (r) => (r.amount < 0 ? "Reversed" : "Paid"), cell: (r) => (r.amount < 0 ? "Reversed" : "Paid") },
+    figure.remark,
   ]
 
   return (
@@ -344,7 +365,12 @@ export function Statements() {
             <Table
               rows={shownRows}
               columns={columns}
-              tools={{ id: "statement", title: `Payments in ${s.label}`, subtitle: s.college }}
+              tools={{
+                id: "statement",
+                title: `Payments in ${s.label}`,
+                subtitle: s.college,
+                exportTotals: (all) => registerTotals(all, (r) => r.amount, (r) => r.figures?.snip),
+              }}
               getKey={(r) => r.ledger_id ?? r.claim_id ?? `${r.ticket}-${r.name}`}
               minWidth="56rem"
               caption={`Payments made in ${s.label}`}

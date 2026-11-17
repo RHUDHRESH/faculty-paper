@@ -1,3 +1,5 @@
+import { plural } from "@/lib/count"
+import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 
 import { GROUP_AREA, type Row } from "@/app/search-engine"
@@ -13,17 +15,21 @@ type ConnectionBody = {
 }
 
 /** "3 papers together", "2 steps away via <face> Name", or "Not connected yet". */
-export function ConnectionLine({ meId, to }: { meId: string; to: string }) {
+export function ConnectionLine({ meId, to, enabled = true }: { meId: string; to: string; enabled?: boolean }) {
   const self = to === meId
   const { data, isLoading } = useQuery<ConnectionBody>({
     queryKey: ["connection", meId, to],
     queryFn: () => api<ConnectionBody>(`/api/people/${meId}/connection?to=${encodeURIComponent(to)}`),
-    enabled: !!to && !self,
+    // Each line is one request (a walk of the co-author graph, seconds on the
+    // full record), so a page of results asks only for the rows in view or
+    // being pointed at, never all of them at once.
+    enabled: !!to && !self && enabled,
     retry: false,
     staleTime: 5 * 60_000,
   })
   if (self) return <span className="text-xs text-fg-subtle">This is you</span>
   if (!to) return null
+  if (!enabled && !data) return null
   if (isLoading) return <span aria-hidden className="inline-block h-3 w-28 animate-pulse rounded bg-sunken" />
   const path = data?.paths[0]?.people
   if (!data || !path || data.hops == null || data.hops > 3) return <span className="text-xs text-fg-subtle">Not connected yet</span>
@@ -59,8 +65,8 @@ export function subtitleOf(row: Row): string | undefined {
   const m = row.item?.meta
   if (!m) return row.subtitle
   if (row.kind === "person") {
-    if (m.external) return [row.item!.subtitle, m.papers ? `${m.papers} papers` : null].filter(Boolean).join(" · ")
-    return [m.department, m.designation, m.papers ? `${m.papers} papers` : null].filter(Boolean).join(" · ")
+    if (m.external) return [row.item!.subtitle, m.papers ? `${plural(m.papers, "paper")}` : null].filter(Boolean).join(" · ")
+    return [m.department, m.designation, m.papers ? `${plural(m.papers, "paper")}` : null].filter(Boolean).join(" · ")
   }
   if (row.kind === "paper") return [venueOf(m.venue), m.year].filter(Boolean).join(" · ") || undefined
   return row.subtitle
@@ -107,6 +113,7 @@ export function ResultRow({
   onHover,
   roomy = false,
   meId,
+  eager = false,
   trailing,
 }: {
   row: Row
@@ -117,8 +124,11 @@ export function ResultRow({
   roomy?: boolean
   /** Shows the connection line on colleague rows. */
   meId?: string
+  /** Ask for the connection line at once (the first few rows). The rest wait for a hover or focus. */
+  eager?: boolean
   trailing?: React.ReactNode
 }) {
+  const [pointed, setPointed] = useState(false)
   const m = row.item?.meta ?? {}
   const sub = subtitleOf(row)
   const chips = row.chips.filter((c) => c !== "Saveetha" && !(row.kind === "person" && m.external))
@@ -132,8 +142,14 @@ export function ResultRow({
       role="option"
       aria-selected={active}
       tabIndex={-1}
-      onMouseEnter={onHover}
-      onFocus={onHover}
+      onMouseEnter={() => {
+        setPointed(true)
+        onHover?.()
+      }}
+      onFocus={() => {
+        setPointed(true)
+        onHover?.()
+      }}
       onClick={onPick}
       className={cn(
         "flex cursor-pointer items-center text-left outline-none focus-visible:ring-2 focus-visible:ring-(--color-accent)",
@@ -149,7 +165,7 @@ export function ResultRow({
         {sub && <span className={cn("block truncate text-fg-muted", roomy ? "text-sm" : "text-xs")}>{sub}</span>}
         {roomy && connect && (
           <span className="mt-1 flex">
-            <ConnectionLine meId={meId!} to={connect} />
+            <ConnectionLine meId={meId!} to={connect} enabled={eager || pointed || active} />
           </span>
         )}
         {roomy && withCollege.length > 0 && (

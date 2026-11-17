@@ -1,10 +1,10 @@
-﻿import { Link } from "react-router-dom"
-import { ArrowRight } from "lucide-react"
+﻿import { ArrowRight } from "lucide-react"
 
 import { cn } from "@/lib/cn"
 import { formatCount } from "@/lib/count"
 import { useApi } from "@/lib/query"
 import { money } from "@/ui/paper"
+import { AccessLink } from "@/ui/access-link"
 import { Avatar } from "@/ui/person"
 import { Details } from "@/ui/section"
 import { Meta } from "@/ui/text"
@@ -70,9 +70,10 @@ export function FaceName({
   )
   const cls = cn("inline-flex min-w-0 max-w-full items-center gap-2", className)
   return link ? (
-    <Link to={`/faculty/${person.user_id}`} className={cn(cls, "underline-offset-2 hover:underline")}>
+    // The record is for the college's readers: anybody else sees the name.
+    <AccessLink to={`/faculty/${person.user_id}`} className={cn(cls, "underline-offset-2 hover:underline")} plain={cls}>
       {inner}
-    </Link>
+    </AccessLink>
   ) : (
     <span className={cls}>{inner}</span>
   )

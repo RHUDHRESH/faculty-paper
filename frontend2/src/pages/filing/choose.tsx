@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 import { ArrowRight, RefreshCw, Search } from "lucide-react"
@@ -79,8 +80,8 @@ export function ChooseMethod({
       : count === 0
         ? "Your record hasn't been matched to Scopus yet."
         : unclaimed > 0
-          ? `${unclaimed} of ${count} papers on your record not yet filed.`
-          : `All ${count} papers on your record are already filed.`
+          ? `${unclaimed} of ${plural(count, "paper")} on your record not yet filed.`
+          : `All ${plural(count, "paper")} on your record are already filed.`
   return (
     <div className="space-y-5" data-area="record">
       <div className="grid gap-2.5 sm:grid-cols-3">
@@ -296,7 +297,7 @@ function Picker({
 
       {open.length === 0 ? (
         <p className="rounded-xl border border-line px-4 py-4 text-sm text-fg-muted">
-          All {papers.length} papers on your record are already filed.{" "}
+          All {plural(papers.length, "paper")} on your record are already filed.{" "}
           <Link to="/papers" className="font-medium text-accent hover:underline">
             See My papers
           </Link>

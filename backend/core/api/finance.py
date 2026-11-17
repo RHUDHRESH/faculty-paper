@@ -27,7 +27,7 @@ from ninja.errors import HttpError
 from core.models import DuplicateFinding, MonthlyBatch, MonthlyRow, PaidLedger, User
 from core.services.record_dates import ledger_month_recorded
 from core.social import photo_url
-from core.services import rbac
+from core.services import paper_fields, rbac
 from core import visibility
 from core.services.monthly_processor import start_batch_async
 from core.services.remuneration import Category
@@ -127,6 +127,14 @@ def _ledger_markers(row: PaidLedger, dup_keys: set[str]) -> list[str]:
     return out
 
 
+#: What the ledger file adds after its original columns: the paper's figures, in the
+#: owner's plain names. An unknown one is an empty cell.
+_FIGURE_HEADINGS = (
+    "ISSN", "Category (Engineering / Non-engineering)", "Quartile", "SNIP", "Total number of authors",
+    "Author position", "DOI", "Document type", "Indexing (Scopus)", "Claim number", "Remark", "Academic year",
+)
+
+
 def _ledger_row_dict(
     row: PaidLedger,
     dup_keys: set[str] | None = None,
@@ -137,6 +145,7 @@ def _ledger_row_dict(
         "markers": _ledger_markers(row, dup_keys or set()),
         "id": row.id,
         "claim_id": row.claim_id,
+        "claim_no": row.claim.ticket_number if row.claim_id else None,
         "payout_month": _format_payout_month(row.payout_month),
         "department": row.department,
         "faculty_name": row.faculty_name,
@@ -162,6 +171,18 @@ def _with_held_back(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ) if ids else {}
     for r in rows:
         r["held_back"] = round(held.get(r.get("claim_id"), 0.0), 2)
+    return rows
+
+
+def _with_figures(rows: list[dict[str, Any]], page: list[PaidLedger]) -> list[dict[str, Any]]:
+    """Put `figures` on each row: the paper's ISSN, category, quartile, SNIP, authors,
+    position, DOI, document type, indexing, remark and academic year, from the one
+    resolver every report reads (`paper_fields`)."""
+    from core.services import paper_fields
+
+    found = paper_fields.for_ledger_rows(page)
+    for r, row in zip(rows, page):
+        r["figures"] = {**found[row.pk], "academic_year": paper_fields.academic_year(row.payout_month)}
     return rows
 
 
@@ -243,7 +264,7 @@ def admin_ledger(
         # showed one page's worth beside an Export button that wrote all of
         # them, so the page and the file disagreed about the same filter.
         "total_amount": round(qs.aggregate(s=Sum("amount"))["s"] or 0, 2),
-        "results": _with_held_back([_ledger_row_dict(r, dup_keys, photos) for r in page]),
+        "results": _with_figures(_with_held_back([_ledger_row_dict(r, dup_keys, photos) for r in page]), page),
     }
 
 
@@ -277,9 +298,13 @@ def admin_ledger_export(
             # Last, so a sheet built on the column positions before it still
             # reads the same columns.
             "scheme",
+            *_FIGURE_HEADINGS,
         ]
     )
-    for r in qs:
+    rows = list(qs.select_related("claim"))
+    found = paper_fields.for_ledger_rows(rows)
+    for r in rows:
+        f = found[r.pk]
         w.writerow(
             _csv_row(
                 [
@@ -294,6 +319,9 @@ def admin_ledger_export(
                     r.voucher_number,
                     r.claim_id,
                     _scheme_of(r),
+                    f["issn"], f["category"], f["quartile"], f["snip"], f["total_authors"], f["author_position"],
+                    f["doi"], f["document_type"], f["indexing"], r.claim.ticket_number if r.claim_id else None,
+                    f["remark"], paper_fields.academic_year(r.payout_month),
                 ]
             )
         )

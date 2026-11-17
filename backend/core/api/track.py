@@ -39,8 +39,9 @@ from ninja.errors import HttpError
 
 from core import hod
 from core.api.common import api, require_user, session_auth
-from core.models import Claim, ClaimFlag, ClaimStatus, Role
+from core.models import Claim, ClaimFlag, ClaimStatus, PaidLedger, Role
 from core.services import data_fixes, rbac
+from core.services.record_dates import ledger_month_recorded
 from core.visibility import ERP_CLOSED_STAGE, is_erp_closed
 
 #: The accounts workbook pays some papers nothing on purpose.
@@ -69,7 +70,7 @@ def _amount_note(c: Claim, stage: str) -> tuple[str, str | None]:
     return "Not priced yet", None
 
 #: Roles that may open the Track view: everybody who is not a claimant only.
-TRACK_ROLES = (*rbac.ADMIN_ROLES, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE, Role.HOD)
+TRACK_ROLES = (*rbac.ADMIN_ROLES, *rbac.PRINCIPAL_SEATS, Role.DIRECTOR, Role.FINANCE, Role.HOD)
 
 #: (key, label, who has it). The main path, in order.
 MAIN_STAGES = (
@@ -324,6 +325,16 @@ def track(
     labels = HOD_LABEL if is_head else STAGE_LABEL
     is_office = user.role in rbac.ADMIN_ROLES
     fixes = data_fixes.problems_for([p[2]["id"] for p in page]) if is_office else {}
+    # The month an imported claim was paid is known only where the ledger row
+    # that paid it names one. The Ledger page asks the same question of the
+    # same rows (`ledger_month_recorded`), so the two cannot disagree.
+    month_known = {
+        cid
+        for cid, raw in PaidLedger.objects.filter(
+            claim_id__in=[c.id for c in details.values() if (c.ticket_number or "").startswith("ERP-")]
+        ).values_list("claim_id", "raw_json")
+        if ledger_month_recorded(raw)
+    }
     out: list[dict[str, Any]] = []
     for _d, _a, meta in page:
         c = details.get(meta["id"])
@@ -354,7 +365,12 @@ def track(
             # this system. An imported claim's `paid_at` is the day of the
             # import, which says nothing about when anyone was paid.
             imported = (c.ticket_number or "").startswith("ERP-")
-            if imported and c.payout_month:
+            if imported and c.id not in month_known:
+                # The month on the claim is the import's own. Say so rather
+                # than print it as a payment month.
+                when, month_only = None, True
+                row["paid_month_recorded"] = False
+            elif imported and c.payout_month:
                 when, month_only = c.payout_month, True
             elif c.paid_at:
                 when, month_only = c.paid_at, False
@@ -467,7 +483,7 @@ def why_amount(request: HttpRequest, claim_id: str):
     from core.services.remuneration import CATEGORY_LABELS
 
     user = require_user(request)
-    if user.role not in (*rbac.ADMIN_ROLES, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE):
+    if user.role not in (*rbac.ADMIN_ROLES, *rbac.PRINCIPAL_SEATS, Role.DIRECTOR, Role.FINANCE):
         raise HttpError(403, "Amounts are not shown to this account.")
     c = Claim.objects.select_related("owner", "formula_config").filter(pk=claim_id).first()
     if c is None or c.status == ClaimStatus.DRAFT:

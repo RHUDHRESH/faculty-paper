@@ -23,10 +23,12 @@ from core.api.claims import *  # noqa: F401,F403
 from core.api.journals import *  # noqa: F401,F403
 from core.api.director import *  # noqa: F401,F403
 from core.api.desks import *  # noqa: F401,F403
+from core.api.count_only import *  # noqa: F401,F403
 from core.api.brief import *  # noqa: F401,F403
 from core.api.principal_reports import *  # noqa: F401,F403
 from core.api.dashboard import *  # noqa: F401,F403
 from core.api.top5 import *  # noqa: F401,F403
+from core.api.standings import *  # noqa: F401,F403
 from core.api.discussions import *  # noqa: F401,F403
 from core.api.calendar import *  # noqa: F401,F403
 from core.api.events import *  # noqa: F401,F403
@@ -53,7 +55,9 @@ from core.api.institution import *  # noqa: F401,F403
 from core.api.restore import *  # noqa: F401,F403
 from core.api.media_import import *  # noqa: F401,F403
 from core.api.data_health import *  # noqa: F401,F403
+from core.api.data_fill import *  # noqa: F401,F403
 from core.api.integrations_admin import *  # noqa: F401,F403
+from core.api.user_keys import *  # noqa: F401,F403
 from core.api.scopus_profiles import *  # noqa: F401,F403
 from core.api.my_payments import *  # noqa: F401,F403
 from core.api.applicant import *  # noqa: F401,F403
@@ -62,6 +66,7 @@ from core.api.review_marks import *  # noqa: F401,F403
 from core.api.social import *  # noqa: F401,F403
 from core.api.paper_lookup import *  # noqa: F401,F403
 from core.api.leaderboard import *  # noqa: F401,F403
+from core.api.leaderboard_weights import *  # noqa: F401,F403
 from core.api.suggestions import *  # noqa: F401,F403
 from core.api.rewards import *  # noqa: F401,F403
 from core.api.social_plus import *  # noqa: F401,F403

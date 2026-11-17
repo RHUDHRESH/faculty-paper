@@ -27,7 +27,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from core.models import ScoutRun, User
-from core.services import ai, anthropic_provider, integrations
+from core.services import ai, anthropic_provider, integrations, user_keys
 from core.services import ai_harness as harness
 from core.services import coauthors as graph
 from core.services import research_picture as picture
@@ -146,7 +146,7 @@ def scopus_recent(topics: list[str], *, per_topic: int = 5, max_topics: int = 3)
     """
     from core.services import scopus
 
-    if not integrations.get("scopus.api_key"):
+    if not integrations.get("scopus.api_key") or user_keys.blocked("scopus"):
         return []
     since = timezone.localdate().year - 3
     out: list[dict[str, Any]] = []
@@ -326,7 +326,18 @@ def _remember(reply: harness.Reply, seen: list[dict[str, str]], literature: list
 
 
 def scout(user: User) -> tuple[dict[str, Any], dict[str, Any]]:
-    """The full answer and the token usage. Raises ai.AIError on failure."""
+    """The full answer and the token usage. Raises ai.AIError on failure.
+
+    Runs on this person's own Claude and Scopus keys when they brought them
+    (the scout is queued as a job, so the request that asked is long gone).
+    """
+    with user_keys.acting_as(user):
+        return _scout(user)
+
+
+def _scout(user: User) -> tuple[dict[str, Any], dict[str, Any]]:
+    if user_keys.blocked("ai"):
+        raise ai.AIError(user_keys.blocked_message("ai"), code="own_key_required")
     if ai.provider_name() != "anthropic" or anthropic_provider.missing_settings():
         raise ai.AIError("The research scout needs the Claude provider (ANTHROPIC_API_KEY).",
                          code="not_configured")

@@ -11,7 +11,29 @@ from typing import Any
 
 from core.services import report_engine
 
+#: The owner's list, in the owner's order: what the register of paid papers shows.
+PAID_PAPERS_REGISTER = [
+    "paper", "journal", "issn", "category", "quartile", "snip", "total_authors", "author_position", "amount",
+    "faculty", "staff_id", "department", "month", "academic_year", "doi", "document_type", "indexing",
+    "claim_no", "status", "remark",
+]
+
 TEMPLATES: tuple[dict[str, Any], ...] = (
+    {
+        "key": "paid-papers-register",
+        "name": "Paid papers register",
+        "description": (
+            "Every payment with its paper's journal figures: title, journal, ISSN, category, quartile, SNIP, "
+            "authors, position and amount, then who, when and the remark. Files end with a total and an average."
+        ),
+        "definition": {
+            "dataset": "payments",
+            "columns": PAID_PAPERS_REGISTER,
+            "sort": [{"field": "month", "dir": "desc"}, {"field": "faculty", "dir": "asc"}],
+            "limit": 20000,
+            "totals": True,
+        },
+    },
     {
         "key": "monthly-payment-statement",
         "name": "Monthly payment statement",

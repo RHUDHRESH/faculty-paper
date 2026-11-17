@@ -94,7 +94,7 @@ def admin_faults(request: HttpRequest):
     # Read-only, and the principal oversees the scheme: they can already read
     # the audit log, the payable queue and every record, so hiding stalled
     # work from them was an inconsistency rather than a boundary.
-    if not (rbac.can_manage_users(user.role) or user.role == Role.PRINCIPAL):
+    if not (rbac.can_manage_users(user.role) or user.role in rbac.PRINCIPAL_SEATS):
         raise HttpError(403, "Forbidden")
     # The same checks for every reader allowed them, so the answer is shared
     # until something is written (core/services/aggregate_cache.py).
@@ -112,7 +112,7 @@ def admin_fault_items(request: HttpRequest, key: str):
     long it has been waiting. The count on the Faults screen is this list's
     length, so the two cannot disagree."""
     user = require_user(request)
-    if not (rbac.can_manage_users(user.role) or user.role == Role.PRINCIPAL):
+    if not (rbac.can_manage_users(user.role) or user.role in rbac.PRINCIPAL_SEATS):
         raise HttpError(403, "Forbidden")
     sets = _fault_sets(timezone.now())
     if key not in sets:

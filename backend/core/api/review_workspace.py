@@ -29,7 +29,7 @@ from core.api.common import api, require_user, session_auth
 from core.api.flags import file_check_to_dict, flag_to_dict
 from core.api.journals import get_claim
 from core.models import Claim, Role
-from core.services import rbac
+from core.services import rbac, student_teams
 
 #: Who may open the workspace: the office, the Principal (approves) and the
 #: Director (authorises). Finance pays from its own list; faculty use their
@@ -58,6 +58,8 @@ def claim_workspace(request: HttpRequest, claim_id: str):
             "file_checks": [file_check_to_dict(c) for c in claim.file_checks.all()],
             # What the claimant's proof locker found on the same files, by URL.
             "locker_checks": proof_locker.checks_by_url(claim),
+            # A student-project claim's team, checked line by line; null otherwise.
+            "team_check": student_teams.team_check(claim),
         }
 
     return {

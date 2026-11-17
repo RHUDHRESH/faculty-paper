@@ -68,7 +68,7 @@ def dashboard(request: HttpRequest, recent: int = 10):
     return out
 
 
-LEDGER_ROLES = {Role.RESEARCH_CELL, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE, Role.SUPER_ADMIN}
+LEDGER_ROLES = {Role.RESEARCH_CELL, Role.PRINCIPAL, Role.VICE_PRINCIPAL, Role.DIRECTOR, Role.FINANCE, Role.SUPER_ADMIN}
 
 
 def _reports_queryset(
@@ -333,7 +333,7 @@ def _year_on_year_rows(qs) -> list[dict[str, Any]]:
 
     def counts_for(year: int) -> dict[str, int]:
         return {
-            (r["owner__department"] or "Department not recorded"): r["n"]
+            (r["owner__department"] or college_totals.NO_DEPARTMENT): r["n"]
             for r in qs.filter(publication_year=year)
             .values("owner__department")
             .annotate(n=Count("id"))
@@ -341,7 +341,7 @@ def _year_on_year_rows(qs) -> list[dict[str, Any]]:
 
     now, before = counts_for(this_year), counts_for(last_year)
     rows = []
-    for department in sorted(set(now) | set(before)):
+    for department in sorted(set(now) | set(before), key=lambda d: (d == college_totals.NO_DEPARTMENT, d)):
         current, previous = now.get(department, 0), before.get(department, 0)
         rows.append(
             {
@@ -439,7 +439,8 @@ def _report(user: User, year: Optional[int], department: Optional[str], month: O
             {"key": b["key"], "count": b["count"], "amount": round(b["amount"], 2)}
             for b in buckets.values()
         ]
-        out.sort(key=lambda b: -b["count"])
+        # What is unknown is listed last, never first: it is not a category.
+        out.sort(key=lambda b: (b["key"] == label_blank, -b["count"]))
         return out
 
     # A publication counts institutionally even when it carries no money.
@@ -490,7 +491,7 @@ def _report(user: User, year: Optional[int], department: Optional[str], month: O
 
     dept_rows: dict[str, dict[str, Any]] = {}
     if record is None:
-        for r in rows("owner__department", label_blank="Department not recorded"):
+        for r in rows("owner__department", label_blank=college_totals.NO_DEPARTMENT):
             dept_rows[r["key"].casefold()] = {**r, "amount": 0.0}
     else:
         for paper in record:
@@ -502,10 +503,25 @@ def _report(user: User, year: Optional[int], department: Optional[str], month: O
             p["department"].casefold(), {"key": p["department"], "count": 0, "amount": 0.0}
         )
         slot["amount"] += p["amount"]
+    # Papers whose author has no department are not a department: they are
+    # listed last, under what they are, and never lead a ranking.
     by_department = sorted(
-        ({**r, "amount": round(r["amount"], 2)} for r in dept_rows.values()),
-        key=lambda r: (-r["count"], -r["amount"]),
+        (
+            {
+                **r,
+                "amount": round(r["amount"], 2),
+                **({"label": "No department on the account"} if r["key"] == college_totals.NO_DEPARTMENT else {}),
+            }
+            for r in dept_rows.values()
+        ),
+        key=lambda r: (r["key"] == college_totals.NO_DEPARTMENT, -r["count"], -r["amount"]),
     )
+    # The unknown bucket is listed last, says how many it holds and where the list to fix is.
+    for r in by_department:
+        if r["key"] == college_totals.NO_DEPARTMENT:
+            r["unknown"] = True
+            r["label"] = f"{r['key']} ({r['count']:,})"
+            r["fix_path"] = college_totals.FIX_ACCOUNTS_PATH
     if record is not None:
         paid_by_year: dict[int, float] = {}
         for p in (p for p in pays if p["month"]):
@@ -1074,37 +1090,53 @@ def search_claims(
 
 
 _EXPORT_HEADERS = [
-    "Ticket", "Status", "Faculty", "Department", "Staff ID",
-    "Paper title", "Journal", "ISSN", "DOI", "Year",
-    "Publication type", "Indexed in", "Quartile", "SNIP",
-    "Engineering class", "Authors", "Position", "Author point",
-    "Category", "Base amount", "QF amount", "Remuneration",
-    "Payout month", "Voucher",
+    "Claim no.", "Status", "Faculty", "Department", "Staff ID",
+    "Title", "Journal name", "ISSN", "Category (Engineering / Non-engineering)", "Quartile", "SNIP",
+    "Total number of authors", "Author position", "Author point",
+    "Pricing category", "Base amount", "QF amount", "Remuneration", "Amount paid",
+    "Month paid", "Academic year", "Voucher",
+    "DOI", "Year", "Document type", "Publication type", "Indexed in", "Indexing (Scopus)", "Remark",
 ]
 
 
 #: Roughly the width each column needs to be read without adjustment, in the
 #: order of _EXPORT_HEADERS.
 _EXPORT_WIDTHS = [
-    14, 12, 26, 22, 12, 60, 40, 14, 28, 8, 20, 18, 10, 8,
-    18, 9, 9, 12, 14, 13, 12, 14, 13, 14,
+    14, 12, 26, 22, 12,
+    60, 40, 12, 20, 10, 8,
+    12, 10, 12,
+    14, 13, 12, 14, 13,
+    13, 12, 14,
+    28, 8, 20, 20, 18, 16, 36,
 ]
 
 
-def _export_row(c: Claim) -> list:
+def _export_row(c: Claim, found: dict | None = None) -> list:
+    from core.services import paper_fields
+
+    found = found if found is not None else paper_fields.for_claim(c)
+    month = c.payout_month or (c.paid_at.date() if c.paid_at else None)
+    paid = c.status == ClaimStatus.PAID
     return [
         c.ticket_number, c.status, c.owner.name, c.owner.department,
-        c.staff_id, c.paper_title, c.journal_title, c.issn, c.doi,
-        c.publication_year, c.publication_type, c.indexing_level,
-        c.quartile, c.snip, c.engineering_class, c.total_authors,
-        c.author_position, c.author_point, c.remuneration_category,
-        c.base_amount, c.qf_amount, c.remuneration,
-        _format_payout_month(c.payout_month), c.voucher_number,
+        c.staff_id, found["title"] or c.paper_title, found["journal"] or c.journal_title, found["issn"],
+        found["category"], found["quartile"], found["snip"],
+        found["total_authors"], found["author_position"], c.author_point,
+        c.remuneration_category, c.base_amount, c.qf_amount, c.remuneration,
+        c.remuneration if paid else None,
+        _format_payout_month(month) if paid else None,
+        paper_fields.academic_year(month) if paid else None, c.voucher_number,
+        found["doi"], c.publication_year, found["document_type"], c.publication_type, c.indexing_level,
+        found["indexing"], found["remark"],
     ]
 
 
 def _claims_file(rows, stem: str, fmt: str) -> HttpResponse:
     """The same rows as a workbook or as CSV, named the same either way."""
+    from core.services import paper_fields
+
+    rows = list(rows)
+    found = paper_fields.for_claims(rows)
     if fmt == "xlsx":
         from openpyxl import Workbook
 
@@ -1115,7 +1147,7 @@ def _claims_file(rows, stem: str, fmt: str) -> HttpResponse:
         for c in rows:
             # openpyxl treats a leading "=" as a formula, so the same
             # injection guard as the CSV path applies.
-            safe_append(ws, ["" if v is None else v for v in _csv_row(_export_row(c))])
+            safe_append(ws, ["" if v is None else v for v in _csv_row(_export_row(c, found[c.pk]))])
         ws.freeze_panes = "A2"
         # Enough width to read a paper title without widening every column by
         # hand, which is what the office did to every export it received.
@@ -1134,7 +1166,7 @@ def _claims_file(rows, stem: str, fmt: str) -> HttpResponse:
     w = csv_writer(buf)
     w.writerow(_csv_row(_EXPORT_HEADERS))
     for c in rows:
-        w.writerow(_csv_row(_export_row(c)))
+        w.writerow(_csv_row(_export_row(c, found[c.pk])))
     res = HttpResponse(buf.getvalue(), content_type="text/csv")
     res["Content-Disposition"] = f'attachment; filename="{stem}.csv"'
     return res

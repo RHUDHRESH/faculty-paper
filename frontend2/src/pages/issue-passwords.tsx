@@ -45,6 +45,7 @@ const ROLE_WORDS: Record<string, string> = {
   FACULTY: "Faculty",
   HOD: "Heads of department",
   PRINCIPAL: "Principal",
+  VICE_PRINCIPAL: "Vice principal",
   DIRECTOR: "Director",
   FINANCE: "Finance",
   RESEARCH_CELL: "Research office",

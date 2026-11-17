@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useId, useState } from "react"
 import { Link } from "react-router-dom"
 import { AlertTriangle, ArrowRight, BadgeCheck, ExternalLink, LoaderCircle, Search } from "lucide-react"
@@ -13,6 +14,7 @@ import { Meta } from "@/ui/text"
 import { listOf, sentenceCase, SourceTag, Tag } from "./bits"
 import { readableDate } from "./identifiers"
 import type { PaperLookup } from "./lookup"
+import { KeyText } from "@/pages/my-keys"
 
 /**
  * The first thing on the form: one box that takes whatever the claimant has.
@@ -264,7 +266,7 @@ export function FoundCard({
       )}
 
       {failed.length > 0 && (
-        <p className="text-sm text-fg-subtle">{failed.map((s) => s.detail).join(" ")}</p>
+        <p className="text-sm text-fg-subtle"><KeyText text={failed.map((s) => s.detail).join(" ")} /></p>
       )}
     </section>
   )
@@ -303,7 +305,7 @@ export function LookupProblem({
               >
                 <span className="block text-base font-medium">{c.title || "Untitled record"}</span>
                 <Meta className="mt-0.5 block">
-                  {[c.journal, c.year ? String(c.year) : null, c.author_count ? `${c.author_count} authors` : null]
+                  {[c.journal, c.year ? String(c.year) : null, c.author_count ? `${plural(c.author_count, "author")}` : null]
                     .filter(Boolean)
                     .join(" · ")}
                 </Meta>

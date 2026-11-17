@@ -58,7 +58,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 
-from core.services import integrations
+from core.services import integrations, user_keys
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +163,9 @@ def model_name() -> str:
 
 def fast_model_name() -> str:
     """The quicker model, or the one model when no second one is named."""
+    if user_keys.own_in_use("ai"):
+        # AI_FAST_MODEL names a model of the college's service, not of this person's.
+        return model_name()
     return (getattr(settings, "AI_FAST_MODEL", "") or "").strip() or model_name()
 
 
@@ -224,6 +227,23 @@ def _headers() -> dict[str, str]:
     }
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):  # noqa: D401 - a refusal, not a follow
+        return None
+
+
+def _open(req, timeout: int):
+    """``urlopen``; for a person's own address, never following a redirect.
+
+    A service the person named could answer "go to http://internal-host/" and
+    have this server fetch it. Their address is checked before it is saved;
+    this closes the other door.
+    """
+    if user_keys.own_in_use("ai"):
+        return urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout)
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
 def _request(path: str, payload: dict | None = None, *, timeout: int, model: str | None = None):
     url = f"{base_url()}{path}"
     if payload is None:
@@ -233,7 +253,7 @@ def _request(path: str, payload: dict | None = None, *, timeout: int, model: str
             url, data=json.dumps(payload).encode("utf-8"), headers=_headers(), method="POST"
         )
     try:
-        return urllib.request.urlopen(req, timeout=timeout)
+        return _open(req, timeout)
     except urllib.error.HTTPError as exc:
         body = ""
         try:
@@ -244,7 +264,8 @@ def _request(path: str, payload: dict | None = None, *, timeout: int, model: str
         if exc.code in (401, 403):
             raise OpenAIError(
                 "rejected",
-                f"{host() or 'The AI service'} refused the API key. Check AI_API_KEY.",
+                f"{host() or 'The AI service'} refused the API key. "
+                + ("Check your key in your Profile, under My API keys." if user_keys.own_in_use("ai") else "Check AI_API_KEY."),
             ) from exc
         if exc.code == 429:
             headers = exc.headers or {}

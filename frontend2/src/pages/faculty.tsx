@@ -15,7 +15,7 @@ import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { Avatar } from "@/ui/person"
-import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { EmptyState, ErrorState, SkeletonRows, NotOpen } from "@/ui/state"
 import { Answer } from "@/ui/answer"
 import { Table, type Column } from "@/ui/table"
 import { Meta } from "@/ui/text"
@@ -26,6 +26,7 @@ import {
   type DirectoryPayload,
   type FacultyRow,
   type MissingKey,
+  type StandingFigures,
 } from "@/pages/faculty-types"
 
 /**
@@ -299,10 +300,7 @@ function Directory() {
         <SkeletonRows rows={8} rowHeight={64} />
       ) : list.isError ? (
         list.error?.status === 403 ? (
-          <ErrorState
-            title="Not open to this account"
-            message="The directory is for the college office and heads of department."
-          />
+          <NotOpen message="The directory is for the college office and heads of department." />
         ) : (
           <ErrorState
             title="Could not load the faculty"
@@ -477,6 +475,30 @@ function facultyColumns(o: { year: number; money: boolean; head: boolean; office
         ),
     })
   }
+  // The standings numbers, off until asked for in the Columns menu. A head's rows carry no incentive, so no column.
+  const figures = (key: string, header: string, kind: "number" | "money", pick: (s: StandingFigures) => number | undefined, show: (v: number) => string): Column<FacultyRow> => ({
+    key,
+    header,
+    align: "right",
+    defaultHidden: true,
+    exportValue: (r) => pick(r.standing?.all ?? { snip: 0, count: 0 }) ?? null,
+    exportKind: kind,
+    cell: (r) => {
+      const all = r.standing ? pick(r.standing.all) : undefined
+      if (all == null) return null
+      return (
+        <div>
+          <span className="tabular block">{show(all)}</span>
+          <span className="tabular block text-sm text-fg-muted">{show(pick(r.standing!.year) ?? 0)} this year</span>
+        </div>
+      )
+    },
+  })
+  cols.push(
+    figures("standing_snip", "Cumulative SNIP", "number", (s) => s.snip, (v) => v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })),
+    figures("standing_count", "Papers settled", "number", (s) => s.count, count)
+  )
+  if (o.money) cols.push(figures("standing_money", "Incentive paid, all time", "money", (s) => s.remuneration, (v) => money(v)))
   cols.push(
     {
       key: "citations",

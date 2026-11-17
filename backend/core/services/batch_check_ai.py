@@ -42,7 +42,7 @@ from django.utils import timezone
 from ninja.errors import HttpError
 
 from core.models import AuditLog
-from core.services import ai, ai_harness as harness, batch_check
+from core.services import ai, ai_harness as harness, batch_check, user_keys
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +127,7 @@ def status() -> dict[str, Any]:
     return {
         "state": "off",
         "model": "", "host": "", "hosted": False,
-        "message": OFF if code in ("not_configured", "misconfigured", None) else
+        "message": (h.get("detail") if code == "own_key_required" else None) or OFF if code in ("not_configured", "misconfigured", None, "own_key_required") else
         "AI is not answering right now.",
     }
 

@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 
@@ -106,7 +107,7 @@ export function ErpRemark() {
       })
       setOpen(false)
       await refresh()
-      toast.undoable(`Re-marked ${out.changed.toLocaleString("en-IN")} claims`, () => void undo(out.batch_id))
+      toast.undoable(`Re-marked ${plural(out.changed, "claim")}`, () => void undo(out.batch_id))
     } catch (err) {
       toast.fail(err, "Could not re-mark the claims. Nothing was changed.")
     } finally {
@@ -119,7 +120,7 @@ export function ErpRemark() {
     try {
       const out = await api<{ restored: number }>("/api/admin/erp-remark/undo", { method: "POST", json: { batch_id: batchId } })
       await refresh()
-      toast.ok(`Restored ${out.restored.toLocaleString("en-IN")} claims to Paid`)
+      toast.ok(`Restored ${plural(out.restored, "claim")} to Paid`)
     } catch (err) {
       toast.fail(err, "Could not undo. Nothing was changed.")
     } finally {
@@ -138,7 +139,7 @@ export function ErpRemark() {
         <p className="mt-0.5 text-sm text-fg-muted">
           {n > 0
             ? `Put ${n === 1 ? "it" : "them"} back to Checked: the Principal approves an amount, the Director authorises it and Finance pays it in the run.${held ? ` ${held.toLocaleString("en-IN")} stay held for the research office.` : ""}`
-            : `Last run: ${last?.changed.toLocaleString("en-IN")} claims. You can put them back.`}
+            : `Last run: ${plural(last?.changed, "claim")}. You can put them back.`}
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">

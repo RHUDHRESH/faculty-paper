@@ -262,6 +262,10 @@ export function NotOpen({ message, className }: { message: string; className?: s
       </span>
       <h1 className="text-base font-semibold text-fg">Not open to this account</h1>
       <p className="max-w-sm text-pretty text-sm text-fg-muted">{message}</p>
+      {/* A closed gate does not open on a second try, so the way out is home. */}
+      <Button kind="default" size="sm" asChild className="mt-4">
+        <Link to="/">Go home</Link>
+      </Button>
     </div>
   )
 }

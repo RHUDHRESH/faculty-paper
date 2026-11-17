@@ -173,8 +173,13 @@ export function DirectorHome() {
                 tone: longest != null && longest > 30 ? "critical" : "neutral",
               },
               {
-                value: budget.data ? (left != null ? money(left) : "Not set") : null,
-                label: budget.data ? `left in the ${budget.data.financial_year} budget` : "left in the budget",
+                value: budget.data ? (left != null ? money(left) : "No budget set") : null,
+                // "Not set left in the 2026-27 budget" read as a sentence nobody wrote.
+                label: budget.data
+                  ? left != null
+                    ? `left in the ${budget.data.financial_year} budget`
+                    : `for ${budget.data.financial_year}`
+                  : "left in the budget",
                 to: "/budget",
               },
               {

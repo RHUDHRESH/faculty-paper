@@ -1,9 +1,11 @@
 import { Link } from "react-router-dom"
 import { Ellipsis, Flag, Info } from "lucide-react"
 
+import { useAuth } from "@/app/auth"
 import { useApiMutation } from "@/lib/query"
 import { cn } from "@/lib/cn"
 import { Button } from "@/ui/button"
+import { canAcceptForCountOnly } from "@/ui/count-only"
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/ui/menu"
 import { money, stageOf } from "@/ui/paper"
 import { toast } from "@/ui/toast"
@@ -25,6 +27,13 @@ export type DecisionDialog =
   | "second"
   | "override"
   | "edit"
+  | "countonly"
+
+/** Whether this person may accept this claim for count only, from where it stands. */
+function useMayCountOnly(claim: WorkspaceClaim): boolean {
+  const { me } = useAuth()
+  return claim.claim_reason !== "COUNT_ONLY" && canAcceptForCountOnly(me?.role, claim.status)
+}
 
 const QUEUE_PAGE: Record<QueueName, { to: string; label: string }> = {
   clearing: { to: "/clearing", label: "Clearing queue" },
@@ -113,6 +122,7 @@ export function DecisionBar({
           )}
         </div>
         {by && <p className="text-sm text-fg-muted max-lg:hidden">Cleared by {by}.</p>}
+        <MoreMenu claim={claim} isSuperAdmin={isSuperAdmin} open={open} show={{}} only="countonly" />
       </Bar>
     )
   }
@@ -226,18 +236,23 @@ function MoreMenu({
   isSuperAdmin,
   open,
   show,
+  only,
 }: {
   claim: WorkspaceClaim
   isSuperAdmin: boolean
   open: (d: DecisionDialog) => void
   show: { reject?: boolean; flag?: boolean; phoneOnly?: boolean }
+  /** The Principal's bar has no tools of the cell's: its menu holds this one action. */
+  only?: "countonly"
 }) {
+  const mayCountOnly = useMayCountOnly(claim)
+  const solo = only === "countonly"
   const active = claim.status === "SUBMITTED"
-  const canVerify = active || claim.status === "CLEARED"
-  const legacy = LEGACY_STATUSES.includes(claim.status ?? "")
-  const second = !!claim.needs_second_approval
-  const edit = isSuperAdmin
-  const hasTools = canVerify || second || legacy || edit
+  const canVerify = !solo && (active || claim.status === "CLEARED")
+  const legacy = !solo && LEGACY_STATUSES.includes(claim.status ?? "")
+  const second = !solo && !!claim.needs_second_approval
+  const edit = !solo && isSuperAdmin
+  const hasTools = canVerify || second || legacy || edit || mayCountOnly
   // On a wide screen reject and flag have buttons of their own; the menu
   // repeats them only where the buttons are hidden.
   const phoneOnly = show.phoneOnly ? "lg:hidden" : ""
@@ -266,6 +281,7 @@ function MoreMenu({
         {second && <MenuItem onSelect={() => open("second")}>Add second signature</MenuItem>}
         {legacy && <MenuItem onSelect={() => open("override")}>Move off a retired status</MenuItem>}
         {edit && <MenuItem onSelect={() => open("edit")}>Edit fields, with a reason</MenuItem>}
+        {mayCountOnly && <MenuItem onSelect={() => open("countonly")}>Accept for count only</MenuItem>}
       </MenuContent>
     </Menu>
   )

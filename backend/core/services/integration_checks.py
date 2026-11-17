@@ -23,6 +23,7 @@ ANTHROPIC_MODELS = "https://api.anthropic.com/v1/models"
 #: The Scopus Search API, the one this app already uses; the query is an author-name search.
 SCOPUS_AUTHOR_SEARCH = "https://api.elsevier.com/content/search/scopus"
 OPENALEX_WORKS = "https://api.openalex.org/works"
+SEMANTIC_SCHOLAR_SEARCH = "https://api.semanticscholar.org/graph/v1/paper/search"
 #: A name from the history of physics: it returns an answer for any working key
 #: and names nobody at the college.
 SCOPUS_SAFE_QUERY = "AUTHLASTNAME(Einstein) AND AUTHFIRST(Albert)"
@@ -79,13 +80,23 @@ def _guarded(who: str, secrets: list[str], call) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def check_ai() -> dict[str, Any]:
-    base, key, model = integrations.get("ai.base_url"), integrations.get("ai.api_key"), integrations.get("ai.model")
+def _college_get(name: str) -> str:
+    # The college's own value, whoever is signed in: the Integrations page tests the college's key.
+    return integrations.get(name, user=None)
+
+
+def _college_count(provider: str, headers: Any = None) -> None:
+    integrations.record_call(provider, headers=headers, user=None)
+
+
+def check_ai(get=_college_get, count=_college_count) -> dict[str, Any]:
+    base, key, model = get("ai.base_url"), get("ai.api_key"), get("ai.model")
     if not (base and key):
         return _result(False, time.monotonic(), "Set the base URL and the API key first.")
 
     def call(started: float) -> dict[str, Any]:
         res = _http_get(f"{base.rstrip('/')}/models", headers={"Authorization": f"Bearer {key}", "Accept": "application/json"})
+        count("ai")
         if res.status_code != 200:
             return _result(False, started, _status_message(res, "The AI service", [key]))
         listed: list[str] = []
@@ -107,8 +118,8 @@ def check_ai() -> dict[str, Any]:
     return _guarded("The AI service", [key], call)
 
 
-def check_anthropic() -> dict[str, Any]:
-    key = integrations.get("anthropic.api_key")
+def check_anthropic(get=_college_get, count=_college_count) -> dict[str, Any]:
+    key = get("anthropic.api_key")
     if not key:
         return _result(False, time.monotonic(), "Set the API key first.")
 
@@ -117,6 +128,7 @@ def check_anthropic() -> dict[str, Any]:
             ANTHROPIC_MODELS, params={"limit": 1},
             headers={"x-api-key": key, "anthropic-version": "2023-06-01", "Accept": "application/json"},
         )
+        count("ai")
         if res.status_code != 200:
             return _result(False, started, _status_message(res, "Anthropic", [key]))
         return _result(True, started, "The key works.")
@@ -124,8 +136,8 @@ def check_anthropic() -> dict[str, Any]:
     return _guarded("Anthropic", [key], call)
 
 
-def check_scopus() -> dict[str, Any]:
-    key, token = integrations.get("scopus.api_key"), integrations.get("scopus.inst_token")
+def check_scopus(get=_college_get, count=_college_count) -> dict[str, Any]:
+    key, token = get("scopus.api_key"), get("scopus.inst_token")
     if not key:
         return _result(False, time.monotonic(), "Set the API key first.")
 
@@ -134,7 +146,7 @@ def check_scopus() -> dict[str, Any]:
         if token:
             headers["X-ELS-Insttoken"] = token
         res = _http_get(SCOPUS_AUTHOR_SEARCH, headers=headers, params={"query": SCOPUS_SAFE_QUERY, "count": 1})
-        integrations.record_call("scopus", headers=res.headers)
+        count("scopus", res.headers)
         if res.status_code != 200:
             return _result(False, started, _status_message(res, "Scopus", [key, token]))
         message = "The key works."
@@ -146,23 +158,42 @@ def check_scopus() -> dict[str, Any]:
     return _guarded("Scopus", [key, token], call)
 
 
-def check_openalex() -> dict[str, Any]:
+def check_openalex(get=_college_get, count=_college_count) -> dict[str, Any]:
     from core.services.search import upstream
 
-    key = integrations.get("openalex.api_key")
+    key = get("openalex.api_key")
+    mailto = get("openalex.mailto") or _college_get("openalex.mailto") or upstream.DEFAULT_CONTACT
 
     def call(started: float) -> dict[str, Any]:
-        params: dict[str, Any] = {"per-page": 1, "mailto": upstream.contact()}
+        params: dict[str, Any] = {"per-page": 1, "mailto": mailto}
         if key:
             params["api_key"] = key
         res = _http_get(OPENALEX_WORKS, params=params, headers={"Accept": "application/json", "User-Agent": "SECPublicationPortal/1.0"})
-        integrations.record_call("openalex")
+        count("openalex")
         if res.status_code != 200:
             return _result(False, started, _status_message(res, "OpenAlex", [key]))
         note = "OpenAlex answered" + (" and accepted the key." if key else ". No key is set, which is fine.")
         return _result(True, started, note)
 
     return _guarded("OpenAlex", [key], call)
+
+
+def check_semanticscholar(get=_college_get, count=_college_count) -> dict[str, Any]:
+    key = get("semanticscholar.api_key")
+    if not key:
+        return _result(False, time.monotonic(), "Set the API key first.")
+
+    def call(started: float) -> dict[str, Any]:
+        res = _http_get(
+            SEMANTIC_SCHOLAR_SEARCH, params={"query": "graph", "limit": 1, "fields": "title"},
+            headers={"x-api-key": key, "Accept": "application/json"},
+        )
+        count("semanticscholar")
+        if res.status_code != 200:
+            return _result(False, started, _status_message(res, "Semantic Scholar", [key]))
+        return _result(True, started, "The key works.")
+
+    return _guarded("Semantic Scholar", [key], call)
 
 
 CHECKS = {
@@ -172,6 +203,9 @@ CHECKS = {
     "openalex": check_openalex,
 }
 
+#: Checks only a person's own key has (the college page has no Semantic Scholar card).
+PERSONAL_CHECKS = {**CHECKS, "semanticscholar": check_semanticscholar}
+
 
 def run(provider: str) -> dict[str, Any]:
     result = CHECKS[provider]()
@@ -179,4 +213,27 @@ def run(provider: str) -> dict[str, Any]:
     return result
 
 
-__all__ = ["CHECKS", "run"]
+def run_with(provider: str, *, get, count) -> dict[str, Any]:
+    """The same check, on values the caller supplies (a person's own key), recording nothing for the college.
+
+    A person's AI key is one record whose ``kind`` says which of the two AI
+    checks applies. Counting goes through ``count(provider, headers)``, which
+    here is the person's own counter.
+    """
+    def counter(name: str, headers: Any = None) -> None:
+        count(name, headers)
+
+    if provider == "ai":
+        if get("ai.provider") == "anthropic":
+            provider = "anthropic"
+        else:
+            from core.services import user_keys
+
+            # The address is the person's to type, so it is checked before the server calls it.
+            problem = user_keys.public_address_problem(get("ai.base_url"))
+            if problem:
+                return _result(False, time.monotonic(), problem)
+    return PERSONAL_CHECKS[provider](get=get, count=counter)
+
+
+__all__ = ["CHECKS", "run", "run_with"]

@@ -10,7 +10,7 @@ from urllib.parse import quote, urlencode
 import httpx
 from django.conf import settings
 
-from core.services import integrations
+from core.services import integrations, user_keys
 from core.services.normalize import normalize_doi, normalize_issn
 
 SCOPUS_BASE = "https://api.elsevier.com/content"
@@ -36,6 +36,8 @@ class ScopusError(Exception):
 
 
 def _api_key() -> str:
+    if user_keys.blocked("scopus"):
+        raise ScopusError(user_keys.blocked_message("scopus"), code="own_key_required")
     key = integrations.get("scopus.api_key")
     if not key or key == "your-scopus-api-key":
         raise ScopusError("SCOPUS_API_KEY is not configured", code="unauthorized")
@@ -46,7 +48,9 @@ def scopus_fetch(url: str, timeout: float = 30.0, *, throttled: bool = False) ->
     """`throttled`: the caller paces itself (the nightly sync), so the
     per-process 30-a-minute guard for interactive lookups does not apply."""
     if not throttled:
-        _check_rate_limit()
+        # A person's own key has its own allowance; they do not share the college's minute.
+        tag = user_keys.scope_tag("scopus")
+        _check_rate_limit(f"scopus:{tag}" if tag else "scopus")
     key = _api_key()
     sep = "&" if "?" in url else "?"
     if "apiKey=" not in url:

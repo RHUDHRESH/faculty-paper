@@ -44,7 +44,7 @@ function board(over: Partial<HonoursBoard> = {}): HonoursBoard {
     college_trend: [{ year: 2025, papers: 10 }, { year: 2026, papers: 23 }],
     top_topics: [], top_journals: [], topic_options: ["AI"], journal_options: ["IEEE Access"],
     totals: { papers: 23, people: 5, people_with_papers: 4 }, spark_years: [2022, 2023, 2024, 2025, 2026],
-    method: { weights: { Q1: 4, Q2: 3, Q3: 2, Q4: 1, other: 1 }, source: "publication record", papers_in_record: 40, newcomer_months: 24, updated: "" },
+    method: { weights: { Q1: 4, Q2: 3, Q3: 2, Q4: 1, other: 1 }, source: "Counted from Scopus-linked papers only", scopus_synced_at: "2026-11-12T08:30:00+05:30", papers_in_record: 40, newcomer_months: 24, updated: "" },
     me: { id: FACULTY.id, rank: 4, joint: false, of: 4, population: 5, dept_rank: 4, dept_of: 4, department: "ECE", percentile: 100, move: -1, value: 3, alltime_rank: null },
     ...over,
   }
@@ -125,7 +125,18 @@ describe("Leaderboard", () => {
 
   it("describes the chosen board in one sentence", async () => {
     mount(board({ measure: "score" }), "/leaderboard?category=score")
-    expect(await screen.findByText("Points for each paper: Q1 4, Q2 3, Q3 2, Q4 and others 1.")).toBeInTheDocument()
+    expect(await screen.findByText(/A score from 0 to 100, from the weights the research coordinator has set/)).toBeInTheDocument()
+  })
+
+  it("says the figures are Scopus-linked papers only, with the last Scopus sync", async () => {
+    mount()
+    expect(await screen.findByText("Counted from Scopus-linked papers only. Last Scopus sync: 12 Nov 2026.")).toBeInTheDocument()
+  })
+
+  it("says so when no Scopus sync is recorded yet", async () => {
+    const b = board()
+    mount({ ...b, method: { ...b.method, scopus_synced_at: null } })
+    expect(await screen.findByText("Counted from Scopus-linked papers only. No Scopus sync is recorded yet.")).toBeInTheDocument()
   })
 
   it("keeps old links to the trend and spread views working, as Departments", async () => {

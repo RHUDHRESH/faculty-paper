@@ -19,7 +19,7 @@ import { cn } from "@/lib/cn"
 import { api, forgetCsrf } from "@/lib/api"
 import { toast } from "@/ui/toast"
 import { useCollegeName } from "@/app/institution"
-import { CrumbLabelProvider, crumbsFor, useCrumbLabelValue } from "@/app/crumbs"
+import { CrumbLabelProvider, crumbsFor, useCrumbLabelValue, useCrumbParentValue } from "@/app/crumbs"
 import { Breadcrumbs } from "@/ui/breadcrumbs"
 import { formatCount } from "@/lib/count"
 import { ROLE_LABEL } from "@/app/account"
@@ -609,7 +609,8 @@ function CrumbStrip() {
   const { me } = useAuth()
   const { pathname } = useLocation()
   const dynamic = useCrumbLabelValue()
-  const items = crumbsFor(me?.role, pathname, dynamic)
+  const parent = useCrumbParentValue()
+  const items = crumbsFor(me?.role, pathname, dynamic, parent)
   if (items.length === 0) return <div className="h-4" aria-hidden />
   return (
     <div className="page pb-3">

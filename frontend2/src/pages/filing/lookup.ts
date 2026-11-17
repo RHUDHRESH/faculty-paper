@@ -103,7 +103,7 @@ export type PaperLookup = {
    *  "OpenAlex", "Crossref", "Scopus" or "Our journal data". */
   field_sources: Record<string, string>
   sources: LookupSource[]
-  scopus_status: "ok" | "not_configured" | "unavailable"
+  scopus_status: "ok" | "not_configured" | "unavailable" | "own_key_required"
   warnings: string[]
   to_check: { key: string; text: string }[]
   already_filed: {

@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import {
@@ -109,9 +110,10 @@ type RowsPayload = {
 
 export function Data() {
   const { me } = useAuth()
-  // `_may_browse_data` — the office and the Principal. Finance reads money
-  // through its own screens, which are shaped for that job.
-  const allowed = can(me?.role).clear || me?.role === "PRINCIPAL"
+  // `_may_browse_data`: a super admin only, the same account the nav shows
+  // /data to. The office and the Principal read the record through their own
+  // screens, so they are told so here rather than sent to a refusal.
+  const allowed = can(me?.role).admin
 
   const [searchParams, setSearchParams] = useSearchParams()
   const table = searchParams.get("table") ?? ""
@@ -119,7 +121,7 @@ export function Data() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <NotOpen message="The raw tables are an admin tool." />
+        <NotOpen message="The raw tables are open to a super admin only. The office and the Principal read the record through their own pages." />
       </div>
     )
   }
@@ -182,7 +184,7 @@ function TableIndex({ onOpen }: { onOpen: (name: string) => void }) {
       {data && (
         <section aria-label="What is here" className="space-y-3">
           <p className="text-base">
-            {all.length.toLocaleString("en-IN")} tables holding {totalRows.toLocaleString("en-IN")} rows.{" "}
+            {all.length.toLocaleString("en-IN")} tables holding {plural(totalRows, "row")}.{" "}
             {all.filter((t) => t.editable).length} can be corrected here.
           </p>
           {data.note && (
@@ -210,7 +212,7 @@ function TableIndex({ onOpen }: { onOpen: (name: string) => void }) {
           title="Could not load the table list"
           message={
             error?.status === 403
-              ? "Not allowed. The raw tables are open to the office and the Principal."
+              ? "Not allowed. The raw tables are open to a super admin only."
               : "The server did not answer."
           }
           onRetry={error?.status === 403 ? false : () => refetch()}
@@ -826,7 +828,7 @@ function WipeDialog({
         expect_rows: preview.total_rows,
         i_understand_payments_will_be_lost: acknowledged,
       })
-      toast.ok(`Emptied. ${preview.total_rows.toLocaleString("en-IN")} rows removed`)
+      toast.ok(`Emptied. ${plural(preview.total_rows, "row")} removed`)
       onClose()
     } catch (err) {
       toast.fail(err)
@@ -922,7 +924,7 @@ function WipeDialog({
             {wipe.isPending
               ? "Emptying…"
               : preview
-                ? `Empty ${preview.total_rows.toLocaleString("en-IN")} rows`
+                ? `Empty ${plural(preview.total_rows, "row")}`
                 : "Empty the system"}
           </Button>
         </DialogFooter>

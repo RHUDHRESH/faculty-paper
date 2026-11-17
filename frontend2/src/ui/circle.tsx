@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { MessageCircle, Minus, Plus, RotateCcw, UserRound, Waypoints } from "lucide-react"
@@ -324,7 +325,7 @@ export function YourCircle({
             width={w}
             height={height}
             role="group"
-            aria-label={`Your circle: ${placed.length} people. Tab through to meet each one; Enter opens them.`}
+            aria-label={`Your circle: ${plural(placed.length, "person", "people")}. Tab through to meet each one; Enter opens them.`}
             className={cn("block touch-none select-none", drag.current ? "cursor-grabbing" : "cursor-grab")}
             onPointerDown={(e) => {
               if ((e.target as Element).closest("[data-person]")) return
@@ -387,7 +388,7 @@ export function YourCircle({
                       p.hop === 0
                         ? "You"
                         : `${p.name}, ${(p.is_college_member ? p.department : p.institution) || "outside"}${
-                            p.hop === 1 ? `, ${p.together} papers together` : ", two steps away"
+                            p.hop === 1 ? `, ${plural(p.together, "paper")} together` : ", two steps away"
                           }`
                     }
                     className="cursor-pointer outline-none motion-safe:transition-opacity motion-safe:duration-150 [&:focus-visible>.ring]:stroke-(--area)"
@@ -564,7 +565,7 @@ function PersonCard({
   const where = p.is_college_member ? p.department && `${p.department}, Saveetha` : p.institution
   const detail =
     p.hop === 0
-      ? `${p.papers} papers`
+      ? `${plural(p.papers, "paper")}`
       : p.hop === 1
         ? `${p.together} ${p.together === 1 ? "paper" : "papers"} together`
         : "Two steps away: a co-author's co-author"

@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { firstName } from "@/lib/names"
 import { Fragment, useEffect, useRef, useState } from "react"
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom"
@@ -429,7 +430,7 @@ export function ChatPage() {
     : []
   const privacy = other
     ? `Only you and ${other.name} can read this.`
-    : `Only the ${c.participants.length} people in this conversation can read this.`
+    : `Only the ${plural(c.participants.length, "person", "people")} in this conversation can read this.`
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -444,7 +445,7 @@ export function ChatPage() {
             {c.is_group ? (
               <>
                 <Users className="mr-1 inline size-3 align-[-1px]" aria-hidden />
-                Group · {c.participants.length} people
+                Group · {plural(c.participants.length, "person", "people")}
               </>
             ) : (
               [other?.designation, other?.department].filter(Boolean).join(" · ") || "Direct message"

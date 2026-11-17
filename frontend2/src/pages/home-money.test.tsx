@@ -106,6 +106,23 @@ describe("Finance home", () => {
   })
 })
 
+describe("Director home with no budget set", () => {
+  it("says \"No budget set for 2026-27\", not \"Not set left in the 2026-27 budget\"", async () => {
+    vi.mocked(api).mockImplementation(
+      fakeApi({
+        ...COMMON,
+        "/api/budgets": () => ({ financial_year: "2026-27", college: { allocated: null, spent: 0, committed: 0, remaining: null } }),
+        "/api/auth/me": () => DIRECTOR,
+        "/api/director/queue": () => ({ total: 0, results: [], totals: { count: 0, amount: 0, longest_wait_days: null, held_back: 0, held_back_count: 0 } }),
+      })
+    )
+    renderWithProviders(<DirectorHome />)
+    const glance = await screen.findByRole("group", { name: "At a glance" })
+    await waitFor(() => expect(glance).toHaveTextContent("No budget set for 2026-27"))
+    expect(glance.textContent).not.toMatch(/Not set left/)
+  })
+})
+
 describe("Director home", () => {
   it("leads with what is waiting, what it releases and what the budget keeps", async () => {
     vi.mocked(api).mockImplementation(

@@ -122,6 +122,8 @@ const ALL_STAFF: Role[] = [
   "RESEARCH_CELL",
   "RESEARCH_COORDINATOR",
   "PRINCIPAL",
+  // Reads what the Principal reads and decides nothing (`rbac.READ_ONLY_OVERSIGHT`).
+  "VICE_PRINCIPAL",
   "DIRECTOR",
   "FINANCE",
 ]
@@ -134,7 +136,9 @@ const OFFICE: Role[] = ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR"]
 //: The office roles held by people who are academics too: everybody at a
 //: desk but the super admin. They "must be able to do both — do their own
 //: research as well as track others'".
-const OFFICERS: Role[] = ["RESEARCH_CELL", "RESEARCH_COORDINATOR", "PRINCIPAL", "DIRECTOR", "FINANCE"]
+const OFFICERS: Role[] = ["RESEARCH_CELL", "RESEARCH_COORDINATOR", "PRINCIPAL", "VICE_PRINCIPAL", "DIRECTOR", "FINANCE"]
+//: Mirrors `rbac.PRINCIPAL_SEATS`: where the college is read from the top.
+const PRINCIPAL_SEATS: Role[] = ["PRINCIPAL", "VICE_PRINCIPAL"]
 //: Mirrors `rbac.CLAIMANT_ROLES`: the people who file their own papers.
 export const CLAIMANTS: Role[] = ["FACULTY", "HOD", ...OFFICERS]
 //: Where an officer's own papers sit in their sidebar, apart from the desk.
@@ -296,6 +300,17 @@ const PAGES: NavItem[] = [
     ],
   },
   {
+    // The same page staff reach as "Standings": the server shows a faculty member only themself.
+    to: "/standings",
+    label: "My standing",
+    icon: Trophy,
+    roles: ["FACULTY"],
+    group: "Research",
+    area: "research",
+    purpose: "Your cumulative SNIP, incentive paid and papers settled, and the papers behind each number.",
+    keywords: ["rank", "snip", "incentive", "papers settled", "cumulative", "how counted", "standing", "my numbers"],
+  },
+  {
     to: "/discover",
     label: "Discover",
     icon: Lightbulb,
@@ -396,13 +411,38 @@ const PAGES: NavItem[] = [
     to: "/faculty",
     label: "Faculty",
     icon: Users,
-    roles: [...OFFICE, "PRINCIPAL", "DIRECTOR"],
+    // A head reads their own department's people here (`_require_directory`).
+    roles: [...OFFICE, ...PRINCIPAL_SEATS, "DIRECTOR", "HOD"],
     findOnly: true,
     purpose: "Every faculty member with their photo, Scopus ID, papers and claims.",
     keywords: [
       "directory", "roster", "staff", "staff id", "scopus id", "research faculty", "who is missing",
       "no paper", "gaps", "profile", "faculty list", "people",
     ],
+  },
+  {
+    // Mirrors `student_teams.visible_teams`: the office, the Principal and the
+    // Director see every team, a head sees their department's. Reached from
+    // the Reports door's "Look something up", and by name.
+    to: "/teams",
+    label: "Student teams",
+    icon: UsersRound,
+    roles: [...OFFICE, "PRINCIPAL", "DIRECTOR", "HOD"],
+    purpose: "Every final-year project team, who is on it, the papers it has written and where its claim stands.",
+    keywords: [
+      "final year project", "fyp", "students", "team number", "register number", "mentor", "project",
+      "student project", "conference", "team", "roster",
+    ],
+  },
+  {
+    // Everybody else sees only the teams they mentor, from Home and by name.
+    to: "/teams",
+    label: "My teams",
+    icon: UsersRound,
+    roles: ["FACULTY", "FINANCE"],
+    findOnly: true,
+    purpose: "The final-year project teams you mentor, their papers, and whether each has been claimed.",
+    keywords: ["final year project", "fyp", "students", "team number", "register number", "mentor", "project", "student project", "conference"],
   },
   {
     to: "/papers/claims",
@@ -550,6 +590,18 @@ const PAGES: NavItem[] = [
     keywords: ["figures", "analysis", "output", "reports", "charts"],
   },
   {
+    // Everybody's cumulative SNIP, incentive paid and papers settled, and how each is made.
+    // The server shows an office role everybody, a head their department with no
+    // incentive, and a faculty member only themself (their entry is "My standing").
+    to: "/standings",
+    label: "Standings",
+    icon: Trophy,
+    roles: [...ALL_STAFF, "HOD"],
+    group: "Look at",
+    purpose: "Everybody's cumulative SNIP, incentive paid and papers settled, and the papers behind each number.",
+    keywords: ["rank", "top 5", "snip", "incentive", "papers settled", "cumulative", "how counted", "standing"],
+  },
+  {
     // `/api/reports/brief` is `can_view_reports` (every staff role, not the
     // head of department, who has their own department page).
     to: "/reports/brief",
@@ -624,7 +676,7 @@ const PAGES: NavItem[] = [
     icon: FileText,
     // The month the Director signs and Finance sends to the bank: totals,
     // reconciliation with the ledger, the A4 statement and the bank file.
-    roles: ["FINANCE", "DIRECTOR", "PRINCIPAL", "SUPER_ADMIN"],
+    roles: ["FINANCE", "DIRECTOR", ...PRINCIPAL_SEATS, "SUPER_ADMIN"],
     group: "Look at",
     keywords: ["payout", "statement", "bank", "neft", "reconcile", "month", "sign", "pdf"],
   },
@@ -660,8 +712,8 @@ const PAGES: NavItem[] = [
     to: "/faults",
     label: "Faults",
     icon: TriangleAlert,
-    // `admin_faults` allows the office and the Principal.
-    roles: [...OFFICE, "PRINCIPAL"],
+    // `admin_faults` allows the office and the Principal seats (read only).
+    roles: [...OFFICE, ...PRINCIPAL_SEATS],
     group: "Set up",
     keywords: ["broken", "blocked", "stuck", "unreconciled", "faults", "problems", "nothing is stuck", "stalled"],
   },
@@ -679,8 +731,9 @@ const PAGES: NavItem[] = [
     to: "/admin/conflicts",
     label: "Data conflicts",
     icon: GitCompareArrows,
-    // Reading is for whoever may import; the page says who may settle one.
-    roles: OFFICE,
+    // Reading is for whoever may import and the Vice principal; the page says
+    // who may settle one.
+    roles: [...OFFICE, "VICE_PRINCIPAL"],
     group: "Set up",
     keywords: ["conflict", "differs", "mismatch", "different email", "different scopus id", "different amount", "import", "faculty list", "settled claims", "which one is right", "pause account", "disagree"],
   },
@@ -700,8 +753,8 @@ const PAGES: NavItem[] = [
     // `rbac.can_view_audit` is wider than the office — the Principal and
     // Finance may read the audit log, and were being offered no way in.
     // The Director works from a summary and Finance only pays; the trail
-    // belongs to the office and the Principal.
-    roles: [...OFFICE, "PRINCIPAL"],
+    // belongs to the office and the Principal seats.
+    roles: [...OFFICE, ...PRINCIPAL_SEATS],
     group: "Look at",
     keywords: ["who did what", "trail", "who changed", "who changed this", "history of changes", "when", "log", "changes", "sign-in problems"],
   },
@@ -714,6 +767,17 @@ const PAGES: NavItem[] = [
     roles: OFFICE,
     group: "Set up",
     keywords: ["users", "accounts", "roles", "sign in", "who can sign in", "dual role", "left", "leavers", "merge accounts", "passwords", "add a person", "chain roles", "director", "finance"],
+  },
+  {
+    // Reached from the department charts' "No department on the account (N)" line.
+    to: "/people/no-department",
+    label: "Accounts with no department",
+    icon: Users,
+    roles: OFFICE,
+    group: "Set up",
+    findOnly: true,
+    purpose: "The people whose account has no department, so their papers can be counted under one.",
+    keywords: ["no department", "department missing", "not recorded", "unknown department", "fix departments", "accounts to fix"],
   },
   {
     to: "/people/passwords",
@@ -789,7 +853,7 @@ const PAGES: NavItem[] = [
     // one role that can change what the college pays with no route to the
     // screen, and gave the research cell a menu item they can only look at
     // without ever saying so. Verified against rbac.py, not assumed.
-    roles: [...OFFICE, "FINANCE", "PRINCIPAL"],
+    roles: [...OFFICE, "FINANCE", ...PRINCIPAL_SEATS],
     group: "Set up",
     keywords: ["formula", "rates", "snip", "multiplier", "threshold", "policy version", "before and after", "preview", "why this amount", "research threshold", "incentive amount"],
   },
@@ -920,7 +984,7 @@ const PAGES: NavItem[] = [
     label: "Money",
     icon: Wallet,
     // The super admin and the office reach the same pages under Admin.
-    roles: ["PRINCIPAL", "DIRECTOR", "FINANCE"],
+    roles: [...PRINCIPAL_SEATS, "DIRECTOR", "FINANCE"],
     group: "Look at",
     keywords: ["budget", "ledger", "statements", "policy", "spend", "rates", "paid", "money", "how much", "incentive"],
   },
@@ -1055,12 +1119,12 @@ export const HUBS: Record<HubKey, Hub> = {
       {
         title: "Reports",
         blurb: "Figures to read, present or download.",
-        items: ["/reports", "/reports/brief", "/reports/studio", "/accreditation"],
+        items: ["/reports", "/standings", "/reports/brief", "/reports/studio", "/accreditation"],
       },
       {
         title: "Look something up",
         blurb: "Find a paper, a journal or a past claim.",
-        items: ["/search", "/publications", "/journals", "/archive"],
+        items: ["/search", "/teams", "/publications", "/journals", "/archive"],
       },
     ],
   },
@@ -1128,7 +1192,7 @@ const DOORS: Door[] = [
     to: "/faculty",
     label: "Faculty",
     icon: Users,
-    roles: [...OFFICE, "PRINCIPAL"],
+    roles: [...OFFICE, ...PRINCIPAL_SEATS],
     covers: ["/faculty"],
     keywords: ["people", "directory", "scopus", "staff"],
   },
@@ -1136,7 +1200,7 @@ const DOORS: Door[] = [
     to: "/money",
     label: "Money",
     icon: Coins,
-    roles: ["PRINCIPAL", "DIRECTOR", "FINANCE"],
+    roles: [...PRINCIPAL_SEATS, "DIRECTOR", "FINANCE"],
     covers: ["/money", "/budget", "/policy", "/calculator", "/ledger", "/statements"],
   },
   {
@@ -1144,7 +1208,7 @@ const DOORS: Door[] = [
     label: "Reports",
     icon: BarChart3,
     roles: TRACK_ROLES,
-    covers: ["/reports", "/publications", "/journals", "/accreditation", "/search"],
+    covers: ["/reports", "/publications", "/journals", "/accreditation", "/search", "/teams"],
   },
   {
     to: "/insights",

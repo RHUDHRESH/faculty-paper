@@ -97,9 +97,21 @@ export function isBlankCell(node: React.ReactNode): boolean {
   return false
 }
 
-/** The muted "Not recorded" for hand-built tables that want the same wording. */
-export function EmptyCell({ text = NOT_RECORDED, className }: { text?: string; className?: string }) {
-  return <span className={cn("text-fg-subtle", className)}>{text}</span>
+/**
+ * A value nobody has recorded. A column of "Not recorded" repeated down thirty
+ * rows reads as a shout and hides the rows that have something to say, so the
+ * default is a quiet dash that screen readers still announce in words. A
+ * caller that means something else ("None", "Not applicable") passes `text`
+ * and gets it as written.
+ */
+export function EmptyCell({ text, className }: { text?: string; className?: string }) {
+  if (text !== undefined && text !== NOT_RECORDED) return <span className={cn("text-fg-subtle", className)}>{text}</span>
+  return (
+    <span className={cn("text-fg-subtle", className)}>
+      <span aria-hidden="true">–</span>
+      <span className="sr-only">{NOT_RECORDED}</span>
+    </span>
+  )
 }
 
 /** The sticky, pinned `<th>` — for bespoke table markup that wants the same
@@ -484,6 +496,10 @@ export type TableTools<T> = {
   /** Every row the current filters match, for a table that shows one page at a
    *  time, so an export is the whole list rather than the page on screen. */
   getAllRows?: () => Promise<T[]>
+  /** Rows added to the end of an exported file (never the screen): a Total and
+   *  an Average, say. Each is keyed by column key; the key "*" is the first
+   *  column the file has. A column with no entry is left empty. */
+  exportTotals?: (all: T[]) => Partial<Record<string, ExportCell>>[]
 }
 
 type PlainProps<T> = Parameters<typeof PlainTable<T>>[0]
@@ -518,6 +534,9 @@ function exportCell<T>(col: Column<T>, row: T): ExportCell {
   return isPrimitiveCell(v) ? (v ?? null) : null
 }
 
+/** Below this many rows a table's tools collapse to Export. */
+export const TOOLS_MIN_ROWS = 10
+
 function ToolTable<T>({ tools, rows, columns, ...rest }: PlainProps<T> & { tools: TableTools<T> }) {
   const prefs = useTablePrefs(
     tools.id,
@@ -542,7 +561,12 @@ function ToolTable<T>({ tools, rows, columns, ...rest }: PlainProps<T> & { tools
       format,
       filename: `${tools.id}-${new Date().toISOString().slice(0, 10)}`,
       columns: columnsOut,
-      rows: all.map((r) => exported.map((c) => exportCell(c, r))),
+      rows: [
+        ...all.map((r) => exported.map((c) => exportCell(c, r))),
+        ...(all.length ? (tools.exportTotals?.(all) ?? []) : []).map((t) =>
+          exported.map((c, i) => t[c.key] ?? (i === 0 ? (t["*"] ?? null) : null))
+        ),
+      ],
     })
   }
 
@@ -552,7 +576,15 @@ function ToolTable<T>({ tools, rows, columns, ...rest }: PlainProps<T> & { tools
         <p className="text-base font-medium">{tools.title}</p>
         {tools.subtitle && <p className="text-sm text-fg-muted">{tools.subtitle}</p>}
       </div>
-      <TableToolbar columns={columns.map((c) => ({ key: c.key, label: labelOf(c) }))} prefs={prefs} onExport={run} />
+      <TableToolbar
+        columns={columns.map((c) => ({ key: c.key, label: labelOf(c) }))}
+        prefs={prefs}
+        onExport={run}
+        // Nine rows or fewer, and all of them on screen: there is nothing to
+        // rearrange, so the bar is just Export. A table paged from the server
+        // (`getAllRows`) has more than it shows and keeps every tool.
+        compact={rows.length < TOOLS_MIN_ROWS && !tools.getAllRows}
+      />
       <PlainTable<T>
         {...rest}
         rows={rows}

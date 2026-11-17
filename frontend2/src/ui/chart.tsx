@@ -45,6 +45,9 @@ export type Point = {
   amount?: number
   /** Where this row lives, if it is a thing with a page of its own. */
   to?: string
+  /** What is not known (a bucket for rows with no department, say): ranked
+   *  last whatever its size, and always shown, so it never leads a chart. */
+  unknown?: boolean
   /** A person: drawn with their face beside the name (RankedBars). */
   face?: { name: string; initials: string; photo_url: string | null }
 }
@@ -504,8 +507,13 @@ export function RankedBars({
   countLabel?: string
   className?: string
 }) {
-  const sorted = [...points].sort((a, b) => valueOf(b, unit) - valueOf(a, unit))
-  const shown = sorted.slice(0, limit)
+  const sorted = [...points].sort(
+    (a, b) => Number(!!a.unknown) - Number(!!b.unknown) || valueOf(b, unit) - valueOf(a, unit)
+  )
+  const unknownRows = sorted.filter((p) => p.unknown)
+  const shown = unknownRows.length
+    ? [...sorted.filter((p) => !p.unknown).slice(0, Math.max(0, limit - unknownRows.length)), ...unknownRows]
+    : sorted.slice(0, limit)
   const top = Math.max(1, ...shown.map((p) => valueOf(p, unit)))
 
   return (
@@ -531,7 +539,9 @@ export function RankedBars({
               <li
                 key={p.key}
                 className={cn(
-                  "row grid h-8 items-center gap-3 rounded-md px-2",
+                  "row grid items-center gap-3 rounded-md px-2",
+                  // An unknown bucket says how many it holds in its name, so it wraps instead of cutting that off.
+                  p.unknown ? "min-h-8 py-1" : "h-8",
                   "grid-cols-[7rem_minmax(0,1fr)_auto] sm:grid-cols-[12rem_minmax(0,1fr)_auto]"
                 )}
               >
@@ -546,12 +556,12 @@ export function RankedBars({
                     className="flex min-w-0 items-center gap-2 overflow-hidden text-sm hover:text-accent hover:underline"
                   >
                     {p.face && <Avatar person={p.face} size="xs" />}
-                    <span className="block min-w-0 truncate">{name}</span>
+                    <span className={cn("block min-w-0", p.unknown ? "leading-tight" : "truncate")}>{name}</span>
                   </Link>
                 ) : (
                   <span className="flex min-w-0 items-center gap-2 overflow-hidden text-sm" title={name}>
                     {p.face && <Avatar person={p.face} size="xs" />}
-                    <span className="block min-w-0 truncate">{name}</span>
+                    <span className={cn("block min-w-0", p.unknown ? "leading-tight" : "truncate")}>{name}</span>
                   </span>
                 )}
 

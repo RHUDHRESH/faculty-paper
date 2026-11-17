@@ -6,6 +6,7 @@ switched off here disappears from them too.
 
     GET  /api/notifications/preferences         every kind, its level, the switches
     PUT  /api/notifications/preferences         {levels: {kind: level}, count_my_visits, whatsapp_opt_in}
+    POST /api/notifications/test               super admin: a test alert on every channel, and what each did
     GET  /api/notifications/digest              this week's summary for me, as it stands now
     GET  /api/notifications/unsubscribe/{t}     from an email: asks before changing anything
     POST /api/notifications/unsubscribe/{t}     stops that kind's email, keeps it in the app
@@ -63,6 +64,18 @@ def send_test_email(request: HttpRequest):
     return {"sent": sent, "message": message, "smtp": notify_service.smtp_status()}
 
 
+@api.post("/notifications/test", auth=session_auth)
+def send_test_notification(request: HttpRequest):
+    """Super admin only: a test alert on every channel, and what each one did.
+
+    Reports which channels are configured (in the app, email, WhatsApp) so
+    "nobody gets my emails" has an answer that is not a guess."""
+    user = require_user(request)
+    if user.role != "SUPER_ADMIN":
+        raise HttpError(403, "Only the super admin can send a test notification.")
+    return notify_service.send_test_notification(user)
+
+
 @api.get("/notifications/digest", auth=session_auth)
 def my_digest(request: HttpRequest):
     """The weekly summary as it would be sent now -- the "This week" tab."""
@@ -117,6 +130,7 @@ __all__ = [
     "my_digest",
     "notification_preferences",
     "put_notification_preferences",
+    "send_test_notification",
     "unsubscribe_confirm",
     "unsubscribe_page",
 ]

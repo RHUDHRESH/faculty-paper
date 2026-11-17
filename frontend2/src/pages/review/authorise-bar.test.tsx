@@ -89,3 +89,27 @@ describe("the Director's decision bar", () => {
     expect(screen.queryByRole("button", { name: /^Authorise/ })).toBeNull()
   })
 })
+
+describe("Accept for count only, from the Director's bar", () => {
+  const DIRECTOR = { id: "u-dir", email: "dir@example.edu", name: "V Director", role: "DIRECTOR", department: null } as const
+
+  it("is in the More menu for the Director, and posts the chosen reason", async () => {
+    const counted = vi.fn(() => ({ ok: true }))
+    vi.mocked(api).mockImplementation(
+      fakeApi({ "/api/auth/me": () => DIRECTOR, "/api/budgets": () => BUDGET, "/api/claims/c1/count-only": counted })
+    )
+    renderWithProviders(<AuthoriseBar claim={CLAIM} own={false} isSuperAdmin={false} onDone={() => {}} />)
+    await userEvent.click(await screen.findByRole("button", { name: "More actions" }))
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Accept for count only" }))
+    await userEvent.click(await screen.findByRole("radio", { name: "Student publication" }))
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }))
+    await waitFor(() => expect(counted).toHaveBeenCalled())
+  })
+
+  it("is not offered to Finance", async () => {
+    load()
+    renderWithProviders(<AuthoriseBar claim={CLAIM} own={false} isSuperAdmin={false} onDone={() => {}} />)
+    await screen.findByText("Authorising it leaves ₹5,89,536 in the 2026-27 budget.")
+    expect(screen.queryByRole("button", { name: "More actions" })).toBeNull()
+  })
+})

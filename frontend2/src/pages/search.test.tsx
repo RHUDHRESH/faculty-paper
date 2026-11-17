@@ -97,6 +97,31 @@ describe("/search", () => {
     expect(screen.getAllByText("Yours").length).toBeGreaterThan(0)
   })
 
+  it("asks for a connection line for the first few people only, not one request per result", async () => {
+    const people = Array.from({ length: 9 }, (_, i) => ({
+      id: `u-${i}`, title: `Person ${i}`, subtitle: "ECE", url: `/people/u-${i}`, chips: ["Saveetha"],
+      meta: { external: false, department: "ECE", papers: 1, connect: `u-${i}` },
+    }))
+    mockedApi.mockImplementation(
+      fakeApi({
+        "/api/auth/me": () => FACULTY,
+        "/api/search/all": () => ({ q: "person", scope: "all", exact: null, groups: [{ kind: "person", total: 9, status: "ok", items: people }] }),
+        "/api/people/u-faculty/connection": () => ({ hops: null, paths: [] }),
+      }) as typeof api
+    )
+    renderWithProviders(<Search />, { route: "/search?q=person&scope=people" })
+    await screen.findByRole("region", { name: "People" })
+    await waitFor(() => expect(screen.getAllByText("Not connected yet").length).toBeGreaterThan(0))
+    const asked = () => mockedApi.mock.calls.filter((c) => String(c[0]).includes("/connection")).length
+    const before = asked()
+    expect(before).toBeLessThanOrEqual(4)
+    // Pointing at a later row asks for that one.
+    const rows = screen.getAllByRole("option")
+    expect(rows.length).toBeGreaterThan(before)
+    fireEvent.mouseEnter(rows[rows.length - 1])
+    await waitFor(() => expect(asked()).toBe(before + 1))
+  })
+
   it("keyboard: Enter opens the best match, Esc clears", async () => {
     renderWithProviders(<Search />, { route: "/search?q=kanaga" })
     await screen.findByRole("region", { name: "People" })

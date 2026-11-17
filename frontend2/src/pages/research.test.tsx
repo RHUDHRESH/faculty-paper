@@ -77,6 +77,15 @@ function mount(route: string, extra: ApiTable = {}) {
   renderWithProviders(<Research />, { route })
 }
 
+describe("My research — Me, before the server has answered", () => {
+  it("never writes \"in undefined\" and says \"No papers yet in <year>\" for an empty year", async () => {
+    mount("/research", { "/api/me/research": () => new Promise(() => {}) as never })
+    const g = await screen.findByRole("group", { name: "At a glance" })
+    expect(g.textContent).not.toMatch(/undefined/)
+    expect(g.textContent).toContain(String(new Date().getFullYear()))
+  })
+})
+
 describe("My research — Me", () => {
   it("answers past, present and future from the record", async () => {
     mount("/research")

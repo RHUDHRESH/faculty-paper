@@ -12,6 +12,7 @@ from core.api.common import (
     _apply_calc,
     _notify_admins,
     _notify_director,
+    desk_line,
     _notify_principal,
     _refuse_own_claim,
     _verification_issues,
@@ -23,6 +24,7 @@ from core.api.schemas import ActionIn, ClaimIn, RecalcIn, _apply_faculty_payload
 from core.api.deps import claim_to_dict, record_authorship
 from core.api.common import require_user
 from core.api.teams import _min_sec_references, _numbered_sec_references
+from core.services.rupees import rupees
 from core.services import filing_conditions
 from core.api.claims import _claims_queryset, _refuse_hod_unless_own
 
@@ -40,6 +42,7 @@ from ninja import Schema
 from ninja.errors import HttpError
 from core.models import AttachmentKind, AuditLog, Claim, ClaimAction, ClaimReason, ClaimStatus, FormulaConfig, Notification, Role, ScimagoJournal, SnipSource, Team, User
 from core.services import achievements, claim_numbers, rbac, review_marks, validation
+from core.services import notify as notify_service
 from core.services.normalize import normalize_issn
 from core.services.record_dates import claim_record
 from core.services.student_projects import StudentProjectRefusal, check_student_project
@@ -815,7 +818,13 @@ def _transition(claim: Claim, user: User, to_status: str, action: str, note: str
     stage_after = visibility.faculty_stage(
         to_status, rejected_outright=claim.rejected_outright, ticket_number=claim.ticket_number
     )
-    if stage_after != stage_before:
+    if from_status != to_status:
+        # The paper has moved on, so every desk alert asking somebody to deal
+        # with it is done. Without this the bell counted work already done.
+        notify_service.settle_desk_alerts(claim.id)
+    # Never told what they have just done themselves: withdrawing a paper is
+    # not news to the person who withdrew it.
+    if stage_after != stage_before and user.id != claim.owner_id:
         title, body = _faculty_status_copy(
             to_status, note, outright=claim.rejected_outright,
             from_status=from_status, ticket_number=claim.ticket_number,
@@ -898,7 +907,7 @@ def _guard_recomputed_amount(claim: Claim, expected: float | None) -> None:
     if expected is None or abs(amount - round(float(expected), 2)) > 0.01:
         raise HttpError(
             409,
-            f"The recomputed amount is ₹{amount:,.2f}. Review it and confirm again — "
+            f"The recomputed amount is {rupees(amount)}. Review it and confirm again — "
             "money only moves at a confirmed amount.",
         )
 
@@ -1058,8 +1067,8 @@ def clear_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
         amount = claim.remuneration or 0
     _notify_principal(
         claim,
-        f"Cleared — waiting on your approval · {claim.ticket_number}",
-        f"₹{amount:,.0f} for {claim.owner.name}: {claim.paper_title}",
+        f"Cleared, for your approval · {claim.ticket_number}",
+        desk_line(claim, amount),
     )
     return claim_to_dict(claim)
 
@@ -1231,8 +1240,8 @@ def bulk_clear(request: HttpRequest, payload: BulkClearIn):
                 amount = claim.remuneration or 0
             _notify_principal(
                 claim,
-                f"Cleared — waiting on your approval · {claim.ticket_number}",
-                f"₹{amount:,.0f} for {claim.owner.name}: {claim.paper_title}",
+                f"Cleared, for your approval · {claim.ticket_number}",
+                desk_line(claim, amount),
             )
             cleared.append(claim_id)
         except Exception as e:  # one bad ticket must not sink the batch
@@ -1300,7 +1309,7 @@ def principal_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
     _notify_director(
         claim,
         f"Awaiting your authorisation · {claim.ticket_number}",
-        f"₹{amount:,.0f} for {claim.owner.name}: {claim.paper_title}",
+        desk_line(claim, amount),
     )
     return claim_to_dict(claim)
 
@@ -1475,7 +1484,7 @@ def principal_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
         _notify_director(
             claim,
             f"Awaiting your authorisation · {claim.ticket_number}",
-            f"₹{(claim.remuneration or 0):,.0f} for {claim.owner.name}: {claim.paper_title}",
+            desk_line(claim, claim.remuneration),
         )
     return {"approved": approved, "total": round(total, 2), "skipped": skipped}
 

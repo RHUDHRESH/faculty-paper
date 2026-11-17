@@ -59,8 +59,11 @@ type HodPaper = {
 /** "conference-paper" is the record's word, not a head's: "Conference paper". */
 function typeLabel(t: string | null): string {
   const s = (t ?? "").replace(/[-_]+/g, " ").trim().toLowerCase()
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : "Not recorded"
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : "–"
 }
+
+/** What is unknown after the fills is a quiet dash, never a word that looks like a value. */
+const UNKNOWN = <span className="text-fg-subtle">–</span>
 
 const JOURNAL = new Set(["article", "journal", "journal-article", "review"])
 
@@ -112,16 +115,16 @@ export function HodPaper() {
 
   const isJournal = JOURNAL.has((data.publication_type ?? "").toLowerCase())
   const facts: [string, React.ReactNode][] = [
-    ["Journal", data.journal_title || "Not recorded"],
-    ["Published", longDate(data.publication_date) ?? data.publication_year ?? "Not recorded"],
-    ["Journal quartile", /^Q[1-4]$/i.test(data.quartile ?? "") ? (data.quartile ?? "").toUpperCase() : "Not recorded"],
-    ["Indexed in", data.indexing_level || "Not recorded"],
+    ["Journal", data.journal_title || UNKNOWN],
+    ["Published", longDate(data.publication_date) ?? data.publication_year ?? UNKNOWN],
+    ["Journal quartile", /^Q[1-4]$/i.test(data.quartile ?? "") ? (data.quartile ?? "").toUpperCase() : UNKNOWN],
+    ["Indexed in", data.indexing_level || UNKNOWN],
     ["Type", typeLabel(data.publication_type)],
     [
       "ISSN",
-      data.issn || (data.source === "record" && !isJournal ? "None: not a journal article" : "Not recorded"),
+      data.issn || (data.source === "record" && !isJournal ? "None: not a journal article" : UNKNOWN),
     ],
-    ["DOI", data.doi || "Not recorded"],
+    ["DOI", data.doi || UNKNOWN],
     [
       "Cited by",
       data.citations != null
@@ -141,8 +144,8 @@ export function HodPaper() {
         title={paperTitle(data.paper_title) || "Untitled paper"}
         sub={
           data.source === "record"
-            ? `${inDepartment.map((a) => a.name).join(", ") || data.owner_name} · ${data.owner_department ?? "Department not recorded"}`
-            : `${data.owner_name} · ${data.owner_department ?? "Department not recorded"}`
+            ? [inDepartment.map((a) => a.name).join(", ") || data.owner_name, data.owner_department].filter(Boolean).join(" · ")
+            : [data.owner_name, data.owner_department].filter(Boolean).join(" · ")
         }
         action={
           data.doi ? (

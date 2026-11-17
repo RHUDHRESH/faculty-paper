@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query"
 
 import { api } from "@/lib/api"
 import { cn } from "@/lib/cn"
-import { formatCount } from "@/lib/count"
+import { formatCount, plural } from "@/lib/count"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Chip } from "@/ui/chip"
@@ -876,7 +876,7 @@ function Standing({ p, isNew }: { p: RecordPaper; isNew: boolean }) {
         <span className="text-sm text-fg-muted">
           {p.ineligible_reason === "Retracted"
             ? "Not eligible: the title says this paper was retracted."
-            : `Not eligible: ${p.total_authors} authors, and the scheme pays up to ${maxAuthors(p.ineligible_reason) ?? "a limited number of"}.`}
+            : `Not eligible: ${plural(p.total_authors, "author")}, and the scheme pays up to ${maxAuthors(p.ineligible_reason) ?? "a limited number of"}.`}
         </span>
       )}
     </div>

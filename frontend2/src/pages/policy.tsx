@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useEffect, useId, useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 import { Pencil, Plus, X } from "lucide-react"
@@ -1055,7 +1056,7 @@ function estimate(cfg: EstimateConfig, ex: Example): EstimateResult {
     return {
       amount: null,
       working,
-      problem: `Papers with more than ${limit} authors are not eligible for incentive, so this one pays nothing to anybody.`,
+      problem: `Papers with more than ${plural(limit, "author")} are not eligible for incentive, so this one pays nothing to anybody.`,
     }
   }
 
@@ -1064,7 +1065,7 @@ function estimate(cfg: EstimateConfig, ex: Example): EstimateResult {
     return {
       amount: null,
       working,
-      problem: `There is no author-point rule for ${total} authors, and no fallback for “any other number”. A paper with ${total} authors cannot be priced.`,
+      problem: `There is no author-point rule for ${plural(total, "author")}, and no fallback for “any other number”. A paper with ${plural(total, "author")} cannot be priced.`,
     }
   }
   let share: number
@@ -1076,7 +1077,7 @@ function estimate(cfg: EstimateConfig, ex: Example): EstimateResult {
       return {
         amount: null,
         working,
-        problem: `The rule for ${total} authors lists ${rule.length} ${rule.length === 1 ? "share" : "shares"}, so there is nothing for the ${ordinal(position)}.`,
+        problem: `The rule for ${plural(total, "author")} lists ${rule.length} ${rule.length === 1 ? "share" : "shares"}, so there is nothing for the ${ordinal(position)}.`,
       }
     }
     share = at
@@ -1084,7 +1085,7 @@ function estimate(cfg: EstimateConfig, ex: Example): EstimateResult {
     return {
       amount: null,
       working,
-      problem: `The rule for ${total} authors is neither a share nor a list of shares.`,
+      problem: `The rule for ${plural(total, "author")} is neither a share nor a list of shares.`,
     }
   }
 

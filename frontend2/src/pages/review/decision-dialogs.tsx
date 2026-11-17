@@ -3,10 +3,11 @@ import { useQueryClient } from "@tanstack/react-query"
 import { RaiseFlagDialog } from "@/pages/claim-review"
 import { ApproveDialog, RejectDialog, type ClaimDetail } from "@/pages/approvals-actions"
 import { useAuth } from "@/app/auth"
+import { CountOnlyDialog } from "@/ui/count-only"
 import { EditClaimFieldsDialog, ReasonActionDialog } from "@/ui/desk-actions"
 
 import type { DecisionDialog } from "./decision-bar"
-import { ClearDialog, HoldDialog, SendBackDialog } from "./decisions"
+import { ClearDialog, HoldDialog, SendBackDialog, decisionKeys } from "./decisions"
 import { ManualVerifyDialog, OverrideStatusDialog, SecondSignatureDialog } from "./more-dialogs"
 import type { WorkspaceClaim } from "./types"
 
@@ -81,6 +82,7 @@ export function DecisionDialogs({
           void qc.invalidateQueries({ queryKey: ["review-workspace", claim.id] })
         }}
       />
+      <CountOnlyDialog claim={claim} {...control("countonly")} invalidates={decisionKeys(claim.id)} />
       <ManualVerifyDialog claim={claim} {...control("verify")} />
       <SecondSignatureDialog claim={claim} {...control("second")} />
       <OverrideStatusDialog claim={claim} {...control("override")} onDone={() => undefined} />

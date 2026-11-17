@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { cn } from "@/lib/cn"
 
 /**
@@ -290,7 +291,7 @@ function shareDetail(c: PayoutFacts): string | undefined {
   const of = c.total_authors
   if (!pos || !of) return undefined
   if (of === 1) return "Sole author, so the whole amount"
-  return `${ordinal(pos)} of ${of} authors, per the scheme's author-position table`
+  return `${ordinal(pos)} of ${plural(of, "author")}, per the scheme's author-position table`
 }
 
 /**

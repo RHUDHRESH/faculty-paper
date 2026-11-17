@@ -24,6 +24,9 @@ const columns: Column<Row>[] = [
   { key: "act", header: "", label: "Open", cell: () => <button type="button">Open</button> },
 ]
 
+/** Ten rows or more: a table big enough to be worth rearranging, so it carries every tool. */
+const tenRows: Row[] = [...rows, ...Array.from({ length: 8 }, (_, i) => ({ id: `f${i}`, name: `Filler ${i}`, dept: "ECE", amount: i }))]
+
 const wrap = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>)
 
 beforeEach(() => {
@@ -93,12 +96,22 @@ describe("useTablePrefs", () => {
   })
 })
 
+describe("a short table", () => {
+  it("is just Export: nine rows or fewer have nothing to rearrange", () => {
+    wrap(<Table rows={rows} columns={columns} getKey={(r) => r.id} tools={{ id: "short", title: "Short" }} />)
+    expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument()
+    for (const name of ["Columns", "Grid lines", "Compact rows", "Reset"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull()
+    }
+  })
+})
+
 describe("TableToolbar through Table", () => {
   const tools = { id: "faculty", title: "Faculty", subtitle: "All faculty" }
 
   it("hides a column from the screen and from the export payload", async () => {
     const user = userEvent.setup()
-    wrap(<Table rows={rows} columns={columns} getKey={(r) => r.id} tools={tools} />)
+    wrap(<Table rows={tenRows} columns={columns} getKey={(r) => r.id} tools={tools} />)
     await user.click(screen.getByRole("button", { name: "Columns" }))
     await user.click(await screen.findByRole("menuitemcheckbox", { name: "Department" }))
     await user.keyboard("{Escape}")
@@ -114,7 +127,7 @@ describe("TableToolbar through Table", () => {
 
   it("never lets the first column be hidden, and keeps at least two columns", async () => {
     const user = userEvent.setup()
-    wrap(<Table rows={rows} columns={columns} getKey={(r) => r.id} tools={tools} />)
+    wrap(<Table rows={tenRows} columns={columns} getKey={(r) => r.id} tools={tools} />)
     await user.click(screen.getByRole("button", { name: "Columns" }))
     expect(await screen.findByRole("menuitemcheckbox", { name: "Faculty" })).toHaveAttribute("data-disabled")
     await user.click(screen.getByRole("menuitemcheckbox", { name: "Faculty" }))
@@ -184,7 +197,7 @@ describe("TableToolbar through Table", () => {
 
   it("sets data-grid and data-density from the toggles and the reset link clears them", async () => {
     const user = userEvent.setup()
-    const { container } = wrap(<Table rows={rows} columns={columns} getKey={(r) => r.id} tools={tools} />)
+    const { container } = wrap(<Table rows={tenRows} columns={columns} getKey={(r) => r.id} tools={tools} />)
     const table = container.querySelector("table")!
     expect(table).not.toHaveAttribute("data-grid")
     expect(table).not.toHaveAttribute("data-density")

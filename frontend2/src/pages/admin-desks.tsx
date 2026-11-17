@@ -32,7 +32,7 @@ type Row = {
   initials?: string
 }
 
-const HELD: Role[] = ["SUPER_ADMIN", "PRINCIPAL", "DIRECTOR", "FINANCE", "RESEARCH_CELL", "RESEARCH_COORDINATOR"]
+const HELD: Role[] = ["SUPER_ADMIN", "PRINCIPAL", "VICE_PRINCIPAL", "DIRECTOR", "FINANCE", "RESEARCH_CELL", "RESEARCH_COORDINATOR"]
 
 export function ChooseDesk({
   role,

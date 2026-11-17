@@ -192,16 +192,20 @@ def flag_import_discrepancies(registry=None, *, notify: bool = True) -> dict[str
 
     if notify and counts["raised"]:
         raised = counts["raised"]
+        title = f"Import check: {raised} flag{'s' if raised != 1 else ''} raised on paid claims"
+        body = (
+            "Paid rows from the ERP import whose amount or status does not add up. "
+            "Nothing was changed; each one is waiting under Flags."
+        )
         for admin in User.objects.filter(role="SUPER_ADMIN", active=True):
-            Notification.objects.create(
-                user_id=admin.pk,
-                title=f"Import check: {raised} flag{'s' if raised != 1 else ''} raised on paid claims",
-                body=(
-                    "Paid rows from the ERP import whose amount or status does not add up. "
-                    "Nothing was changed; each one is waiting under Flags."
-                ),
-                href="/flags",
-            )
+            if registry is live:
+                # Through `notify`, so a person who switched this kind off is not told.
+                from core.services.notify import notify as tell
+
+                tell(admin, "import_result", title, body, "/flags")
+            else:
+                # A migration's historical models: the table is as it was then.
+                Notification.objects.create(user_id=admin.pk, title=title, body=body, href="/flags")
     return counts
 
 

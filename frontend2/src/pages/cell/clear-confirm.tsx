@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useRef, useState } from "react"
 
 import { paperTitle } from "@/lib/names"
@@ -65,7 +66,7 @@ export function ClearConfirmDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle>{one ? "Clear this claim?" : `Clear ${rows.length} claims?`}</DialogTitle>
+          <DialogTitle>{one ? "Clear this claim?" : `Clear ${plural(rows.length, "claim")}?`}</DialogTitle>
           <DialogDescription>
             {one
               ? "It goes to the Principal to approve and leaves this queue."
@@ -102,7 +103,7 @@ export function ClearConfirmDialog({
             <p className="figure text-figure tabular">{money(total)}</p>
             {!one && (
               <p className="mt-1 text-sm text-fg-muted">
-                across {rows.length} claims{unpriced > 0 ? `, ${unpriced} without an amount` : ""}
+                across {plural(rows.length, "claim")}{unpriced > 0 ? `, ${unpriced} without an amount` : ""}
               </p>
             )}
           </div>
@@ -110,7 +111,7 @@ export function ClearConfirmDialog({
           {notes.length > 0 && (
             <div className="rounded-control bg-caution-wash px-3 py-2 text-sm">
               <p className="font-medium text-caution">
-                {notes.length === 1 ? "One claim is" : `${notes.length} claims are`} not marked ready
+                {notes.length === 1 ? "One claim is" : `${plural(notes.length, "claim")} are`} not marked ready
               </p>
               <ul className="mt-1 space-y-0.5 text-fg">
                 {notes.slice(0, 5).map((n) => (

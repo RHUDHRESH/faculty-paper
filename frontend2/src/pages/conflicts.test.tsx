@@ -348,3 +348,55 @@ describe("the words", () => {
     expect(matches(AMOUNT, "  ")).toBe(true)
   })
 })
+
+describe("a paper paid more than once", () => {
+  const TWICE: ConflictRow = {
+    ...AMOUNT,
+    id: "c-twice",
+    kind: "double_payment",
+    name: "Dev Anand",
+    staff_id: "TS010",
+    user_id: "u-dev",
+    title: "Solar cells for rural roofs",
+    month: null,
+    ledger_amount: null,
+    file_amount: null,
+    payments: [
+      { month: "2026-08-01", amount: 500 },
+      { month: "2026-09-01", amount: 500 },
+    ],
+    total: 1000,
+    actions: ["confirmed", "mark_error"],
+  }
+
+  it("shows each payment and the total, and leads with the confirmation", async () => {
+    server([TWICE], { extra: { counts: { ...COUNTS, open: 1, open_double_payment: 1 } } })
+    const user = mount()
+    const table = await screen.findByRole("table")
+    expect(within(table).getByText("Solar cells for rural roofs paid more than once")).toBeInTheDocument()
+    expect(within(table).getByText("2 payments, ₹1,000")).toBeInTheDocument()
+    expect(within(table).getByText("Aug 2026 ₹500, Sep 2026 ₹500")).toBeInTheDocument()
+    expect(screen.getByRole("group", { name: "At a glance" })).toHaveTextContent("1 Papers paid more than once")
+    expect(primaryOf(TWICE)).toBe("confirmed")
+    await user.click(screen.getByRole("button", { name: /More choices for Dev Anand/ }))
+    expect(await screen.findByRole("menuitem", { name: "Mark as an error to recover" })).toBeInTheDocument()
+  })
+
+  it("records the decision with its note, and an error needs one", async () => {
+    const s = server([TWICE])
+    const user = mount()
+    await user.click(await screen.findByRole("button", { name: /^Confirmed: both payments were right for Dev Anand/ }))
+    expect(await screen.findByText(/No amount is changed/)).toBeInTheDocument()
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirmed: both payments were right" }))
+    await waitFor(() => expect(s.posted).toHaveLength(1))
+    expect(s.posted[0]).toEqual({ path: "/api/admin/conflicts/c-twice/resolve", json: { action: "confirmed", note: "" } })
+
+    await user.click(screen.getByRole("button", { name: /More choices for Dev Anand/ }))
+    await user.click(await screen.findByRole("menuitem", { name: "Mark as an error to recover" }))
+    const dialog = await screen.findByRole("dialog")
+    const go = within(dialog).getByRole("button", { name: "Mark as an error to recover" })
+    expect(go).toBeDisabled()
+    await user.type(within(dialog).getByRole("textbox"), "Paid twice by mistake")
+    expect(go).toBeEnabled()
+  })
+})

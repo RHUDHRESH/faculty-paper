@@ -66,6 +66,8 @@ const BY_ROLE: Record<Role, readonly HomeQuery[]> = {
   FACULTY: [D.myHome, D.ownClaims, D.myPayments, D.myAssignments, D.nextPayout],
   HOD: [D.hodBrief, ...OWN],
   PRINCIPAL: [D.principalQueue, D.principalBrief, D.collegeTotals, ...OWN],
+  // The same year and no queue: nothing here is theirs to decide.
+  VICE_PRINCIPAL: [D.principalBrief, D.collegeTotals, ...OWN],
   DIRECTOR: [D.directorQueue, D.areas, D.collegeTotals, D.budget, ...OWN],
   FINANCE: [D.budget, ...OWN],
   RESEARCH_CELL: [...OFFICE, ...OWN],

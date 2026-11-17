@@ -133,6 +133,23 @@ describe("the faculty directory", () => {
     expect(screen.queryByRole("link", { name: /Export as CSV/ })).toBeNull()
   })
 
+  it("offers the standings numbers as optional columns, and shows them once chosen", async () => {
+    const standing = { all: { snip: 12.5, count: 31, remuneration: 1234567 }, year: { snip: 2, count: 3, remuneration: 9000 } }
+    mountDirectory(OFFICE, [row({ standing })])
+    const table = await screen.findByRole("table", { name: "Faculty" })
+    expect(within(table).queryByRole("columnheader", { name: "Cumulative SNIP" })).toBeNull()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("button", { name: "Columns" }))
+    for (const name of ["Cumulative SNIP", "Papers settled", "Incentive paid, all time"]) {
+      await user.click(await screen.findByRole("menuitemcheckbox", { name }))
+    }
+    await user.keyboard("{Escape}")
+    const item = bodyRows(await screen.findByRole("table", { name: "Faculty" }))[0]
+    expect(within(item).getByText("12.50")).toBeInTheDocument()
+    expect(within(item).getByText("₹12,34,567")).toBeInTheDocument()
+    expect(within(item).getByText("₹9,000 this year")).toBeInTheDocument()
+  })
+
   it("draws the list as a table with a header row of column names", async () => {
     mountDirectory(OFFICE, [row()])
     await screen.findByRole("table", { name: "Faculty" })
@@ -488,6 +505,25 @@ function mountRecord(me: Me, data: FacultyRecordPayload | (() => never)) {
 }
 
 describe("the faculty record", () => {
+  it("shows the three standings numbers, all time and this year, and links to how they are counted", async () => {
+    mountRecord(OFFICE, record({
+      standing: { all: { snip: 12.5, count: 31, remuneration: 1234567 }, year: { snip: 2, count: 3, remuneration: 9000 } },
+    }))
+    const strip = await screen.findByTestId("record-standing")
+    expect(within(strip).getByText("12.50")).toBeInTheDocument()
+    expect(within(strip).getByText("₹12,34,567")).toBeInTheDocument()
+    expect(within(strip).getByText("31")).toBeInTheDocument()
+    expect(within(strip).getByText("₹9,000 this year")).toBeInTheDocument()
+    expect(within(strip).getByRole("link", { name: "How this is counted" })).toHaveAttribute("href", "/standings?person=f1")
+  })
+
+  it("leaves the incentive out of the standing when the server sent none", async () => {
+    mountRecord(OFFICE, record({ standing: { all: { snip: 12.5, count: 31 }, year: { snip: 2, count: 3 } } }))
+    const strip = await screen.findByTestId("record-standing")
+    expect(within(strip).queryByText("Incentive paid")).toBeNull()
+    expect(within(strip).getByText("Papers settled")).toBeInTheDocument()
+  })
+
   it("shows the identifiers, every paper with its claim state, and reviewers' links", async () => {
     mountRecord(OFFICE, record())
     expect(await screen.findByRole("heading", { name: "Dr K R Devabalaji" })).toBeInTheDocument()

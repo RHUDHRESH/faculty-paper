@@ -13,7 +13,7 @@ import { PageHeader } from "@/ui/page-header"
 import { Pagination } from "@/ui/pagination"
 import { Details, Rows } from "@/ui/section"
 import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle } from "@/ui/sheet"
-import { ErrorState, SkeletonRows } from "@/ui/state"
+import { ErrorState, SkeletonRows, NotOpen } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { Meta } from "@/ui/text"
 
@@ -33,7 +33,7 @@ import { count, FaceName, type Face } from "./admin-b-parts"
  */
 
 /** `rbac.can_view_audit` (admin.py `admin_audit`, admin_b.py `audit_actions`). */
-const AUDIT_READERS: Role[] = ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR", "PRINCIPAL", "DIRECTOR", "FINANCE"]
+const AUDIT_READERS: Role[] = ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR", "PRINCIPAL", "VICE_PRINCIPAL", "DIRECTOR", "FINANCE"]
 
 type Change = { label: string; from: string; to: string }
 
@@ -277,11 +277,7 @@ export function Audit() {
   if (!canRead) {
     return (
       <div className="page py-8">
-        <ErrorState
-          art="closed-gate"
-          title="Not open to this account"
-          message="Open to the research office, system admins, the Principal, the Director and Finance."
-        />
+        <NotOpen message="Open to the research office, system admins, the Principal, the Director and Finance." />
       </div>
     )
   }
@@ -460,11 +456,7 @@ export function Audit() {
           <SkeletonRows rows={8} rowHeight={48} />
         ) : isError ? (
           error?.status === 403 ? (
-            <ErrorState
-              art="closed-gate"
-              title="Not open to this account"
-              message="Open to the research office, system admins, the Principal, the Director and Finance."
-            />
+            <NotOpen message="Open to the research office, system admins, the Principal, the Director and Finance." />
           ) : (
             <ErrorState
               title="Could not load the audit log"

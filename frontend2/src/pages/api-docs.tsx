@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useState } from "react"
 import { Link } from "react-router-dom"
 
@@ -115,8 +116,8 @@ export function ApiDocs() {
           </li>
         </ol>
         <p className="mt-3 max-w-prose text-sm text-fg-muted">
-          A token reads only, and sees exactly what you see in the app. It is limited to {data.rate_limit_per_minute} requests a
-          minute; past that the answer is 429 with a Retry-After header. JSON pages hold up to {data.max_page_size} rows and
+          A token reads only, and sees exactly what you see in the app. It is limited to {plural(data.rate_limit_per_minute, "request")} a
+          minute; past that the answer is 429 with a Retry-After header. JSON pages hold up to {plural(data.max_page_size, "row")} and
           csv or xlsx up to {data.max_file_page_size}; JSON answers carry a <code className="font-mono text-xs">next</code> link
           for the following page.
         </p>

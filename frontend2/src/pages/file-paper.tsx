@@ -671,6 +671,18 @@ export function FilePaper() {
     )
   }, [copySource])
 
+  // `?reason=STUDENT_PROJECT&team=CODE`, from a team's page: the reason and the
+  // team are chosen already. Shown, not saved; the team picker still checks
+  // the team is one this person mentors.
+  const teamPreselectedRef = useRef(false)
+  useEffect(() => {
+    if (isEditRoute || teamPreselectedRef.current) return
+    const code = searchParams.get("team")?.trim()
+    if (!code || searchParams.get("reason") !== "STUDENT_PROJECT") return
+    teamPreselectedRef.current = true
+    setForm((prev) => ({ ...prev, claimReason: "STUDENT_PROJECT", teamCode: code }))
+  }, [isEditRoute, searchParams])
+
   // Pre-fill from the existing claim exactly once, without marking it dirty.
   useEffect(() => {
     if (!existing || hydratedRef.current) return
@@ -1187,7 +1199,8 @@ export function FilePaper() {
   // No Scopus here: the server cannot confirm indexing on its own and will
   // ask for a note, so the note is asked for first.
   const scopusOff =
-    verify?.scopus_status === "not_configured" || (!verify && lookupRes?.scopus_status === "not_configured")
+    verify?.scopus_status === "not_configured" || verify?.scopus_status === "own_key_required" ||
+    (!verify && (lookupRes?.scopus_status === "not_configured" || lookupRes?.scopus_status === "own_key_required"))
 
   async function fileNow(opts: { contest?: boolean } = {}) {
     // The conditions are about one article. Not ticked yet, or ticked for a

@@ -2,7 +2,8 @@ import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
-import { EmptyState, ErrorState, InlineError } from "@/ui/state"
+import { MemoryRouter } from "react-router-dom"
+import { EmptyState, ErrorState, InlineError, NotOpen } from "@/ui/state"
 
 /**
  * CONVENTIONS rule 5: never render an error as an empty state.
@@ -101,5 +102,17 @@ describe("InlineError", () => {
     const alert = screen.getByRole("alert")
     expect(alert).toHaveTextContent("Could not load the totals.")
     expect(alert).toHaveClass("bg-critical-wash")
+  })
+})
+
+describe("NotOpen", () => {
+  it("offers a way home and no Try again, since a closed gate does not open on a second try", () => {
+    render(
+      <MemoryRouter>
+        <NotOpen message="Only the office." />
+      </MemoryRouter>
+    )
+    expect(screen.getByRole("link", { name: "Go home" })).toHaveAttribute("href", "/")
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull()
   })
 })

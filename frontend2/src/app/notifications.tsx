@@ -21,7 +21,7 @@ import {
 } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
-import { notificationsOf, useBadges } from "@/app/badges"
+import { notificationsOf, useBadges, type ShellBadges } from "@/app/badges"
 import { cn } from "@/lib/cn"
 import { formatCount } from "@/lib/count"
 import { api } from "@/lib/api"
@@ -69,6 +69,10 @@ export type Notification = {
   body: string | null
   href: string | null
   read: boolean
+  /** When it was read; null when unread, and on rows read before this was kept. */
+  read_at?: string | null
+  /** The thing it was about has been deleted: the row stays, the link is gone. */
+  gone?: boolean
   created_at: string
   /** The kind of alert (core.services.notify.KINDS) and the tab it sits under. */
   kind?: string
@@ -96,11 +100,20 @@ export const SECTION_TABS: { key: string; label: string }[] = [
  * tab would only ask them what it means.
  */
 export function sectionTabsFor(role: string | undefined): { key: string; label: string }[] {
-  return role === "FACULTY" ? SECTION_TABS.filter((t) => t.key !== "work") : SECTION_TABS
+  return role === "FACULTY" || role === "HOD" ? SECTION_TABS.filter((t) => t.key !== "work") : SECTION_TABS
 }
 
-export function listPath(section: string): string {
-  return section ? `/api/notifications?section=${section}` : "/api/notifications"
+/** Which rows the page shows: everything, what is unread, or what has been read. */
+export type ReadState = "" | "unread" | "read"
+
+/** The list's address: a tab, a read state, and how many rows (one more than shown tells there are more). */
+export function listPath(section: string, state: ReadState = "", limit?: number): string {
+  const q = new URLSearchParams()
+  if (section) q.set("section", section)
+  if (state) q.set("state", state)
+  if (limit) q.set("limit", String(limit))
+  const text = q.toString()
+  return text ? `/api/notifications?${text}` : "/api/notifications"
 }
 
 /** The number a grouped line stands for, beside its title. */
@@ -137,9 +150,26 @@ const DESTINATIONS: Record<string, string> = {
   "/admin": "/",
 }
 
-export function destinationFor(href: string | null): string | null {
+//: A desk alert names a paper in a queue (`/principal?claim=ID`). The queue page
+//: does not open papers by itself; the review page does, with the queue's name
+//: so its rail lists the same papers.
+const DESK_QUEUES: Record<string, string> = {
+  "/admin/clearing": "clearing",
+  "/clearing": "clearing",
+  "/principal": "approvals",
+  "/approvals": "approvals",
+  "/authorisations": "authorisations",
+}
+//: Mirrors REVIEW_DESKS in main.tsx: Finance pays from its own list and has no
+//: review page.
+const REVIEWERS = ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR", "PRINCIPAL", "DIRECTOR"]
+
+export function destinationFor(href: string | null, role?: string): string | null {
   if (!href) return null
   const [path, query] = href.split("?")
+  const claim = new URLSearchParams(query ?? "").get("claim")
+  const queue = DESK_QUEUES[path]
+  if (claim && queue && (!role || REVIEWERS.includes(role))) return `/review/${claim}?queue=${queue}`
   // Walk up the path so an unlisted child of a section that moved lands on the
   // section rather than on the catch-all. A notification that opens Not Found
   // is worse than one that opens the queue it was about.
@@ -173,6 +203,60 @@ export function relative(iso: string): string {
   return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
 }
 
+/**
+ * Reading, as the bell and the page both do it.
+ *
+ * Every answer from the server carries the new unread count. It is written
+ * into the badge at once, so the number never says something already wrong
+ * while the real one is on its way, and then the badge and every list are
+ * read again to confirm it.
+ */
+export function useNotificationActions() {
+  const qc = useQueryClient()
+
+  function settle(unread: number | undefined) {
+    if (typeof unread === "number") {
+      qc.setQueryData<ShellBadges>(BADGES_KEY, (old) =>
+        old ? { ...old, notifications: { unread } } : old
+      )
+    }
+    void qc.invalidateQueries({ queryKey: BADGES_KEY })
+    return qc.invalidateQueries({ queryKey: ["notifications"] })
+  }
+
+  /** One alert read. Never throws: a bookkeeping request must not block where the reader is going. */
+  function markRead(id: string): Promise<void> {
+    return api<{ unread?: number }>(`/api/notifications/${id}/read`, { method: "POST" })
+      .then((r) => void settle(r?.unread))
+      .catch(() => {})
+  }
+
+  /** Everything read, or one tab's worth when `section` is given. */
+  async function markAll(section = ""): Promise<void> {
+    try {
+      const r = await api<{ unread?: number }>(
+        `/api/notifications/read-all${section ? `?section=${section}` : ""}`,
+        { method: "POST" }
+      )
+      await settle(r?.unread)
+      toast.ok("Marked all read.")
+    } catch (err) {
+      toast.fail(err)
+    }
+  }
+
+  return { markRead, markAll }
+}
+
+/** When it was read, in the words the list uses: "Read 12 Nov", or just "Read". */
+export function readLabel(item: { read: boolean; read_at?: string | null }): string {
+  if (!item.read) return "Unread"
+  if (!item.read_at) return "Read"
+  const at = new Date(item.read_at)
+  if (Number.isNaN(at.getTime())) return "Read"
+  return `Read ${at.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`
+}
+
 export function NotificationBell({ className }: { className?: string }) {
   const [open, setOpen] = useState(false)
   const [section, setSection] = useState("")
@@ -181,7 +265,7 @@ export function NotificationBell({ className }: { className?: string }) {
   const panelRef = useRef<HTMLDivElement>(null)
   const bellRef = useRef<HTMLButtonElement>(null)
   const navigate = useNavigate()
-  const qc = useQueryClient()
+  const { markRead, markAll } = useNotificationActions()
 
   // `unread`, not `count` — the endpoint's own key, whatever API.md said.
   const unreadQuery = useBadges(notificationsOf)
@@ -249,37 +333,16 @@ export function NotificationBell({ className }: { className?: string }) {
     list[next]?.focus()
   }
 
-  function markRead(id: string): Promise<void> {
-    return api(`/api/notifications/${id}/read`, { method: "POST" })
-      .then(() => {
-        // The rows in the panel and the page, and the count behind the badge.
-        void qc.invalidateQueries({ queryKey: ["notifications"] })
-        void qc.invalidateQueries({ queryKey: BADGES_KEY })
-      })
-      .catch(() => {})
-  }
-
   function follow(item: Notification) {
     // Marked read optimistically-ish: the navigation is what the reader asked
     // for and must not wait on a bookkeeping request.
     if (!item.read) void markRead(item.id)
-    const to = destinationFor(item.href)
+    const to = item.gone ? null : destinationFor(item.href, me?.role)
     // A notification with nowhere to go still has to be markable, and closing
     // the panel on it would read as the click having done nothing at all.
     if (!to) return
     close(false)
     navigate(to)
-  }
-
-  async function markAll() {
-    try {
-      await api("/api/notifications/read-all", { method: "POST" })
-      void qc.invalidateQueries({ queryKey: BADGES_KEY })
-      await qc.invalidateQueries({ queryKey: ["notifications"] })
-      toast.ok("Marked all read.")
-    } catch (err) {
-      toast.fail(err)
-    }
   }
 
   const items = listQuery.data ?? []
@@ -318,29 +381,21 @@ export function NotificationBell({ className }: { className?: string }) {
           tabIndex={-1}
           onKeyDown={onPanelKeyDown}
           className={cn(
-            // Anchored per mount point in BOTH axes, because this bell has two
-            // and the two sit at opposite corners of the screen.
-            //
-            // Horizontally: in the mobile header it is flush right, so right-0
-            // is correct there. In the desktop sidebar its wrapper is only as
-            // wide as the button -- about 32px at the very left edge -- so
-            // right-0 put the right edge of a 320px panel at x=40 and the rest
-            // off the side of the screen. From md up it opens rightward.
-            "absolute right-0 md:right-auto md:left-0",
-            // Vertically: the mobile bell is in a 48px header at the top of the
-            // screen, so it drops down. The desktop bell is in the sidebar's
-            // footer, roughly 50px above the bottom of a full-height column, so
-            // dropping down put a 420px panel almost entirely below the fold --
-            // the same bug as the horizontal one, one axis over.
-            "top-full mt-1 md:bottom-full md:top-auto md:mb-1 md:mt-0",
-            "z-50 w-80 overflow-hidden rounded-lg bg-surface",
+            // Both bells now sit at the right-hand end of a bar along the top
+            // (the 64px desktop bar from lg up, the 48px header below it), so
+            // the panel hangs from the bell's bottom edge and ends at its right
+            // edge. It used to open upward and rightward from the bell, which
+            // was right when the desktop bell lived in the sidebar's footer and
+            // put the whole panel above the top of the screen once it moved.
+            "absolute right-0 top-full mt-1",
+            "z-50 w-[min(20rem,calc(100vw-1.5rem))] overflow-hidden rounded-lg bg-surface",
             "shadow-pop ring-1 ring-inset ring-edge"
           )}
         >
           <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
             <span className="text-sm font-medium">Notifications</span>
             {unread > 0 && (
-              <Button kind="quiet" size="sm" onClick={() => void markAll()} className="-mr-1.5">
+              <Button kind="quiet" size="sm" onClick={() => void markAll(section)} className="-mr-1.5">
                 <CheckCheck />
                 Mark all read
               </Button>
@@ -529,6 +584,7 @@ export function NotificationLine({ item, compact }: { item: Notification; compac
             {toDisplay(item.body).text}
           </span>
         )}
+        {item.gone && <span className="mt-0.5 block text-sm text-fg-subtle">No longer available.</span>}
       </span>
       <span className="flex h-5 w-2 shrink-0 items-center">
         {!item.read && <span role="img" aria-label="Unread" className="size-2 rounded-full bg-accent" />}

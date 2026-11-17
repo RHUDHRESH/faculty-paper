@@ -170,6 +170,7 @@ export function HodReportsHub() {
             <Rows>
               <Tool to="/search" label="Search" purpose="Papers, journals and colleagues, inside the college and outside it." />
               <Tool to="/journals" label="Journals" purpose="A journal's quartile, SNIP and standing, and the college's history with it." />
+              <Tool to="/teams" label="Student teams" purpose="The final-year project teams in the department, their papers and their claims." />
               <Tool to="/faculty" label="Faculty" purpose="Everyone in the department, with their Scopus ID, papers and record." />
             </Rows>
           </Section>

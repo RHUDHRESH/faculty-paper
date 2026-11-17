@@ -46,7 +46,7 @@ HUB_KINDS = ("SEMINAR", "WORKSHOP", "CONFERENCE", "FDP", "CALL_FOR_PAPERS", "OTH
 DEPARTMENT, PUBLIC = Thread.Visibility.DEPARTMENT, Thread.Visibility.PUBLIC
 
 #: Who may tell the whole college. The office, and the people who speak for it.
-COLLEGE_WIDE = (*rbac.ADMIN_ROLES, Role.HOD, Role.PRINCIPAL, Role.DIRECTOR)
+COLLEGE_WIDE = (*rbac.ADMIN_ROLES, Role.HOD, *rbac.PRINCIPAL_SEATS, Role.DIRECTOR)
 
 DEFAULT_LIMIT, MAX_LIMIT = 100, 300
 WHENS = ("upcoming", "past", "week", "month")

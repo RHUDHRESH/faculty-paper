@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useRef, useState } from "react"
 
 import { Button } from "@/ui/button"
@@ -60,7 +61,7 @@ export function ApproveConfirmDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle>{rows.length === 1 ? "Approve this claim?" : `Approve ${rows.length} claims?`}</DialogTitle>
+          <DialogTitle>{rows.length === 1 ? "Approve this claim?" : `Approve ${plural(rows.length, "claim")}?`}</DialogTitle>
           <DialogDescription>
             {rows.length === 1 ? "It goes" : "They go"} to the Director to authorise, then Finance pays.
           </DialogDescription>

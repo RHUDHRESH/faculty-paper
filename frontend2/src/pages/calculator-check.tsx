@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 
-import { useAuth } from "@/app/auth"
+import { can, useAuth } from "@/app/auth"
 import { ApiError } from "@/lib/api"
 import { useApi } from "@/lib/query"
 import { claimHref } from "@/pages/track-data"
@@ -83,6 +83,8 @@ function Result({ c }: { c: ClaimCheck }) {
   const mine = !!me && me.id === c.claim.user_id
   const open = claimHref(role, { id: c.claim.id, is_mine: mine })
   const ledgerPaid = c.ledger.rows.length > 0
+  // The ledger is Finance's, the Director's and the super admin's: a button to it elsewhere is a dead end.
+  const seesLedger = can(role).open("/ledger")
   const wantsDataFix = c.differences.some((d) => d.cause === "imported_no_amount")
 
   return (
@@ -159,7 +161,7 @@ function Result({ c }: { c: ClaimCheck }) {
           <Button kind="default" asChild>
             <Link to={`/track?why=${c.claim.id}`}>Why this amount</Link>
           </Button>
-          {ledgerPaid && (
+          {ledgerPaid && seesLedger && (
             <Button kind="default" asChild>
               <Link to={`/ledger?q=${encodeURIComponent(c.ledger.rows[0]?.voucher ?? c.claim.name)}`}>See the ledger</Link>
             </Button>

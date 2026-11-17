@@ -24,7 +24,7 @@ from django.conf import settings
 from django.http import HttpRequest
 from ninja.errors import HttpError
 from core.models import Claim, ClaimReason, ClaimStatus, User
-from core.services import rbac
+from core.services import count_only as count_only_service, rbac
 from core.services.scimago import lookup_scimago
 from core.services.scopus import author_profile_url
 
@@ -177,6 +177,9 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "sec_proof_url": c.sec_proof_url,
         "reference_articles": c.reference_articles,
         "claim_reason": c.claim_reason,
+        # Why the college counted this paper only, in words, when a reviewer
+        # decided it (`services.count_only`). None for a paper filed that way.
+        "count_only_reason": count_only_service.reason_on(c),
         # Who else is on it. A student-project claim is the work of a team, and
         # a ticket that names only the person who filed it hides the students
         # the incentive is partly for.

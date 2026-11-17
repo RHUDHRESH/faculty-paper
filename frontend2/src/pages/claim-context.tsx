@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { Link } from "react-router-dom"
 import { AlertTriangle } from "lucide-react"
 
@@ -126,7 +127,7 @@ export function ClaimContext({ claim }: { claim: ContextClaim }) {
         ) : person.data ? (
           <>
             <p className="text-sm text-fg-muted">
-              {person.data.totals.publications} papers on record ·{" "}
+              {plural(person.data.totals.publications, "paper")} on record ·{" "}
               {person.data.totals.paid_claims} paid, {money(person.data.totals.paid_amount)} in all
             </p>
             {others.length > 0 && (

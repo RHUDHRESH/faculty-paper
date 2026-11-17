@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { CircleCheck } from "lucide-react"
@@ -229,10 +230,10 @@ export function Duplicates() {
     {
       key: "payments",
       header: "Payments",
-      exportValue: (f) => `${f.payment_count} payments${paymentSpan(f) ? `, ${paymentSpan(f)}` : ""}`,
+      exportValue: (f) => `${plural(f.payment_count, "payment")}${paymentSpan(f) ? `, ${paymentSpan(f)}` : ""}`,
       cell: (f) => (
         <span className="block">
-          {f.payment_count} payments
+          {plural(f.payment_count, "payment")}
           {paymentSpan(f) && <Meta className="block">{paymentSpan(f)}</Meta>}
         </span>
       ),
@@ -726,7 +727,7 @@ function ReviewDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {finding.faculty_name ? `${finding.faculty_name}, ` : ""}
-            {finding.payment_count} payments totalling {money(finding.total_amount)} on “
+            {plural(finding.payment_count, "payment")} totalling {money(finding.total_amount)} on “
             {short(finding.paper_title)}”.
             {decision === "CONFIRMED" &&
               ` ${money(finding.extra_amount)} becomes money to recover. This records a judgement; it reverses no payment on its own.`}

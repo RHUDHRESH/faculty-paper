@@ -153,9 +153,15 @@ class TrackAmounts(Base):
         self.assertIsNone(rows["ERP-PROCESSED-1"]["amount"])
 
     def test_an_imported_paid_claim_gives_the_month_not_the_import_day(self):
-        Claim.objects.create(
+        month = timezone.now().date().replace(day=1).replace(month=1)
+        imported = Claim.objects.create(
             owner=self.faculty, status=ClaimStatus.PAID, paper_title="A", ticket_number="ERP-PROCESSED-1",
-            paid_at=timezone.now(), payout_month=timezone.now().date().replace(day=1).replace(month=1),
+            paid_at=timezone.now(), payout_month=month,
+        )
+        # The ledger row that paid it names its month, so the month is a recorded one
+        # (an imported claim whose rows name none is shown as "month not recorded").
+        PaidLedger.objects.create(
+            claim=imported, payout_month=month, amount=1, paper_title="A", raw_json='{"Month": "Jan"}',
         )
         Claim.objects.create(
             owner=self.faculty, status=ClaimStatus.PAID, paper_title="B", ticket_number="FP-2026-000009",

@@ -346,6 +346,7 @@ export function Approvals() {
             rows={ordered}
             href={href}
             id="approvals"
+            countOnlyStage="CLEARED"
             title="Approvals"
             caption="Cleared claims waiting for approval, ready ones first"
             active={activeRow}

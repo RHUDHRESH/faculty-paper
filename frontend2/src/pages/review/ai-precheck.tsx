@@ -10,6 +10,7 @@ import { Button } from "@/ui/button"
 import { Textarea } from "@/ui/field"
 import { Callout, Skeleton, SkeletonText } from "@/ui/state"
 import { toast } from "@/ui/toast"
+import { OwnKeyNotice } from "@/pages/my-keys"
 
 /**
  * Claim pre-check: a second reader for the research cell (docs/ux/20-ai.md).
@@ -304,12 +305,16 @@ export function AiPrecheckSection({
       )}
 
       {s && !s.available && (
-        <p className="text-sm text-fg-muted">
-          {s.code === "not_configured" || s.code === "misconfigured"
-            ? "AI is off for this college."
-            : "AI is not answering right now."}{" "}
-          Everything on this page works without it.
-        </p>
+        s.code === "own_key_required" ? (
+          <OwnKeyNotice what="AI" />
+        ) : (
+          <p className="text-sm text-fg-muted">
+            {s.code === "not_configured" || s.code === "misconfigured"
+              ? "AI is off for this college."
+              : "AI is not answering right now."}{" "}
+            Everything on this page works without it.
+          </p>
+        )
       )}
 
       {s?.available && run.isPending && (

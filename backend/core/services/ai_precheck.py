@@ -64,7 +64,7 @@ from core.models import (
     ClaimStatus,
     User,
 )
-from core.services import ai, ai_harness as harness, content_check, institution, journal_watch
+from core.services import ai, ai_harness as harness, content_check, institution, journal_watch, user_keys
 from core.services.author_names import name_score
 from core.services.normalize import normalize_doi, normalize_title, title_tokens
 
@@ -779,6 +779,8 @@ def merge(base: dict[str, dict[str, Any]], notes: dict[str, dict[str, Any]] | No
 
 def _unavailable(health: dict[str, Any]) -> PrecheckError:
     """"Off" is a college that has not set AI up; anything else is a service that is not answering."""
+    if health.get("code") == "own_key_required":
+        return PrecheckError(403, str(health.get("detail") or user_keys.blocked_message("ai")), code="own_key_required")
     if health.get("code") in ("not_configured", "misconfigured"):
         return PrecheckError(503, "AI is off for this college.", code="off")
     return PrecheckError(503, "AI is not answering right now. Try again in a few minutes.", code=str(health.get("code") or "down"))

@@ -149,6 +149,11 @@ def unmatched_groups(
         likely_all = _suggested_keys()
         counts["open_suggested"] = sum(1 for k in just_open if k in likely_all)
         counts["open_unsuggested"] = len(just_open) - counts["open_suggested"]
+    # Papers the college's own files placed: a settled claim or a payment row
+    # named the person, so nobody had to (match_method "record").
+    counts["from_files"] = Authorship.objects.filter(
+        is_college=True, user__isnull=False, match_method="record"
+    ).count()
     return {"total": len(picked), "items": out, "counts": counts}
 
 

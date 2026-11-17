@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { paperTitle } from "@/lib/names"
 import { useState } from "react"
 import { Link, useParams, useSearchParams } from "react-router-dom"
@@ -233,7 +234,7 @@ function UploadBatch({ onClose, onDone }: { onClose: () => void; onDone: () => v
         "/api/monthly/upload",
         { method: "POST", body } as unknown as Parameters<typeof api>[1]
       )
-      toast.ok(`Uploaded. ${res.row_count.toLocaleString("en-IN")} rows read. Start the run when ready.`)
+      toast.ok(`Uploaded. ${plural(res.row_count, "row")} read. Start the run when ready.`)
       onDone()
       onClose()
     } catch (err) {
@@ -456,7 +457,7 @@ export function Batch() {
               onChange={(e) => setParams(e.target.value ? { show: e.target.value } : {}, { replace: true })}
               className="w-auto max-sm:w-full"
             >
-              <option value="">All {data.rows.length.toLocaleString("en-IN")} rows</option>
+              <option value="">All {plural(data.rows.length, "row")}</option>
               <option value="unmatched">Not matched ({unmatched.toLocaleString("en-IN")})</option>
             </Select>
             {(find || unmatchedOnly) && (

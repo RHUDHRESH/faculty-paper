@@ -52,7 +52,7 @@ from django.utils import timezone
 
 from core import hod
 from core.models import AuditLog, Claim, ClaimStatus, Publication, Role, User
-from core.services import ai, college_totals, hod_record, principal_reports, rbac
+from core.services import ai, college_totals, hod_record, principal_reports, rbac, user_keys
 from core.services import ai_harness as harness
 from core.services import research_picture as picture
 from core.services.college_totals import NO_DEPARTMENT
@@ -1676,7 +1676,10 @@ def ask(v: Viewer, user: Any, question: str) -> dict[str, Any]:
             logger.info("insights_ask_counted code=%s", got.code)
             notices.append(got.message if got.code in _LIMIT_CODES else FAILED_TEXT)
     else:
-        notices.append(OFF_TEXT)
+        notices.append(
+            user_keys.blocked_message("ai") + " Until then your question was matched by its words to the nearest question that can be counted."
+            if user_keys.blocked("ai") else OFF_TEXT
+        )
     if choice is None:
         choice = choose(match(q, v, departments) or {"query": NONE}, v, departments)
         if choice.off_topic:

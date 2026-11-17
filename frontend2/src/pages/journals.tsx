@@ -4,6 +4,7 @@ import { JournalCover } from "@/ui/journal-cover"
 import { Link, useParams, useSearchParams } from "react-router-dom"
 import { BookOpen, Search, SearchX } from "lucide-react"
 
+import { claimLink } from "@/app/access"
 import { can, useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
@@ -20,6 +21,7 @@ import { Answer } from "@/ui/answer"
 import { filterBar } from "@/ui/filter-bar"
 import { JournalsDesk, WatchNotice } from "@/pages/cell/journals-desk"
 import { useCrumbLabel } from "@/app/crumbs"
+import { FacultyJournalRecord, isFacultyJournal, type FacultyJournal } from "@/pages/journal-faculty"
 
 /**
  * Where this college publishes (`Journals`) and one journal's record
@@ -360,7 +362,7 @@ export function JournalRecord() {
     isLoading,
     error,
     refetch,
-  } = useApi<JournalReport>(
+  } = useApi<JournalReport | FacultyJournal>(
     ["journal-report", title],
     `/api/journals/report?title=${encodeURIComponent(title)}`,
     { enabled: !!title }
@@ -396,7 +398,7 @@ export function JournalRecord() {
           <ErrorState
             art="closed-gate"
             title="Not visible to this account"
-            message="This record is open to heads of department, the principal, finance and the research office — not to faculty accounts."
+            message="The server did not let this account open this journal."
           />
         </div>
       )
@@ -438,6 +440,15 @@ export function JournalRecord() {
     )
   }
 
+  // A faculty account is answered with the journal's facts and its own
+  // claims only (`journal-faculty.tsx`); the college's record is for the desks.
+  if (isFacultyJournal(report)) return <FacultyJournalRecord report={report} />
+
+  return <CollegeJournalRecord report={report} showMoney={showMoney} />
+}
+
+function CollegeJournalRecord({ report, showMoney }: { report: JournalReport; showMoney: boolean }) {
+  const { me } = useAuth()
   const { journal, totals, by_year, by_quartile, by_status, by_department, authors, claims } =
     report
 
@@ -654,7 +665,9 @@ export function JournalRecord() {
           rows={claims}
           columns={claimColumns}
           getKey={(c) => c.id}
-          rowLink={(c) => `/papers/${c.id}`}
+          // A head opens the department's copy of a colleague's paper; the
+          // pages that are not theirs to open are not linked.
+          rowLink={(c) => claimLink(me?.role, { id: c.id, owner_id: c.owner_id }, me?.id)}
           minWidth="44rem"
           empty="Nothing published here yet."
         />

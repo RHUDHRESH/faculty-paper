@@ -7,6 +7,7 @@ import { Button } from "@/ui/button"
 import { Callout, EmptyState, ErrorState, InlineError, SkeletonRows, SkeletonText } from "@/ui/state"
 import { Meta, SectionTitle, Sub } from "@/ui/text"
 import { StreamingText } from "@/ui/motion/stream"
+import { OwnKeyNotice } from "@/pages/my-keys"
 
 /**
  * New things to work on: who to write with, where to aim, what to try.
@@ -226,11 +227,15 @@ export function IndustryPartners({ status }: { status: AiStatus | undefined }) {
     <section aria-label="Industry partners" className="space-y-2 border-t border-line pt-6">
       <Heading>Industry partners</Heading>
       {!status.available ? (
-        <Meta className="block">
-          {status.code === "not_configured"
-            ? "Suggesting companies to work with needs AI, which is not set up on this server."
-            : "Suggesting companies to work with needs the AI model, which is not answering right now."}
-        </Meta>
+        status.code === "own_key_required" ? (
+          <OwnKeyNotice what="AI" />
+        ) : (
+          <Meta className="block">
+            {status.code === "not_configured"
+              ? "Suggesting companies to work with needs AI, which is not set up on this server."
+              : "Suggesting companies to work with needs the AI model, which is not answering right now."}
+          </Meta>
+        )
       ) : !asked ? (
         <div className="space-y-2">
           <Button size="sm" onClick={() => setAsked(true)}>

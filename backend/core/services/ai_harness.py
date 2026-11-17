@@ -47,6 +47,7 @@ Typical use (``docs/ops/ai-harness.md`` has the longer version)::
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import html
 import json
@@ -66,7 +67,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
-from core.services import ai
+from core.services import ai, user_keys
 
 logger = logging.getLogger(__name__)
 
@@ -1333,13 +1334,15 @@ def _day_start():
     return timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def _check_limits(feature: str, user: Any, limits: Limits) -> Failed | None:
+def _check_limits(feature: str, user: Any, limits: Limits, *, own_key: bool = False) -> Failed | None:
     from core.models import AIUsage
 
-    cap = int(getattr(settings, "AI_COLLEGE_MONTHLY_CALLS", 0) or 0)
-    token_cap = int(getattr(settings, "AI_COLLEGE_MONTHLY_TOKENS", 0) or 0)
+    # The college's monthly cap protects the college's key: a call on a person's
+    # own key neither counts toward it nor is stopped by it.
+    cap = 0 if own_key else int(getattr(settings, "AI_COLLEGE_MONTHLY_CALLS", 0) or 0)
+    token_cap = 0 if own_key else int(getattr(settings, "AI_COLLEGE_MONTHLY_TOKENS", 0) or 0)
     if cap or token_cap:
-        month = AIUsage.objects.filter(created_at__gte=_month_start())
+        month = AIUsage.objects.filter(created_at__gte=_month_start(), own_key=False)
         if cap and month.filter(outcome__in=_BILLABLE).count() >= cap:
             return Failed("college_cap", MESSAGES["college_cap"], reason="limited")
         if token_cap:
@@ -1373,6 +1376,7 @@ class _Meter:
         self.exact = False
         self.attempts = 0
         self.guard_hits = 0
+        self.own_key = False
 
     @property
     def latency_ms(self) -> int:
@@ -1413,6 +1417,7 @@ class _Meter:
                 tokens_out=self.tokens_out,
                 tokens_exact=self.exact,
                 guard_hits=self.guard_hits,
+                own_key=self.own_key,
             )
         except Exception:  # noqa: BLE001 - an audit that fails must never fail the page
             logger.exception("ai_audit_write_failed feature=%s", self.feature)
@@ -1579,13 +1584,26 @@ def run(
         raise ValueError(f"model must be one of {TIERS}, not {model!r}")
     limits = limits or Limits()
     fast = model == "fast"
+    # The question runs on the asking person's own key when they brought one
+    # (and the college allows it). Inside a web request the request already
+    # says whose it is (and says "nobody" while somebody is viewing as another
+    # person, whose key must not be spent); a job running for a person, with
+    # no request, is told here.
+    with user_keys.acting_as(user) if (user is not None and not user_keys.in_scope()) else contextlib.nullcontext():
+        return _run_as(feature, system, data_blocks, schema, model, fast, user, cache_key, limits, guards,
+                       temperature, transport, baseline, closed_world, cache_only, refresh)
+
+
+def _run_as(feature, system, data_blocks, schema, model, fast, user, cache_key, limits, guards, temperature,
+            transport, baseline, closed_world, cache_only, refresh):
     meter = _Meter(feature, user, model, limits)
     meter.model = _model_name(fast)
+    meter.own_key = user_keys.own_in_use("ai")
     try:
         return _run(feature, system, tuple(data_blocks), schema, fast, user, cache_key, limits,
                     tuple(guards), temperature, transport or provider_transport, baseline, closed_world, cache_only, refresh, meter)
     except ai.Cancelled:
-        if limits.live:
+        if limits.live and not meter.own_key:
             _BREAKER.failure("cancelled")  # not an outage: only frees a half-open trial
         raise
     except Exception as exc:  # noqa: BLE001 - nothing here may reach the page
@@ -1619,8 +1637,9 @@ def _run(feature, system, blocks, schema, fast, user, cache_key, limits, guards,
 
     # -- may this happen at all -------------------------------------------
     if limits.live:
-        refusal = _check_limits(feature, user, limits)
-        if refusal is None and not _BREAKER.allow():
+        refusal = _check_limits(feature, user, limits, own_key=meter.own_key)
+        # The breaker guards the college's service; a person's own key has its own health.
+        if refusal is None and not meter.own_key and not _BREAKER.allow():
             refusal = Failed("circuit_open", MESSAGES["circuit_open"], reason="limited")
         if refusal is not None:
             meter.write("refused", refusal.code)
@@ -1651,12 +1670,12 @@ def _run(feature, system, blocks, schema, fast, user, cache_key, limits, guards,
         )
         reply = _call(transport, request, limits, deadline, meter)
         if isinstance(reply, Failed):
-            if limits.live:
+            if limits.live and not meter.own_key:
                 # Anything but a service-health kind just clears a half-open trial.
                 _BREAKER.failure(_kind_of(reply.cause) if reply.cause else reply.code)
             meter.write("failed", reply.code)
             return Failed(reply.code, reply.message, reason=reply.reason, attempts=attempt, cause=reply.cause)
-        if limits.live:
+        if limits.live and not meter.own_key:
             _BREAKER.success()
         meter.note_reply(reply, len(request.prompt) + len(request.system))
 

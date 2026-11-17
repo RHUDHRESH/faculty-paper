@@ -94,6 +94,28 @@ function mount(me: Me, ui: React.ReactElement, extra: ApiTable = {}) {
   renderWithProviders(ui)
 }
 
+describe("the Principal's pack line", () => {
+  it("names what is left to settle in one line, so \"2 things\" is not a riddle", async () => {
+    mount(PRINCIPAL, <PrincipalHome />, {
+      "/api/reports/brief": () => ({
+        year: 2026,
+        partial: true,
+        push: [],
+        no_heads: [],
+        totals: { publications: 10, paid_claims: 5, paid_amount: 1000, awaiting_payment: 0, committed_amount: 0 },
+        pack: [
+          { key: "heads", ok: false, label: "Heads of department named", detail: "3 have none", to: "/people" },
+          { key: "issn", ok: false, label: "Every paper has an ISSN", detail: "4 do not", to: "/data/health" },
+          { key: "doi", ok: true, label: "Every paper has a DOI", detail: "yes", to: null },
+        ],
+      }),
+    })
+    const link = await screen.findByRole("link", { name: /2 things to settle before it goes/ })
+    expect(link.parentElement).toHaveTextContent("Heads of department named, Every paper has an ISSN.")
+    expect(link.parentElement?.textContent).not.toMatch(/Every paper has a DOI/)
+  })
+})
+
 describe("an officer's home", () => {
   it("keeps the Principal's desk and adds their own papers below it", async () => {
     mount(PRINCIPAL, <PrincipalHome />)

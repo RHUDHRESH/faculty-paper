@@ -21,7 +21,7 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from core.models import Budget, Claim, ClaimStatus, PaidLedger
-from core.services import college_totals, institution
+from core.services import college_totals, institution, paper_fields
 from core.services.record_dates import ledger_month_recorded
 
 _ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
@@ -92,12 +92,19 @@ def label_of(month: str) -> str:
     return _parse_month(month).strftime("%B %Y")
 
 
+def _figures(found: dict[str, Any], month: date | None) -> dict[str, Any]:
+    """The paper's figures for a statement line (`paper_fields`), with the academic year."""
+    return {**found, "academic_year": paper_fields.academic_year(month)}
+
+
 def month_rows(month: str) -> list[dict[str, Any]]:
     """Every payment of the month once, ledger first, then unledgered paid claims."""
     d = _parse_month(month)
     out: list[dict[str, Any]] = []
     ledger = (PaidLedger.objects.filter(payout_month__year=d.year, payout_month__month=d.month)
               .select_related("claim", "claim__owner").order_by("department", "faculty_name", "id"))
+    ledger = list(ledger)
+    found = paper_fields.for_ledger_rows(ledger)
     for r in ledger:
         c = r.claim
         out.append({
@@ -118,10 +125,13 @@ def month_rows(month: str) -> list[dict[str, Any]]:
             # What the research threshold kept back from this claim, so the
             # signer sees why a paper is worth less than the policy says.
             "held_back": round(float(c.research_absorbed or 0), 2) if c else 0.0,
+            "figures": _figures(found[r.pk], r.payout_month),
         })
     orphans = (Claim.objects.filter(status=ClaimStatus.PAID, ledger_rows__isnull=True,
                                     payout_month__year=d.year, payout_month__month=d.month)
                .select_related("owner"))
+    orphans = list(orphans)
+    found_claims = paper_fields.for_claims(orphans)
     for c in orphans:
         out.append({
             "source": "claim_only", "ledger_id": None, "claim_id": c.id, "ticket": c.ticket_number,
@@ -133,6 +143,7 @@ def month_rows(month: str) -> list[dict[str, Any]]:
             "paid_on": c.paid_at.date().isoformat() if c.paid_at else None,
             "month_recorded": True,
             "held_back": round(float(c.research_absorbed or 0), 2),
+            "figures": _figures(found_claims[c.pk], c.payout_month),
         })
     return out
 

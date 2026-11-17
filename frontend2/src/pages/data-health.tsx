@@ -22,6 +22,7 @@ import { toast } from "@/ui/toast"
 import { Ago } from "@/ui/when"
 
 import { count, plural } from "./admin-b-parts"
+import { DataFillSection } from "./data-fill-section"
 
 /**
  * Data health: does the record contradict itself, and is there a recent backup?
@@ -298,6 +299,8 @@ export function DataHealth() {
               </Rows>
             </Details>
           )}
+
+          <DataFillSection />
 
           <Section id="backups" title="Backups" className="space-y-4">
             <Callout tone="info" title="Keep a copy off this server">

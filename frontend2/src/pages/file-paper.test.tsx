@@ -107,6 +107,17 @@ function mount({
       }
     }
     if (path.startsWith("/api/claims?status=DRAFT")) return { results: [] }
+    if (path.startsWith("/api/teams?mine=true")) {
+      return {
+        results: [
+          {
+            id: "t1", code: "PR26CH0001", title: "A synthetic project", department: "Chemical", academic_year: "2025-26",
+            mentor_id: "u-faculty", mentor_name: "Dr Asha Menon", active: true, claimed_by: null,
+            members: [{ id: "m1", name: "Student One", register_number: "900000000001", programme: null, year_of_study: null, mentor_name: null }],
+          },
+        ],
+      }
+    }
     if (path === "/api/admin/users/u-asha") {
       return { id: "u-asha", name: "Asha Menon", email: "asha@example.edu", department: "Mechanical" }
     }
@@ -281,6 +292,27 @@ describe("filing a paper", { timeout: 20_000 }, () => {
     await new Promise((r) => setTimeout(r, 300))
     expect(screen.getByRole("heading", { level: 1, name: "The details, for Asha Menon" })).toBeInTheDocument()
     expect(screen.getByText("Filing on behalf of Asha Menon")).toBeInTheDocument()
+  })
+
+  it("opens with the student-project reason and the team chosen when sent from a team's page", async () => {
+    const { user } = mount({ route: "/papers/new?reason=STUDENT_PROJECT&team=PR26CH0001" })
+    await screen.findByRole("heading", { level: 1, name: "Choose the paper" })
+    await pasteDoi(user)
+    await user.click(screen.getByRole("button", { name: "Continue" }))
+    await passTheGate(user)
+    // The form opens on the first section that needs the person; the reason is in the paper section.
+    const paperStep = screen.queryByRole("button", { name: "The paper" })
+    if (paperStep) await user.click(paperStep)
+    expect(await screen.findByRole("radio", { name: /Final-year project conference incentive/ })).toBeChecked()
+    expect(await screen.findByRole("radio", { name: /PR26CH0001/ })).toBeChecked()
+    expect(screen.getByRole("radio", { name: /Faculty publication incentive/ })).not.toBeChecked()
+  })
+
+  it("ignores a team in the address unless the reason is the student project", async () => {
+    const { user } = mount({ route: "/papers/new?team=PR26CH0001" })
+    await openForm(user, "doi")
+    expect(await screen.findByRole("radio", { name: /Faculty publication incentive/ })).toBeChecked()
+    expect(screen.queryByRole("radio", { name: /PR26CH0001/ })).toBeNull()
   })
 
   it("shows the claimant among the authors on the author step", async () => {

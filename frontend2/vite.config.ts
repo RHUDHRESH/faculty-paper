@@ -50,12 +50,16 @@ export default defineConfig({
     // cross-site and never sent. The target is the local Django port unless
     // pointed elsewhere — what lets a scratch backend (a setup-wizard check,
     // a product smoke test) be driven through the real frontend.
+    //
+    // The keys are anchored with a slash. A bare "/api" is a prefix match, so
+    // the app's own page "/api-docs" was sent to Django and answered 404 on a
+    // direct load or a refresh.
     proxy: {
-      "/api": {
+      "^/api/": {
         target: process.env.VITE_API_PROXY || "http://localhost:8000",
         changeOrigin: true,
       },
-      "/media": {
+      "^/media/": {
         target: process.env.VITE_API_PROXY || "http://localhost:8000",
         changeOrigin: true,
       },

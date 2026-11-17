@@ -248,7 +248,7 @@ def faculty_report(request: HttpRequest, user_id: str):
             slot = out.setdefault(key, {"key": key, "count": 0, "amount": 0.0})
             slot["count"] += 1
             slot["amount"] += c.remuneration or 0
-        return sorted(out.values(), key=lambda r: -r["count"])
+        return sorted(out.values(), key=lambda r: (r["key"] == blank, -r["count"]))
 
     return {
         "faculty": _user_dict(person),

@@ -3,7 +3,7 @@ import { ArrowLeft, Copy } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { api, type ApiError } from "@/lib/api"
-import { useApi } from "@/lib/query"
+import { BADGES_KEY, useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Switch } from "@/ui/field"
 import { Callout, ErrorState, SkeletonRows } from "@/ui/state"
@@ -51,29 +51,56 @@ const KEY = ["notification-preferences"]
  * forget. The social switches on the statistics page write the same
  * preferences, so the two pages can never disagree.
  */
-type TestResult = { sent: boolean; message: string; smtp: Smtp }
+type TestResult = {
+  in_app: { ok: boolean; message: string }
+  email: { configured: boolean; sent: boolean; message: string }
+  whatsapp: { configured: boolean; has_phone: boolean; opted_in: boolean; sent: boolean; message: string }
+  smtp: Smtp
+}
 
-/** Super admin only: where email goes out from, and a way to prove it works. */
+/**
+ * Super admin only: where email goes out from, and one test alert sent down
+ * every channel, with what each channel did. "Not set up" is an answer here,
+ * not an error.
+ */
 function MailServer({ smtp }: { smtp: Smtp }) {
+  const qc = useQueryClient()
   const test = useMutation<TestResult, ApiError>({
-    mutationFn: () => api<TestResult>("/api/notifications/test-email", { method: "POST" }),
+    mutationFn: () => api<TestResult>("/api/notifications/test", { method: "POST" }),
+    onSuccess: () => {
+      // The test alert is in the bell now.
+      void qc.invalidateQueries({ queryKey: BADGES_KEY })
+      void qc.invalidateQueries({ queryKey: ["notifications"] })
+    },
     onError: (err) => toast.fail(err),
   })
   const result = test.data
+  const lines: { name: string; ok: boolean; text: string }[] = result
+    ? [
+        { name: "In the app", ok: result.in_app.ok, text: result.in_app.message },
+        { name: "Email", ok: result.email.sent, text: result.email.message },
+        { name: "WhatsApp", ok: result.whatsapp.sent, text: result.whatsapp.message },
+      ]
+    : []
   return (
     <section className="space-y-3" aria-labelledby="mail-server">
-      <SectionTitle id="mail-server">Mail server</SectionTitle>
+      <SectionTitle id="mail-server">Test the channels</SectionTitle>
       <Callout tone={smtp.configured ? "info" : "caution"}>{smtp.line}</Callout>
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={() => test.mutate()} disabled={test.isPending}>
-          {test.isPending ? "Sending..." : "Send a test email to myself"}
+          {test.isPending ? "Sending..." : "Send me a test notification"}
         </Button>
-        {result && (
-          <p role="status" className={result.sent ? "text-sm text-fg" : "text-sm text-critical"}>
-            {result.message}
-          </p>
-        )}
       </div>
+      {result && (
+        <ul role="status" className="divide-y divide-line border-y border-line">
+          {lines.map((l) => (
+            <li key={l.name} className="flex flex-wrap items-baseline gap-x-3 py-2.5">
+              <span className="w-24 shrink-0 text-base font-medium">{l.name}</span>
+              <span className={l.ok ? "text-sm text-fg" : "text-sm text-fg-muted"}>{l.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   )
 }

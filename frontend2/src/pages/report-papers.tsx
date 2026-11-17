@@ -14,7 +14,7 @@ import { Avatar, initialsOf } from "@/ui/person"
 import { ErrorState, SkeletonRows } from "@/ui/state"
 import { type Column, Table } from "@/ui/table"
 import { ColumnLabel, Meta } from "@/ui/text"
-import { type Brief, n } from "@/pages/principal-parts"
+import { type Brief, n, NO_DEPARTMENT, NO_DEPARTMENT_PATH } from "@/pages/principal-parts"
 
 /**
  * The papers behind any figure on the Principal's reports.
@@ -47,7 +47,7 @@ type Payload = {
 }
 
 const PAGE = 25
-const NOT_RECORDED = "Department not recorded"
+const NOT_RECORDED = NO_DEPARTMENT
 
 const QUARTILES: ComboboxOption[] = [
   { value: "", label: "Any quartile" },
@@ -162,7 +162,7 @@ export function ReportPapers() {
 
   const scope = [
     year ? `of ${year}` : "in every year",
-    department ? (department === NOT_RECORDED ? "with no department recorded" : `in ${department}`) : "in every department",
+    department ? (department === NOT_RECORDED ? "by people with no department on their account" : `in ${department}`) : "in every department",
     quartile ? QUARTILES.find((o) => o.value === quartile)?.label : "",
     q ? `matching “${q}”` : "",
   ]
@@ -180,7 +180,7 @@ export function ReportPapers() {
         <>
           <Title p={p} />
           <Meta className="mt-0.5 block">
-            {[p.departments.join(", ") || "No department recorded", p.claim_no].filter(Boolean).join(" · ")}
+            {[p.departments.join(", "), p.claim_no].filter(Boolean).join(" · ")}
           </Meta>
         </>
       ),
@@ -242,6 +242,16 @@ export function ReportPapers() {
         )}
       </div>
 
+      {department === NOT_RECORDED && (
+        <p className="text-sm text-fg-muted">
+          These papers are by people whose account has no department.{" "}
+          <Link to={NO_DEPARTMENT_PATH} className="text-accent underline-offset-4 hover:underline">
+            See the accounts to fix
+          </Link>
+          .
+        </p>
+      )}
+
       {list.isError ? (
         <ErrorState title="The papers could not be loaded" message="Try again in a moment." onRetry={() => list.refetch()} />
       ) : !d ? (
@@ -256,11 +266,9 @@ export function ReportPapers() {
                 <Title p={p} />
                 <Authors authors={p.authors} />
                 <Meta className="block">
-                  {[p.journal || "Journal not recorded", p.year ?? "Year not recorded", p.quartile ?? "Quartile not recorded"].join(
-                    " · "
-                  )}
+                  {[p.journal, p.year, p.quartile].filter(Boolean).join(" · ")}
                 </Meta>
-                <Meta className="block">{p.departments.join(", ") || "No department recorded"}</Meta>
+                <Meta className="block">{p.departments.join(", ")}</Meta>
               </li>
             ))}
           </Rows>

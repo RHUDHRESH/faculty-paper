@@ -33,7 +33,7 @@ class SearchAllTests(_Base):
     def test_groups_across_kinds(self):
         body = self.get("/api/search/all?q=fuzzy")
         kinds = [g["kind"] for g in body["groups"]]
-        self.assertEqual(kinds, ["person", "paper", "claim", "journal", "topic", "department"])
+        self.assertEqual(kinds, ["person", "paper", "claim", "team", "journal", "topic", "department"])
         papers = self.group(body, "paper")
         self.assertGreaterEqual(papers["total"], 2)
         self.assertTrue(papers["items"][0]["meta"]["mine"])  # mine first

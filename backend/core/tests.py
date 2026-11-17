@@ -3027,7 +3027,7 @@ class QualityOfLifeTests(TestCase):
 
         wb = load_workbook(_io.BytesIO(r.content))
         ws = wb.active
-        self.assertEqual(ws["A1"].value, "Ticket")
+        self.assertEqual(ws["A1"].value, "Claim no.")  # the app's name for it everywhere
         titles = [row[5].value for row in ws.iter_rows(min_row=2)]
         self.assertTrue(any(t and "not a formula" in t and t.startswith("'") for t in titles),
                         "formula-looking cells must be neutralised")
@@ -7115,8 +7115,15 @@ class JournalRecordTests(TestCase):
         self.assertEqual(res.status_code, 404)
 
     def test_a_claimant_cannot_read_the_college_wide_record(self):
+        # They read the journal itself and their own claims in it
+        # (core/test_journal_faculty.py), not the college's.
         res = self._get(self.faculty, "/api/journals/report?title=Test Ceramics")
-        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["view"], "faculty")
+        self.assertNotIn("totals", body)
+        self.assertNotIn("authors", body)
+        self.assertNotIn("Fac Two", json.dumps(body))
 
     def test_a_head_sees_only_their_department_and_no_money(self):
         res = self._get(self.head, "/api/journals/report?title=Test Ceramics")

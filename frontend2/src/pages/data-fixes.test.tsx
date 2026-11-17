@@ -80,4 +80,19 @@ describe("the data-fix queue", () => {
       reason: "Corrected from the accounts records",
     })
   })
+
+  it("does not ask the coordinator for the super-admin re-mark panel", async () => {
+    const calls: string[] = []
+    vi.mocked(api).mockImplementation((path: string) => {
+      calls.push(path)
+      return fakeApi({
+        "/api/auth/me": () => ({ ...ADMIN, role: "RESEARCH_COORDINATOR" }),
+        "/api/admin/data-fixes": () => QUEUE,
+      })(path)
+    })
+    renderWithProviders(<DataFixes />)
+    expect(await screen.findByText("61")).toBeTruthy()
+    expect(calls.some((c) => c.includes("erp-remark"))).toBe(false)
+    expect(screen.queryByText(/Could not check the claims marked Paid in error/)).toBeNull()
+  })
 })

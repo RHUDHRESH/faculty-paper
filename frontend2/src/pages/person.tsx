@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useEffect, useRef, useState } from "react"
 import { Link, useParams, useSearchParams } from "react-router-dom"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
@@ -820,7 +821,7 @@ export function PublishedWork({ papers }: { papers: RecordPaper[] }) {
     <section className="space-y-3">
       <div className="flex items-baseline gap-3">
         <SectionTitle className="text-lg">Published work</SectionTitle>
-        <Meta>{papers.length === 1 ? "1 paper" : `${papers.length} papers`}</Meta>
+        <Meta>{papers.length === 1 ? "1 paper" : `${plural(papers.length, "paper")}`}</Meta>
       </div>
       <Table
         rows={papers.slice(0, shown)}

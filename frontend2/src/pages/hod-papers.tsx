@@ -301,7 +301,7 @@ export function HodPapers() {
                 </Link>
                 <Authors authors={p.authors} />
                 <Meta className="block">
-                  {[p.journal || "Journal not recorded", p.year ?? "Year not recorded", p.quartile ?? "Quartile not recorded"].join(" · ")}
+                  {[p.journal, p.year, p.quartile].filter(Boolean).join(" · ")}
                 </Meta>
               </li>
             ))}

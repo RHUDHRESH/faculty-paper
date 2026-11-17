@@ -23,6 +23,7 @@ Who sees what is decided once, by `viewer_for`:
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Callable, Optional
@@ -34,6 +35,7 @@ from django.db.models import (
     Count,
     DateField,
     Exists,
+    Expression,
     ExpressionWrapper,
     F,
     FloatField,
@@ -62,7 +64,7 @@ from core.models import (
     TeamMember,
     User,
 )
-from core.services import claim_scope, rbac
+from core.services import claim_scope, paper_fields, rbac
 from core.services.search import money
 
 SCOPE_COLLEGE = "college"
@@ -195,6 +197,18 @@ class Field:
     #: of (viewer, tuple of those values per row) -> list of values). Can only
     #: be shown as a column.
     python: Optional[tuple[tuple[str, ...], Callable[[Viewer, list[tuple]], list]]] = None
+    #: A computed field that the query can also reach: `python` shows it as a
+    #: column, `expr` filters, groups and sorts it. Without this a computed
+    #: field is a column and nothing else.
+    queryable: bool = False
+    #: Not offered to anyone: a helper another field's `python` reads.
+    hidden: bool = False
+    #: A number a file's Total and Average rows add up (a money field always is).
+    totalled: bool = False
+
+    @property
+    def column_only(self) -> bool:
+        return self.python is not None and not self.queryable
 
     def is_aggregatable(self) -> bool:
         if self.aggregatable is not None:
@@ -202,6 +216,8 @@ class Field:
         return self.type in ("number", "money", "date")
 
     def available(self, viewer: Viewer) -> bool:
+        if self.hidden:
+            return False
         if (self.money or self.reveals_payment) and not viewer.sees_money:
             return False
         if self.desk and viewer.scope == SCOPE_DEPARTMENT:
@@ -221,9 +237,9 @@ class Field:
             "key": self.key,
             "label": self.label,
             "type": self.type,
-            "groupable": self.groupable and self.python is None,
-            "aggregatable": self.is_aggregatable() and self.python is None,
-            "filterable": self.filterable and self.python is None,
+            "groupable": self.groupable and not self.column_only,
+            "aggregatable": self.is_aggregatable() and not self.column_only,
+            "filterable": self.filterable and not self.column_only,
         }
         values = self.values(viewer)
         if values is not None:
@@ -265,6 +281,119 @@ class Dataset:
             "fields": [f.describe(viewer) for f in self.fields_for(viewer)],
             "default_columns": [k for k in self.default_columns if (self.field(k) and self.field(k).available(viewer))],
         }
+
+
+
+# ------------------------------------------------- the paper's resolved figures --
+#
+# Quartile, SNIP, ISSN, category, author count and position, document type,
+# indexing and remark come from `paper_fields`, which reads the claim, the
+# ledger's sheet row, the publication record and the journal tables in that
+# order. A report shows what it says, so a row has one value in every report.
+#
+# They are worked out in Python, so a column asks for them by the rows it
+# fetched. To filter, group or sort on one the query needs them too: that is
+# `MappedValue`, a CASE over the row ids per value, built from the same answer.
+
+#: Past this many rows a mapped field is refused: the statement would be too long.
+MAX_MAPPED_ROWS = 100_000
+_SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+class MappedValue(Expression):
+    """A CASE that gives each row its value from a prepared {value: [row ids]}.
+
+    The ids are written into the statement (a parameter per id would run into
+    the database's limit at a few thousand rows) and are checked to be plain
+    identifiers first; the values are parameters.
+    """
+
+    def __init__(self, groups: dict, output_field):
+        super().__init__(output_field=output_field)
+        self.groups = groups
+
+    def as_sql(self, compiler, connection):
+        qn = compiler.quote_name_unless_alias
+        column = f"{qn(compiler.query.get_initial_alias())}.{qn(compiler.query.get_meta().pk.column)}"
+        parts: list[str] = []
+        params: list[Any] = []
+        for value, ids in self.groups.items():
+            safe = [i for i in ids if _SAFE_ID.match(i)]
+            if safe:
+                parts.append(f"WHEN {column} IN ({', '.join(repr(i) for i in safe)}) THEN %s")
+                params.append(value)
+        if not parts:
+            return "NULL", []
+        return "CASE " + " ".join(parts) + " END", params
+
+
+def _paper_cache(v: Viewer) -> dict:
+    cache = v.__dict__.get("_paper_cache")
+    if cache is None:
+        cache = {}
+        object.__setattr__(v, "_paper_cache", cache)
+    return cache
+
+
+def _resolved(dataset_key: str, v: Viewer, pks: Optional[list] = None) -> dict[str, dict]:
+    """{row id: resolved fields}, for `pks`, or for every row the viewer's dataset holds."""
+    from core.services.report_engine import ReportError
+
+    state = _paper_cache(v).setdefault(dataset_key, {"rows": {}, "all": False})
+    claims = dataset_key == "claims"
+    resolve = paper_fields.for_claims if claims else paper_fields.for_ledger_rows
+    if pks is None:
+        if not state["all"]:
+            qs = _claims_base(v) if claims else _payments_base(v)
+            if qs.count() > MAX_MAPPED_ROWS:
+                raise ReportError("There are too many rows to filter or group on this field. Narrow the report first.")
+            state["rows"].update(resolve(list(qs)))
+            state["all"] = True
+        return state["rows"]
+    if not state["all"]:
+        missing = [p for p in pks if p not in state["rows"]]
+        model = Claim if claims else PaidLedger
+        for i in range(0, len(missing), 5000):
+            state["rows"].update(resolve(list(model.objects.filter(pk__in=missing[i:i + 5000]))))
+    return state["rows"]
+
+
+_OUT = {"string": CharField, "float": FloatField, "int": IntegerField}
+
+
+def _mapped(dataset_key: str, name: str, kind: str):
+    def build(v: Viewer):
+        groups: dict[Any, list[str]] = {}
+        for pk, row in _resolved(dataset_key, v).items():
+            if row.get(name) is not None:
+                groups.setdefault(row[name], []).append(pk)
+        return MappedValue(groups, _OUT[kind]())
+
+    return build
+
+
+def _shown(dataset_key: str, name: str):
+    def compute(v: Viewer, rows: list[tuple]) -> list:
+        got = _resolved(dataset_key, v, [r[0] for r in rows])
+        return [got.get(r[0], {}).get(name) for r in rows]
+
+    return (("row_id",), compute)
+
+
+def resolved(
+    dataset_key: str, key: str, label: str, ftype: str, name: str, *, kind: str = "string",
+    expr: Any = None, enum_values: Any = None, query: bool = True, **extra,
+) -> Field:
+    """A field shown from `paper_fields`. With `expr` the query reaches the row's own
+    column; without, a CASE over the same answer; `query=False` makes it a column only."""
+    return Field(
+        key, label, ftype, expr if expr is not None else (_mapped(dataset_key, name, kind) if query else Value(None)),
+        python=_shown(dataset_key, name), queryable=query, enum_values=enum_values, **extra,
+    )
+
+
+_ROW_ID = Field("row_id", "Row", "string", "pk", hidden=True, groupable=False, filterable=False, sortable=False)
+_INDEXING = [paper_fields.INDEXED, paper_fields.NOT_INDEXED]
 
 
 # ------------------------------------------------------------------- claims --
@@ -391,31 +520,58 @@ def _days_waiting(v: Viewer):
     )
 
 
+def _amount_paid(v: Viewer):
+    return Case(
+        When(status=ClaimStatus.PAID, then=F("remuneration")), default=Value(None), output_field=FloatField()
+    )
+
+
 CLAIMS = Dataset(
     key="claims",
     label="Claims",
-    description="One row per claim filed for the incentive: who filed it, where it stands, and the dates.",
+    description=(
+        "One row per claim filed for the incentive: who filed it, where it stands, the paper's journal "
+        "figures (ISSN, category, quartile, SNIP, authors) and the dates."
+    ),
     money_description="It also has the amount.",
     base=_claims_base,
     date_field="filed",
     default_columns=("claim_no", "paper", "claimant", "department", "status", "amount", "filed"),
     fields=(
         Field("claim_no", "Claim number", "string", "ticket_number"),
-        Field("paper", "Paper", "string", "paper_title"),
-        Field("journal", "Journal", "string", "journal_title"),
+        Field("paper", "Title", "string", "paper_title"),
+        resolved("claims", "journal", "Journal name", "string", "journal", expr="journal_title"),
+        resolved("claims", "issn", "ISSN", "string", "issn", expr=_blank_to_null("issn")),
+        resolved(
+            "claims", "category", "Category (Engineering / Non-engineering)", "enum", "category",
+            enum_values=paper_fields.CATEGORIES,
+        ),
+        resolved("claims", "quartile", "Quartile", "enum", "quartile", enum_values=QUARTILES),
+        resolved("claims", "snip", "SNIP", "number", "snip", kind="float", totalled=True),
+        resolved("claims", "total_authors", "Total number of authors", "number", "total_authors", kind="int"),
+        resolved("claims", "author_position", "Author position", "number", "author_position", kind="int"),
         Field("year", "Year published", "number", "publication_year", format="year", aggregatable=False),
-        Field("claimant", "Claimant", "string", "owner__name"),
+        Field("claimant", "Faculty", "string", "owner__name"),
         Field("staff_id", "Staff ID", "string", "owner__staff_id"),
         Field("department", "Department", "string", "owner__department"),
         Field("status", "Status", "enum", _claim_status, enum_values=_claim_status_values),
         Field("stage", "Stage", "enum", _claim_stage, enum_values=_claim_stage_values, desk=True),
         Field("amount", "Amount", "money", "remuneration", money=True),
+        Field("amount_paid", "Amount paid", "money", _amount_paid, money=True),
         Field("filed", "Filed on", "date", TruncDate("submitted_at")),
         Field("approved", "Approved on", "date", TruncDate("principal_approved_at")),
         Field("paid", "Paid on", "date", TruncDate("paid_at"), reveals_payment=True),
-        Field("quartile", "Quartile", "enum", _blank_to_null("quartile"), enum_values=QUARTILES),
-        Field("snip", "SNIP", "number", "snip"),
+        Field("month_paid", "Month paid", "date", "payout_month", reveals_payment=True),
+        Field(
+            "academic_year", "Academic year", "string",
+            lambda v: academic_year_expr(F("payout_month"), v.year_start_month), reveals_payment=True,
+        ),
+        resolved("claims", "doi", "DOI", "string", "doi", expr=_blank_to_null("doi")),
+        resolved("claims", "document_type", "Document type", "string", "document_type"),
+        resolved("claims", "indexing", "Indexing (Scopus)", "enum", "indexing", enum_values=_INDEXING),
+        resolved("claims", "remark", "Remark", "string", "remark"),
         Field("days_waiting", "Days waiting", "number", _days_waiting),
+        _ROW_ID,
     ),
 )
 
@@ -490,12 +646,15 @@ def _payments_base(v: Viewer):
 
 _LEDGER_KINDS = {"PAYMENT": "Payment", "REVERSAL": "Reversal", "ADJUSTMENT": "Correction"}
 
+_PAYMENT_STATUS = {"PAYMENT": "Paid", "REVERSAL": "Reversed", "ADJUSTMENT": "Corrected"}
+
 PAYMENTS = Dataset(
     key="payments",
     label="Payments",
     description=(
         "Settled payment history from the ledger: one row per payment, with reversals "
-        "and corrections as their own rows, so totals are net."
+        "and corrections as their own rows, so totals are net. Each row carries the paper's "
+        "journal figures (ISSN, category, quartile, SNIP, authors)."
     ),
     base=_payments_base,
     scopes=frozenset({SCOPE_COLLEGE, SCOPE_OWN}),
@@ -510,16 +669,33 @@ PAYMENTS = Dataset(
         Field("faculty", "Faculty", "string", Coalesce("claim__owner__name", "faculty_name", output_field=CharField())),
         Field("staff_id", "Staff ID", "string", Coalesce("claim__owner__staff_id", "staff_id", output_field=CharField())),
         Field("department", "Department", "string", Coalesce("claim__owner__department", "department", output_field=CharField())),
-        Field("paper", "Paper", "string", "paper_title"),
-        Field("journal", "Journal", "string", "journal_title"),
-        Field("snip", "SNIP", "number", "claim__snip"),
-        Field("quartile", "Quartile", "enum", _blank_to_null("claim__quartile"), enum_values=QUARTILES),
-        Field("amount", "Amount", "money", "amount", money=True),
+        Field("paper", "Title", "string", "paper_title"),
+        resolved("payments", "journal", "Journal name", "string", "journal", expr="journal_title"),
+        resolved("payments", "issn", "ISSN", "string", "issn", query=False),
+        resolved(
+            "payments", "category", "Category (Engineering / Non-engineering)", "enum", "category",
+            enum_values=paper_fields.CATEGORIES,
+        ),
+        resolved("payments", "quartile", "Quartile", "enum", "quartile", enum_values=QUARTILES),
+        resolved("payments", "snip", "SNIP", "number", "snip", kind="float", totalled=True),
+        resolved("payments", "total_authors", "Total number of authors", "number", "total_authors", kind="int"),
+        resolved("payments", "author_position", "Author position", "number", "author_position", kind="int"),
+        Field("amount", "Amount paid", "money", "amount", money=True),
+        resolved("payments", "doi", "DOI", "string", "doi", query=False),
+        resolved("payments", "document_type", "Document type", "string", "document_type"),
+        resolved("payments", "indexing", "Indexing (Scopus)", "enum", "indexing", enum_values=_INDEXING),
+        Field("claim_no", "Claim number", "string", "claim__ticket_number"),
+        Field(
+            "status", "Status", "enum", _labelled("kind", _PAYMENT_STATUS, "Paid"),
+            enum_values=list(_PAYMENT_STATUS.values()),
+        ),
+        resolved("payments", "remark", "Remark", "string", "remark"),
         Field("voucher", "Voucher number", "string", "voucher_number"),
         Field(
             "kind", "Kind", "enum", _labelled("kind", _LEDGER_KINDS, "Payment"),
             enum_values=list(_LEDGER_KINDS.values()),
         ),
+        _ROW_ID,
     ),
 )
 

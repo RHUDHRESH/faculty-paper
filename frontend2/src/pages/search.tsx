@@ -406,6 +406,7 @@ function Results({
                     onPick={() => onPick(row)}
                     roomy
                     meId={meId}
+                    eager={n <= 3}
                     trailing={
                       messageTo ? (
                         <Link

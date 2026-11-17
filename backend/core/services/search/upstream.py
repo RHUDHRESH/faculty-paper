@@ -41,6 +41,8 @@ import httpx
 from django.conf import settings
 from django.core.cache import cache
 
+from core.services import user_keys
+
 logger = logging.getLogger(__name__)
 
 #: An unreachable host should cost four seconds, not the read budget.
@@ -209,7 +211,8 @@ def fan_out(
 
     pool = ThreadPoolExecutor(max_workers=len(tasks))
     try:
-        futures = {pool.submit(fn): name for name, fn in tasks.items()}
+        # Each task acts as the person who asked, so their own keys are the ones used.
+        futures = {pool.submit(user_keys.bind(fn)): name for name, fn in tasks.items()}
         # Waiting on all of them with a timeout is what gives the fan-out its
         # single wall-clock budget: whatever is still pending when it expires
         # is a failure, not a delay.

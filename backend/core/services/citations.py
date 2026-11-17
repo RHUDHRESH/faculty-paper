@@ -110,7 +110,7 @@ def _title_for(claims: list[Claim]) -> str:
 
 def _tell_owners(doi: str, claims: list[Claim], gained: int, total: int) -> int:
     noun = "citation" if gained == 1 else "citations"
-    title = f"Your paper “{_title_for(claims)}” gained {gained} {noun} — {total} now"
+    title = f"Your paper “{_title_for(claims)}” gained {gained} {noun}, {total} now"
     told = 0
     seen: set[str] = set()
     for claim in claims:

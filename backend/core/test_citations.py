@@ -80,7 +80,7 @@ class CitationCheckTests(TestCase):
         notes = Notification.objects.filter(kind="citation").order_by("user__email")
         self.assertEqual([n.user for n in notes], [self.asha, self.ravi])
         self.assertEqual(
-            notes[0].title, "Your paper “Heat Exchangers Revisited” gained 2 citations — 14 now"
+            notes[0].title, "Your paper “Heat Exchangers Revisited” gained 2 citations, 14 now"
         )
         self.assertEqual(summary["notified"], 2)
         self.assertEqual(
@@ -91,7 +91,7 @@ class CitationCheckTests(TestCase):
         self._claim(self.asha, "10.1000/one")
         self._run({"10.1000/one": 3})
         self._run({"10.1000/one": 4})
-        self.assertIn("gained 1 citation — 4 now", Notification.objects.get().title)
+        self.assertIn("gained 1 citation, 4 now", Notification.objects.get().title)
 
     def test_a_fall_or_no_change_tells_nobody(self):
         self._claim(self.asha, "10.1000/abc")

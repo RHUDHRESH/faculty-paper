@@ -29,15 +29,15 @@ from ninja.errors import HttpError
 
 from core import hod
 from core.api.common import api, require_user, session_auth
-from core.models import Authorship, Claim, ClaimStatus, Publication, ResearchInterest, Role, User
-from core.services import claim_numbers, coauthors as graph
+from core.models import Authorship, Claim, ClaimStatus, Publication, ResearchInterest, Role, TeamMember, User
+from core.services import claim_numbers, coauthors as graph, student_teams
 from core.services import discover as discover_service
 from core.services.normalize import normalize_doi
 from core.services.search.people import visible_users
 from core.visibility import faculty_stage
 
 SCOPES = {
-    "all": ("person", "paper", "claim", "journal", "topic", "department"),
+    "all": ("person", "paper", "claim", "team", "journal", "topic", "department"),
     "people": ("person",),
     "papers": ("paper", "claim"),
     "journals": ("journal",),
@@ -206,6 +206,45 @@ def _claims(q: str, viewer: User, limit: int) -> dict[str, Any]:
             "status": "ok"}
 
 
+def _teams(q: str, viewer: User, limit: int) -> dict[str, Any]:
+    """Final-year project teams, found by their code, a student's register
+    number or name, or the project's title -- among the teams the asker may
+    see (`student_teams.visible_teams`), so a faculty member finds only their
+    own and nobody learns a register number by guessing it."""
+    if len(q) < 3:
+        return {"kind": "team", "total": 0, "items": [], "status": "ok"}
+    # Not the articles' titles: this runs on every keystroke of the box, and
+    # the teams page is where a paper's title is searched.
+    qs = (
+        student_teams.filtered(viewer, q=q, articles=False)
+        .select_related("mentor").prefetch_related("members")
+    )
+    total = qs.count()
+    teams = list(qs.order_by("code")[:100])
+    teams.sort(key=lambda t: (_rank(t.code, q), t.code))
+    return {"kind": "team", "total": total, "items": [_team_item(t, q) for t in teams[:limit]],
+            "status": "ok"}
+
+
+def _team_item(t: Any, q: str) -> dict[str, Any]:
+    members = list(t.members.all())
+    hit = next((m for m in members if q in (m.register_number or "").lower() or q in m.name.lower()), None)
+    mentor = t.mentor.name if t.mentor_id else t.mentor_name
+    student = None
+    if hit:
+        student = f"{hit.name} ({hit.register_number})" if hit.register_number else hit.name
+    return {
+        "id": t.id,
+        "title": f"Team {t.code}",
+        "subtitle": " · ".join(
+            str(x) for x in (t.title, student, f"mentor {mentor}" if mentor else None, t.academic_year) if x
+        ),
+        "url": f"/teams/{t.code}",
+        "chips": [x for x in (t.academic_year, t.department) if x],
+        "meta": {"code": t.code, "students": len(members)},
+    }
+
+
 def _journals(q: str, limit: int) -> dict[str, Any]:
     from core.services.search.venues import search_local
     try:
@@ -275,6 +314,16 @@ def _exact(q: str, viewer: User) -> dict[str, Any] | None:
         claim = _claims_for(viewer).filter(ticket_number__iexact=form).first()
         if claim:
             return {"kind": "claim", **_claim_item(claim, viewer)}
+    # A team code, or a register number that is on exactly one team the asker
+    # may see, is the answer to "which team is this?".
+    if len(q) >= 3 and " " not in q:
+        teams = student_teams.visible_teams(viewer).select_related("mentor").prefetch_related("members")
+        hit = teams.filter(code__iexact=q).first()
+        if hit is None:
+            on = list(teams.filter(pk__in=TeamMember.objects.filter(register_number__iexact=q).values("team_id"))[:2])
+            hit = on[0] if len(on) == 1 else None
+        if hit is not None:
+            return {"kind": "team", **_team_item(hit, q.lower())}
     return None
 
 
@@ -294,6 +343,7 @@ def search_all(request: HttpRequest, q: str = "", scope: str = "all", limit: int
         "person": lambda: _people(ql, viewer, limit),
         "paper": lambda: _papers(ql, viewer, limit),
         "claim": lambda: _claims(ql, viewer, limit),
+        "team": lambda: _teams(ql, viewer, limit),
         "journal": lambda: _journals(ql, limit),
         "topic": lambda: _topics(ql, limit),
         "department": lambda: _departments(ql, viewer, limit),

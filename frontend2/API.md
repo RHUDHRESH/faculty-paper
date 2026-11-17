@@ -225,10 +225,18 @@ people has to be accountable.
 
 ```
 GET  /api/notifications              -> Notification[]   (a bare array)
+       ?section=papers|people|work|updates  ?state=unread|read  ?limit=30 (max 100)  ?offset=0
 GET  /api/notifications/unread-count -> { unread }
-POST /api/notifications/{id}/read
-POST /api/notifications/read-all
+POST /api/notifications/{id}/read    -> { ok, unread }   (the new count; 404 when not yours)
+POST /api/notifications/read-all     -> { ok, marked, unread }   (?section= for one tab)
+POST /api/notifications/test         -> super admin: { in_app, email, whatsapp, smtp }
 ```
+
+The count is exactly what the list shows unread (a kind switched off is in
+neither). A row has `read_at` (null when unread, and on rows read before it was
+kept) and `gone`: when the thing it is about was deleted, `href` is null and the
+row says so. To know there is another page, ask for `limit` one larger than you
+show.
 
 **Both shapes above were wrong in this file until somebody built against
 them.** The list is a bare array, not an envelope, and the count's key is

@@ -75,6 +75,7 @@ ROLE_LABEL = {
     Role.FACULTY: "Faculty",
     Role.HOD: "Head of department",
     Role.PRINCIPAL: "Principal",
+    Role.VICE_PRINCIPAL: "Vice principal",
     Role.DIRECTOR: "Director",
     Role.FINANCE: "Finance",
     Role.RESEARCH_CELL: "Research office",

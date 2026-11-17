@@ -45,7 +45,7 @@ from typing import Any, Callable, Iterator
 
 from django.conf import settings
 
-from core.services import anthropic_provider, harness, integrations, ollama, openai_compat
+from core.services import anthropic_provider, harness, integrations, ollama, openai_compat, user_keys
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +174,9 @@ def provider_name() -> str:
     provider; with neither, ``AI_DEFAULT_PROVIDER`` -- Ollama on a laptop,
     "none" in production (see settings).
     """
+    if user_keys.blocked("ai"):
+        # This person must bring their own key and has none: nothing answers.
+        return "none"
     configured = integrations.get("ai.provider").lower()
     if configured:
         return configured
@@ -247,6 +250,12 @@ _PROBES_LOCK = threading.Lock()
 
 
 def _probe(name: str, backend) -> Any:
+    # A person's own key is probed on its own: their answer is never another's.
+    tag = user_keys.scope_tag("ai")
+    return _probe_scoped(f"{name}:{tag}" if tag else name, backend)
+
+
+def _probe_scoped(name: str, backend) -> Any:
     """`backend.health()`, remembered for `AI_HEALTH_TTL_SECONDS`.
 
     The probe is a network round trip to the model service with a 3 s
@@ -289,9 +298,11 @@ def _refresh_in_background(name: str, fn) -> None:
             return
         _REFRESHING.add(name)
 
+    call = user_keys.bind(fn)
+
     def run() -> None:
         try:
-            state = fn()
+            state = call()
             with _PROBES_LOCK:
                 _PROBES[name] = (time.monotonic(), fn, state)
         except Exception:  # a failed look leaves the old answer in place
@@ -318,6 +329,8 @@ def health() -> dict[str, Any]:
             f"AI_PROVIDER is set to {name!r}, which this server does not "
             f"recognise. Known providers: {', '.join(PROVIDERS)}.",
         )
+    if user_keys.blocked("ai"):
+        return _off("own_key_required", user_keys.blocked_message("ai"))
     if name == "none":
         # Answered without touching the network: there is nothing to ask.
         return _off("not_configured", NOT_CONFIGURED)
@@ -379,9 +392,17 @@ def _verdict(up: bool, present: bool, state, *, fast: bool = False):
             # provider's own sentence, which says what actually happened.
             if getattr(state, "failure", None) not in (None, "unreachable") and state.detail:
                 return "service_down", state.detail
+            if user_keys.own_in_use("ai"):
+                return "service_down", (
+                    f"Nothing is answering at {where}. Check the service address in your Profile, under My API keys."
+                )
             return "service_down", (
                 f"Nothing is answering at {where}. Check AI_BASE_URL, and that the "
                 "service is up."
+            )
+        if user_keys.own_in_use("ai"):
+            return "model_missing", (
+                f"{where} does not offer the model {want!r}. Change the model in your Profile, under My API keys."
             )
         return "model_missing", (
             f"{where} does not offer the model {want!r}. Set "
@@ -502,6 +523,8 @@ def ask_json(
     should not call this directly: `ai_harness.run` is the one entry point and
     adds validation, guards, limits and an audit row around it.
     """
+    if user_keys.blocked("ai"):
+        raise AIError(user_keys.blocked_message("ai"), code="own_key_required")
     name = provider_name()
     if name not in PROVIDERS:
         raise AIError(
@@ -520,6 +543,8 @@ def ask_json(
         raise AIError("The Claude provider needs ANTHROPIC_API_KEY set.", code="misconfigured")
 
     backend = _backend()
+    # A call on a person's own key is counted on that key (never on the college's).
+    integrations.record_call("ai")
     sink = _SINK.get()
     seconds = int(timeout or backend.DEFAULT_TIMEOUT)
     extra: dict[str, Any] = {"system": system} if system else {}
@@ -712,6 +737,7 @@ def run_with_progress(
             _RUNS[token] = stop_flag
     kwargs = kwargs or {}
 
+    @user_keys.bind
     def work() -> None:
         try:
             with progress_to(sink):

@@ -487,7 +487,7 @@ def _celebrate_milestone(t: DepartmentTarget, m: DepartmentMilestone, done: int)
             user=person, key=key,
             defaults={"kind": Celebration.Kind.TARGET, "title": title, "body": body},
         )
-    for principal in User.objects.filter(role=Role.PRINCIPAL, active=True):
+    for principal in User.objects.filter(role__in=rbac.PRINCIPAL_SEATS, active=True):
         notify(principal, title, body, "/", kind="target")
 
 

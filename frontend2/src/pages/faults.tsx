@@ -13,7 +13,7 @@ import { PageHeader } from "@/ui/page-header"
 import { money, stageOf } from "@/ui/paper"
 import { Avatar } from "@/ui/person"
 import { Details, Rows } from "@/ui/section"
-import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { EmptyState, ErrorState, SkeletonRows, NotOpen } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { Ago } from "@/ui/when"
 
@@ -113,7 +113,7 @@ export function Faults() {
   const { me, loading: signingIn } = useAuth()
   const isOffice = can(me?.role).manageUsers
   // `admin_faults` (operations.py): the office and the Principal. Nav matches.
-  const canOpen = isOffice || me?.role === "PRINCIPAL"
+  const canOpen = isOffice || me?.role === "PRINCIPAL" || me?.role === "VICE_PRINCIPAL"
   const [params] = useSearchParams()
   const show = params.get("show") === "urgent" ? "urgent" : params.get("show") === "other" ? "other" : "all"
   const { data, isLoading, isError, error, refetch, isFetching } = useApi<Payload>(
@@ -150,11 +150,7 @@ export function Faults() {
   if (!canOpen) {
     return (
       <div className="page py-8">
-        <ErrorState
-          art="closed-gate"
-          title="Not open to this account"
-          message="Open to the research office, system admins and the Principal."
-        />
+        <NotOpen message="Open to the research office, system admins and the Principal." />
       </div>
     )
   }
@@ -176,11 +172,7 @@ export function Faults() {
         <SkeletonRows rows={6} rowHeight={64} />
       ) : isError ? (
         error?.status === 403 ? (
-          <ErrorState
-            art="closed-gate"
-            title="Not open to this account"
-            message="Open to the research office, system admins and the Principal."
-          />
+          <NotOpen message="Open to the research office, system admins and the Principal." />
         ) : (
           <ErrorState
             title="Could not run the checks"

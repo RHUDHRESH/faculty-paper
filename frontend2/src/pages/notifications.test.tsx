@@ -8,7 +8,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 })
 
 import { api } from "@/lib/api"
-import { groupByDay, NotificationBell } from "@/app/notifications"
+import { destinationFor, groupByDay, listPath, NotificationBell, readLabel } from "@/app/notifications"
 import { NotificationSettings } from "@/pages/notification-settings"
 import { NotificationsPage } from "@/pages/notifications"
 import { fakeApi, FACULTY, renderWithProviders, type ApiTable } from "@/test/harness"
@@ -119,23 +119,31 @@ describe("notification settings", () => {
     expect(screen.getByRole("button", { name: "Copy link" })).toBeEnabled()
   })
 
-  it("lets the super admin send a test email and says when SMTP is not set up", async () => {
+  it("lets the super admin send a test notification and says which channels are set up", async () => {
     const smtp = { configured: false, host: "", port: null, from_email: "x@y", line: "The mail server (SMTP) is not set up, so nothing is emailed yet." }
     stub({
       "/api/notifications/preferences": () => ({ ...PREFS, smtp }),
-      "/api/notifications/test-email": () => ({ sent: false, message: smtp.line, smtp }),
+      "/api/notifications/test": () => ({
+        in_app: { ok: true, message: "It is in your notifications now." },
+        email: { configured: false, sent: false, message: smtp.line },
+        whatsapp: { configured: false, has_phone: false, opted_in: false, sent: false, message: "WhatsApp is not set up (WHATSAPP_TOKEN and WHATSAPP_PHONE_ID)." },
+        smtp,
+      }),
     })
     renderWithProviders(<NotificationSettings />, { route: "/settings/notifications" })
-    await userEvent.click(await screen.findByRole("button", { name: "Send a test email to myself" }))
-    expect(await screen.findByRole("status")).toHaveTextContent("not set up")
-    expect(calls("/api/notifications/test-email")).toHaveLength(1)
+    await userEvent.click(await screen.findByRole("button", { name: "Send me a test notification" }))
+    const result = await screen.findByRole("status")
+    expect(result).toHaveTextContent("It is in your notifications now.")
+    expect(result).toHaveTextContent("not set up, so nothing is emailed")
+    expect(result).toHaveTextContent("WhatsApp is not set up")
+    expect(calls("/api/notifications/test")).toHaveLength(1)
   })
 
-  it("shows no mail server panel to anybody else", async () => {
+  it("shows no test panel to anybody else", async () => {
     stub({ "/api/notifications/preferences": () => PREFS })
     renderWithProviders(<NotificationSettings />, { route: "/settings/notifications" })
     await screen.findByText("Paid")
-    expect(screen.queryByRole("button", { name: "Send a test email to myself" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Send me a test notification" })).toBeNull()
   })
 })
 
@@ -189,7 +197,7 @@ describe("the notifications screen", () => {
     expect(screen.getByText("My draft")).toBeInTheDocument()
   })
 
-  it("filters by tab and marks everything read", async () => {
+  it("filters by tab and marks that tab read", async () => {
     stub({
       "/api/notifications/read-all": () => ({ ok: true }),
       "/api/notifications": () => ROWS,
@@ -198,8 +206,8 @@ describe("the notifications screen", () => {
     expect(await screen.findByText(ROWS[0].title)).toBeInTheDocument()
     await userEvent.click(screen.getByRole("tab", { name: "People" }))
     await waitFor(() => expect(calls("/api/notifications?section=people").length).toBeGreaterThan(0))
-    await userEvent.click(screen.getByRole("button", { name: "Mark all read" }))
-    await waitFor(() => expect(calls("/api/notifications/read-all").length).toBe(1))
+    await userEvent.click(await screen.findByRole("button", { name: "Mark all read" }))
+    await waitFor(() => expect(calls("/api/notifications/read-all?section=people").length).toBe(1))
   })
 })
 
@@ -223,19 +231,17 @@ describe("grouping and faces", () => {
     })
     renderWithProviders(<NotificationsPage />, { route: "/notifications" })
     expect(await screen.findByText(ROWS[0].title)).toBeInTheDocument()
-    expect(screen.getByRole("img", { name: "Unread" })).toBeInTheDocument()
-    expect(screen.getByRole("columnheader", { name: "When" })).toBeInTheDocument()
-    expect(screen.getByText("just now")).toBeInTheDocument()
+    // Unread says so in words, not only in colour.
+    expect(screen.getAllByText("Unread").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("just now").length).toBeGreaterThan(0)
+    expect(screen.getByRole("heading", { name: "Today" })).toBeInTheDocument()
   })
 
-  it("shows the empty picture and a next step when there is nothing", async () => {
+  it("says it in one sentence when there is nothing", async () => {
     stub({ "/api/notifications": () => [] })
     renderWithProviders(<NotificationsPage />, { route: "/notifications" })
-    expect(await screen.findByText("You are all caught up")).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Choose what you hear about" })).toHaveAttribute(
-      "href",
-      "/settings/notifications"
-    )
+    expect(await screen.findByText("You are all caught up.")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Mark all read" })).toBeNull()
   })
 })
 
@@ -279,5 +285,215 @@ describe("the bell", () => {
 
     await userEvent.click(within(panel).getByRole("button", { name: /Mark all read/ }))
     await waitFor(() => expect(calls("/api/shell/badges")).toHaveLength(2))
+  })
+})
+
+
+const SENT_BACK = {
+  id: "n2",
+  title: "FP-2026-000009 · Sent back to you",
+  body: "Attach the paper as a PDF.",
+  href: "/papers/c9",
+  read: false,
+  read_at: null,
+  created_at: new Date().toISOString(),
+  kind: "claim_sent_back",
+  section: "papers",
+  count: 1,
+  actors: [],
+  emailed: false,
+}
+const READ_ONE = {
+  ...SENT_BACK,
+  id: "n3",
+  title: "FP-2026-000008 · Paid",
+  body: "₹5,000 for your paper has been paid.",
+  href: "/papers/c8",
+  read: true,
+  read_at: "2026-11-12T09:00:00Z",
+  kind: "claim_paid",
+}
+const READ_OLD = { ...READ_ONE, id: "n4", title: "An old one", read_at: null }
+const DELETED = { ...SENT_BACK, id: "n5", title: "FP-2026-000001 · On hold", href: null, gone: true, read: true }
+
+function badges(unread: number) {
+  return { stage_counts: { counts: {} }, notifications: { unread }, dm: { unread: 0, conversations: 0 } }
+}
+
+describe("rows you can trust", () => {
+  it("reads every row plainly: unread marked in words, read with its date or just Read, never Not recorded", async () => {
+    stub({ "/api/shell/badges": () => badges(1), "/api/notifications": () => [SENT_BACK, READ_ONE, READ_OLD] })
+    renderWithProviders(<NotificationsPage />, { route: "/notifications" })
+    await screen.findByText(SENT_BACK.title)
+    expect(screen.getAllByText("Unread").length).toBeGreaterThan(0)
+    expect(screen.getAllByText(readLabel(READ_ONE)).length).toBeGreaterThan(0)
+    expect(readLabel(READ_ONE)).toMatch(/^Read 1\d Nov$/)
+    expect(screen.getAllByText("Read").length).toBeGreaterThan(0)
+    expect(screen.queryByText(/Not recorded/)).toBeNull()
+    // Read rows are not faded: no opacity, no disabled look.
+    const readRow = screen.getByText(READ_ONE.title).closest("a")!
+    expect(readRow.className).not.toMatch(/opacity|pointer-events-none/)
+  })
+
+  it("each row links to what it is about, and opening it marks it read", async () => {
+    stub({
+      "/api/shell/badges": () => badges(1),
+      "/api/notifications/n2/read": () => ({ ok: true, unread: 0 }),
+      "/api/notifications": () => [SENT_BACK],
+    })
+    renderWithProviders(<NotificationsPage />, { route: "/notifications" })
+    const link = await screen.findByRole("link", { name: new RegExp(SENT_BACK.title) })
+    expect(link).toHaveAttribute("href", "/papers/c9")
+    await userEvent.click(link)
+    await waitFor(() => expect(calls("/api/notifications/n2/read")).toHaveLength(1))
+  })
+
+  it("a row about something deleted says so, goes nowhere, and can still be read", async () => {
+    stub({
+      "/api/shell/badges": () => badges(0),
+      "/api/notifications/n5/read": () => ({ ok: true, unread: 0 }),
+      "/api/notifications": () => [{ ...DELETED, read: false }],
+    })
+    renderWithProviders(<NotificationsPage />, { route: "/notifications" })
+    const title = await screen.findByText(DELETED.title)
+    expect(screen.getByText("No longer available.")).toBeInTheDocument()
+    expect(title.closest("a")).toBeNull()
+    await userEvent.click(title)
+    await waitFor(() => expect(calls("/api/notifications/n5/read")).toHaveLength(1))
+  })
+
+  it("filters read and unread on the server and says so in one sentence when none match", async () => {
+    stub({
+      "/api/shell/badges": () => badges(1),
+      "/api/notifications": (path) => (path.includes("state=read") ? [] : [SENT_BACK, READ_ONE]),
+    })
+    renderWithProviders(<NotificationsPage />, { route: "/notifications" })
+    await screen.findByText(SENT_BACK.title)
+    await userEvent.click(screen.getByRole("button", { name: "Unread" }))
+    await waitFor(() => expect(calls("/api/notifications?state=unread").length).toBeGreaterThan(0))
+    await userEvent.click(screen.getByRole("button", { name: "Read" }))
+    await waitFor(() => expect(calls("/api/notifications?state=read").length).toBeGreaterThan(0))
+    expect(await screen.findByText("Nothing has been read yet.")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Mark all read" })).toBeNull()
+  })
+
+  it("shows Mark all read as a live button only when something is unread, and it works", async () => {
+    let unread = 2
+    stub({
+      "/api/shell/badges": () => badges(unread),
+      "/api/notifications/read-all": () => {
+        unread = 0
+        return { ok: true, marked: 2, unread: 0 }
+      },
+      "/api/notifications": () => [SENT_BACK, { ...SENT_BACK, id: "n6", title: "Second" }],
+    })
+    renderWithProviders(<NotificationsPage />, { route: "/notifications" })
+    const button = await screen.findByRole("button", { name: "Mark all read" })
+    expect(button).toBeEnabled()
+    expect(await screen.findByText("2 unread.")).toBeInTheDocument()
+    await userEvent.click(button)
+    await waitFor(() => expect(calls("/api/notifications/read-all")).toHaveLength(1))
+    expect(await screen.findByText("Nothing unread.")).toBeInTheDocument()
+  })
+
+  it("asks for one row more than it shows, and offers older ones", async () => {
+    const many = Array.from({ length: 31 }, (_, i) => ({ ...READ_ONE, id: "m" + i, title: "Row " + i }))
+    stub({ "/api/shell/badges": () => badges(0), "/api/notifications": () => many })
+    renderWithProviders(<NotificationsPage />, { route: "/notifications" })
+    await screen.findByText("Row 0")
+    expect(calls("/api/notifications?limit=31").length).toBeGreaterThan(0)
+    expect(screen.queryByText("Row 30")).toBeNull()
+    await userEvent.click(screen.getByRole("button", { name: "Show older" }))
+    await waitFor(() => expect(calls("/api/notifications?limit=61").length).toBeGreaterThan(0))
+  })
+})
+
+describe("the badge", () => {
+  it("drops at once when a row is read, on the bell and the heading, without a reload", async () => {
+    let unread = 2
+    stub({
+      "/api/shell/badges": () => badges(unread),
+      "/api/notifications/n2/read": () => {
+        unread = 1
+        return { ok: true, unread: 1 }
+      },
+      "/api/notifications": () => [SENT_BACK, { ...SENT_BACK, id: "n6", title: "Second" }],
+    })
+    renderWithProviders(
+      <>
+        <NotificationBell />
+        <NotificationsPage />
+      </>,
+      { route: "/notifications" }
+    )
+    expect(await screen.findByRole("button", { name: "Notifications, 2 unread" })).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole("link", { name: new RegExp(SENT_BACK.title) }))
+    expect(await screen.findByRole("button", { name: "Notifications, 1 unread" })).toBeInTheDocument()
+    expect(await screen.findByText("1 unread.")).toBeInTheDocument()
+  })
+
+  it("asks for lists by tab, read state and size", () => {
+    expect(listPath("", "unread", 31)).toBe("/api/notifications?state=unread&limit=31")
+    expect(listPath("papers", "")).toBe("/api/notifications?section=papers")
+    expect(listPath("")).toBe("/api/notifications")
+  })
+})
+
+describe("the bell panel", () => {
+  it("hangs from the bell and ends at its right edge, so it is never above the top of the screen", async () => {
+    stub({ "/api/shell/badges": () => badges(1), "/api/notifications": () => [SENT_BACK] })
+    renderWithProviders(<NotificationBell />)
+    await userEvent.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }))
+    const panel = await screen.findByRole("dialog", { name: "Notifications" })
+    expect(panel.className).toMatch(/\btop-full\b/)
+    expect(panel.className).toMatch(/\bright-0\b/)
+    expect(panel.className).not.toMatch(/bottom-full/)
+  })
+
+  it("says a deleted subject is gone, still lets it be read, and does not navigate", async () => {
+    stub({
+      "/api/shell/badges": () => badges(1),
+      "/api/notifications/n5/read": () => ({ ok: true, unread: 0 }),
+      "/api/notifications": () => [{ ...DELETED, read: false }],
+    })
+    renderWithProviders(<NotificationBell />)
+    await userEvent.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }))
+    const panel = await screen.findByRole("dialog", { name: "Notifications" })
+    expect(await within(panel).findByText("No longer available.")).toBeInTheDocument()
+    await userEvent.click(within(panel).getByText(DELETED.title))
+    await waitFor(() => expect(calls("/api/notifications/n5/read")).toHaveLength(1))
+    expect(screen.getByRole("dialog", { name: "Notifications" })).toBeInTheDocument()
+  })
+})
+
+describe("where each alert leads", () => {
+  const CLAIM = "c".repeat(32)
+  it("a paper opens the paper", () => {
+    expect(destinationFor(`/papers/${CLAIM}`, "FACULTY")).toBe(`/papers/${CLAIM}`)
+  })
+  it("a desk alert opens the paper in the review page, with the queue it came from", () => {
+    expect(destinationFor(`/admin/clearing?claim=${CLAIM}`, "SUPER_ADMIN")).toBe(`/review/${CLAIM}?queue=clearing`)
+    expect(destinationFor(`/principal?claim=${CLAIM}`, "PRINCIPAL")).toBe(`/review/${CLAIM}?queue=approvals`)
+    expect(destinationFor(`/approvals?claim=${CLAIM}`, "PRINCIPAL")).toBe(`/review/${CLAIM}?queue=approvals`)
+    expect(destinationFor(`/authorisations?claim=${CLAIM}`, "DIRECTOR")).toBe(`/review/${CLAIM}?queue=authorisations`)
+  })
+  it("Finance, who has no review page, goes to what it pays", () => {
+    expect(destinationFor(`/finance?claim=${CLAIM}`, "FINANCE")).toBe(`/payments?claim=${CLAIM}`)
+  })
+  it("older paths still land on a page that exists", () => {
+    expect(destinationFor("/admin/profile-requests", "SUPER_ADMIN")).toBe("/requests")
+    expect(destinationFor("/faculty/profile", "FACULTY")).toBe("/me")
+    expect(destinationFor("/finance", "FINANCE")).toBe("/payments")
+  })
+  it("people, posts, chats, events, flags, batches and imports keep their own addresses", () => {
+    for (const href of [
+      "/u/abc", "/discussions/p/abc", "/discussions/abc", "/messages/c/abc", "/events?event=abc",
+      "/flags?claim=abc", "/batches/abc", "/imports", "/papers", "/me", "/notifications?tab=week", "/safeguards",
+    ]) {
+      expect(destinationFor(href, "SUPER_ADMIN")).toBe(href)
+    }
+  })
+  it("no link, no destination", () => {
+    expect(destinationFor(null)).toBeNull()
   })
 })

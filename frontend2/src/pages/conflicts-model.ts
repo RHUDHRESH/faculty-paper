@@ -7,11 +7,21 @@ import { money } from "@/ui/paper"
  * dialog can name the exact change before anybody confirms it.
  */
 
-export type Action = "use_list" | "keep_app" | "pause_account" | "reactivate" | "update_ledger" | "keep_ledger"
+export type Action =
+  | "use_list"
+  | "keep_app"
+  | "pause_account"
+  | "reactivate"
+  | "update_ledger"
+  | "keep_ledger"
+  | "confirmed"
+  | "mark_error"
+
+export type Payment = { month: string; amount: number }
 
 export type ConflictRow = {
   id: string
-  kind: "faculty" | "amount"
+  kind: "faculty" | "amount" | "double_payment"
   status: "open" | "resolved" | "dismissed"
   source_file: string
   detected_at: string
@@ -28,6 +38,9 @@ export type ConflictRow = {
   month: string | null
   ledger_amount: number | null
   file_amount: number | null
+  /** A paper paid more than once: each payment, and what they come to. */
+  payments?: Payment[] | null
+  total?: number | null
   resolution: string
   resolution_note: string
   resolved_by: string | null
@@ -39,7 +52,14 @@ export type ConflictRow = {
 }
 
 export type ConflictList = {
-  counts: { open: number; open_faculty: number; open_amount: number; resolved_week: number }
+  counts: {
+    open: number
+    open_faculty: number
+    open_amount: number
+    open_double_payment?: number
+    to_recover?: number
+    resolved_week: number
+  }
   total: number
   truncated: boolean
   may_resolve: boolean
@@ -56,6 +76,8 @@ export const LABEL: Record<Action, string> = {
   reactivate: "Reactivate the account",
   update_ledger: "Update ledger",
   keep_ledger: "Keep the ledger amount",
+  confirmed: "Confirmed: both payments were right",
+  mark_error: "Mark as an error to recover",
 }
 
 /** What was done, for a row already settled. */
@@ -64,6 +86,8 @@ export const DONE: Record<string, string> = {
   keep_app: "Kept the app's value",
   update_ledger: "Updated the ledger",
   keep_ledger: "Kept the ledger amount",
+  confirmed: "Confirmed: both payments were right",
+  mark_error: "Marked as an error to recover",
 }
 
 const QUESTION: Record<Action, string> = {
@@ -73,6 +97,8 @@ const QUESTION: Record<Action, string> = {
   reactivate: "Reactivate this account?",
   update_ledger: "Update the ledger?",
   keep_ledger: "Keep the ledger amount?",
+  confirmed: "Confirm that both payments were right?",
+  mark_error: "Mark this as an error to recover?",
 }
 
 export const question = (a: Action) => QUESTION[a]
@@ -101,6 +127,10 @@ export function changeText(row: ConflictRow, action: Action): string {
       return `${who} can sign in again.`
     case "update_ledger":
       return `Change the ledger amount for “${row.title ?? "this paper"}” (${who}) from ${money(row.ledger_amount)} to ${money(row.file_amount)}. The old amount is kept in the row's history.`
+    case "confirmed":
+      return `Record that both payments for “${row.title ?? "this paper"}” (${who}) were right. No amount is changed.`
+    case "mark_error":
+      return `Record that “${row.title ?? "this paper"}” (${who}) should not have been paid more than once, so the extra money is to be recovered. Both payments stay on the ledger and no amount is changed.`
     case "keep_ledger":
       return `Keep ${money(row.ledger_amount)} on the ledger for “${row.title ?? "this paper"}” (${who}). The file's ${money(row.file_amount)} is ignored. Nothing is changed.`
   }
@@ -108,7 +138,7 @@ export function changeText(row: ConflictRow, action: Action): string {
 
 /** The one button a row leads with; everything else goes in its menu. */
 export function primaryOf(row: ConflictRow): Action | null {
-  const order: Action[] = ["use_list", "update_ledger", "reactivate"]
+  const order: Action[] = ["use_list", "update_ledger", "reactivate", "confirmed"]
   return order.find((a) => row.actions.includes(a)) ?? null
 }
 
@@ -119,14 +149,27 @@ export const menuOf = (row: ConflictRow): Action[] => {
 
 /** What differs, in a few words, for the column and the search. */
 export function whatDiffers(row: ConflictRow): string {
+  if (row.kind === "double_payment") return `${row.title ?? "A paper"} paid more than once`
   return row.kind === "faculty" ? (row.field_label ?? "A value") : (row.title ?? "An amount")
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+const monthOf = (iso: string) => {
+  const m = /^(\d{4})-(\d{2})/.exec(iso)
+  return m && MONTHS[Number(m[2]) - 1] ? `${MONTHS[Number(m[2]) - 1]} ${m[1]}` : iso
+}
+
+/** "Aug 2026 ₹500, Sep 2026 ₹500" */
+export const paymentsText = (row: ConflictRow) => (row.payments ?? []).map((p) => `${monthOf(p.month)} ${money(p.amount)}`).join(", ")
+
 export function inTheApp(row: ConflictRow): string {
+  if (row.kind === "double_payment") return `${(row.payments ?? []).length} payments, ${money(row.total ?? 0)}`
   return row.kind === "faculty" ? (row.current ?? "") : money(row.ledger_amount)
 }
 
 export function inTheFile(row: ConflictRow): string {
+  if (row.kind === "double_payment") return paymentsText(row)
   return row.kind === "faculty" ? (row.incoming ?? "") : money(row.file_amount)
 }
 

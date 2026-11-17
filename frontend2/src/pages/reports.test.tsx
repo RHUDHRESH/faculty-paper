@@ -450,3 +450,28 @@ describe("a head of department", () => {
     expect(await screen.findByText("The department page")).toBeInTheDocument()
   })
 })
+
+describe("the headline and its counts", () => {
+  it("does not lead with papers that have no department, and says one claim, not 1 claims", async () => {
+    vi.mocked(api).mockImplementation(
+      fakeApi({
+        ...COLLEGE_API,
+        "/api/reports": () => ({
+          ...REPORTS,
+          totals: { ...REPORTS.totals, awaiting_payment: 1, committed_amount: 41742, paid_claims: 1 },
+          by_department: [
+            { key: "ECE", count: 900, amount: 1 },
+            { key: "CSE", count: 400, amount: 1 },
+            { key: "Department not recorded", label: "No department on the account", count: 1725, amount: 0 },
+          ],
+        }),
+      }) as never
+    )
+    renderWithProviders(<Reports />, { route: "/reports" })
+    expect(await screen.findByText(/ECE leads with 900/)).toBeInTheDocument()
+    expect(screen.queryByText(/not recorded leads with/i)).toBeNull()
+    expect(screen.getAllByText(/in 1 claim not yet paid/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Paid, in 1 payment(?!s)/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/1 claims/)).toBeNull()
+  })
+})

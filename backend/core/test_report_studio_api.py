@@ -420,7 +420,7 @@ class FeedTests(Studio):
         self.assertEqual(got["Content-Type"], "text/csv; charset=utf-8")
         self.assertEqual(got["Cache-Control"], "no-store")
         rows = list(csv.reader(io.StringIO(got.content.decode("utf-8"))))
-        self.assertEqual(rows[0], ["Claim number", "Paper", "Amount"])
+        self.assertEqual(rows[0], ["Claim number", "Title", "Amount"])
         self.assertEqual(rows[1], ["FP-1", "Graph methods", "20000.0"])
         self.assertEqual(len(rows), 6)
         self.assertIsNotNone(SavedReport.objects.get(pk=self.report["id"]).feed_last_read_at)
@@ -591,7 +591,7 @@ class TemplateTests(Studio):
     def test_every_template_validates_and_runs_for_the_office(self):
         body = as_user(self.office).get("/api/reports/templates").json()
         self.assertEqual([t["key"] for t in body], [t["key"] for t in report_templates.TEMPLATES])
-        self.assertEqual(len(body), 11)
+        self.assertEqual(len(body), 12)
         for t in body:
             with self.subTest(template=t["key"]):
                 self.assertEqual(set(t), {"key", "name", "description", "dataset", "definition"})

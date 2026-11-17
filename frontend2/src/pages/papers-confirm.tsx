@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useState } from "react"
 import { Link } from "react-router-dom"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
@@ -100,7 +101,7 @@ export function ScopusProfileQuestion() {
         Is this your Scopus profile?
       </h2>
       <p className="mt-1 text-base text-fg-muted">
-        Scopus has {s.papers_in_scopus} papers under author number {s.scopus_author_id} (
+        Scopus has {plural(s.papers_in_scopus, "paper")} under author number {s.scopus_author_id} (
         <a
           href={s.url ?? undefined}
           target="_blank"

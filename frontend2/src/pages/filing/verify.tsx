@@ -8,6 +8,7 @@ import { Meta } from "@/ui/text"
 import { CheckRow, type CheckState } from "./bits"
 import type { LookupMetrics } from "./lookup"
 import type { FormState, VerifyResult } from "./types"
+import { OwnKeyNotice } from "@/pages/my-keys"
 
 /**
  * The pre-submission check: the facts the claim rules turn on that the
@@ -42,7 +43,8 @@ export function VerifyPanel({
 }) {
   const haveAuthorId = Boolean(form.scopusAuthorUrl.trim())
   const reached = Boolean(result?.ok)
-  const notConnected = result?.scopus_status === "not_configured"
+  const ownKeyNeeded = result?.scopus_status === "own_key_required"
+  const notConnected = result?.scopus_status === "not_configured" || ownKeyNeeded
 
   const indexed: CheckState = !result || !reached ? "unknown" : result.scopus.indexed ? "pass" : "fail"
   const linked: CheckState =
@@ -68,7 +70,16 @@ export function VerifyPanel({
 
       {error && !busy && <InlineError message={error} onRetry={onRun} />}
 
-      {result && !reached && notConnected && (
+      {result && !reached && ownKeyNeeded && (
+        <Callout tone="info" title="Scopus needs your own key">
+          <OwnKeyNotice what="Scopus" className="" />
+          <p className="mt-1">
+            Until then the college checks whether the paper is indexed and on your Scopus profile after you
+            file, and you will be asked for a one-line note for them.
+          </p>
+        </Callout>
+      )}
+      {result && !reached && notConnected && !ownKeyNeeded && (
         <Callout tone="info" title="Scopus is not connected on this server">
           So whether the paper is indexed and on your Scopus profile is checked by the college
           after you file. You will be asked for a one-line note for them. That is expected, not

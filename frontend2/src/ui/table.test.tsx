@@ -19,6 +19,16 @@ const columns: Column<Row>[] = [
 
 const wrap = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>)
 
+describe("an unknown value", () => {
+  it("is a quiet dash on screen and \"Not recorded\" to a screen reader, never the words printed down a column", () => {
+    wrap(<Table rows={rows} columns={columns} getKey={(r) => r.id} />)
+    const dashes = document.querySelectorAll("span[aria-hidden=true]")
+    expect(Array.from(dashes).some((d) => d.textContent === "–")).toBe(true)
+    const words = screen.getAllByText("Not recorded")
+    for (const w of words) expect(w.className).toContain("sr-only")
+  })
+})
+
 describe("Table (docs/ux/22)", () => {
   it("gives every column a heading, including one whose heading is blank", () => {
     wrap(<Table rows={rows} columns={columns} getKey={(r) => r.id} />)

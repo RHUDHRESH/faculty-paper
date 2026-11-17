@@ -45,6 +45,19 @@ function mount(list: unknown = LIST) {
 }
 
 describe("Author matches", () => {
+  it("says at the top how many papers the college's files placed and that only the rest need a person", async () => {
+    mount({ ...LIST, counts: { ...LIST.counts, from_files: 138 } })
+    expect(
+      await screen.findByText(/138 papers were placed from the college's own files, the settled claims and payments\. Only the 1 name left here needs a person\./)
+    ).toBeInTheDocument()
+  })
+
+  it("says nothing about the files when none placed a paper", async () => {
+    mount()
+    await screen.findByText("G. Lavanya")
+    expect(screen.queryByText(/placed from the college's own files/)).toBeNull()
+  })
+
   it("lists a grouped name with its paper count", async () => {
     mount()
     expect(await screen.findByText("G. Lavanya")).toBeInTheDocument()

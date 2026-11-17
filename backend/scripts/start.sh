@@ -20,6 +20,10 @@ set -euo pipefail
 
 python manage.py migrate --noinput --skip-checks
 
+# Queue the one-time data fills when DATA_FILL_ON_DEPLOY names a new run id.
+# A failure here must never stop the site from starting.
+python manage.py queue_data_fill --skip-checks || echo "data fill not queued"
+
 ( sleep "${QCLUSTER_DELAY:-30}"; exec python manage.py qcluster ) &
 
 # The access log comes from core.log's middleware as one structured JSON

@@ -30,7 +30,7 @@ from ninja import File, Form, Schema, UploadedFile
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimFlag, ClaimStatus, FormulaConfig, PriorImport, PriorPayment, Role, ScimagoJournal, User
 from core import visibility
-from core.services import change_history, coordination, heads, payments_desk, rbac, research_threshold, validation
+from core.services import change_history, coordination, heads, payments_desk, placeholders, rbac, research_threshold, validation
 from core.services.normalize import normalize_doi, normalize_title
 from core.services.remuneration import DEFAULT_AUTHOR_POINTS, DEFAULT_PUB_TYPE_MULTIPLIERS, DEFAULT_STUDENT_PROJECT_AMOUNT, MAX_ELIGIBLE_AUTHORS, MIN_SEC_REFERENCES
 from core.services.scimago_sync import SCIMAGO_RANK_URL, ScimagoSyncError, import_csv_text, sync_year
@@ -61,7 +61,7 @@ def admin_users(
     user = require_user(request)
     if not rbac.can_manage_users(user.role):
         raise HttpError(403, "Forbidden")
-    qs = User.objects.all()
+    qs = placeholders.real_people(User.objects.all())
     if q:
         qs = qs.filter(
             Q(email__icontains=q)
@@ -160,7 +160,7 @@ def admin_user_detail(request: HttpRequest, user_id: str):
 #:
 #: This tuple is only what `assign_heads` needs (it is assigning PRINCIPAL, so
 #: PRINCIPAL cannot be on its list). The account editor's guard is
-#: `rbac.PROTECTED_ROLES`, which adds the Principal.
+#: `rbac.PROTECTED_ROLES`, which adds the Principal and the Vice principal.
 PRIVILEGED_ROLES = (Role.SUPER_ADMIN, Role.DIRECTOR, Role.FINANCE)
 
 #: The accounts only a super admin may create, edit, deactivate or reset.
@@ -170,6 +170,7 @@ ASSIGNABLE_ROLES = (
     Role.FACULTY,
     Role.HOD,
     Role.PRINCIPAL,
+    Role.VICE_PRINCIPAL,
     # Without this the office could not create or promote the one role that
     # has to authorise every payment -- the chain would have a step nobody
     # could be appointed to.
@@ -215,9 +216,10 @@ def _refuse_protected(
         what = f"the {new_role.replace('_', ' ').lower()} role"
     raise HttpError(
         403,
-        f"Only a super admin can {doing} {what}. It decides whether money moves, "
-        "so the office that prepares a payment cannot also create, change or "
-        "take over the account that approves, authorises or pays it.",
+        f"Only a super admin can {doing} {what}. It is one of the college's "
+        "senior officers, so the office that prepares a payment cannot also "
+        "create, change or take over the accounts that oversee, approve, "
+        "authorise or pay it.",
     )
 
 
@@ -1111,10 +1113,12 @@ def admin_payouts(
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
     total = qs.count()
-    results = [claim_to_dict(c) for c in qs[offset : offset + limit]]
+    page = list(qs[offset : offset + limit])
+    results = [claim_to_dict(c) for c in page]
     # Whole-queue figures and each row's position on the ledger: the Finance
     # desk decides a run from the total, and checks a claim is not paid yet.
     payments_desk.attach_ledger(results)
+    payments_desk.attach_paper_fields(results, page)
     if status == "PAID":
         totals = payments_desk.paid_totals(qs)
     elif status in ("CLEARED", "PRINCIPAL_APPROVED", "DIRECTOR_APPROVED", "FINANCE_APPROVED"):

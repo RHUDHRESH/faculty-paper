@@ -6,6 +6,7 @@
  * reason beside the field that owns it, and prices the `unpaid` ones in the
  * estimate panel -- so the kinds below are the whole contract.
  */
+import { plural } from "@/lib/count"
 import { doiProblem, issnProblem, yearOf } from "./identifiers"
 import type { AttachmentRow, CalcResult, CarriedEvidence, FilingRules, FormState } from "./types"
 import { isConferencePaper } from "./types"
@@ -256,7 +257,7 @@ export function readiness(
     add({
       key: "author-cap",
       kind: "unpaid",
-      label: `${form.totalAuthors} authors is over the limit of ${rules.max_authors}`,
+      label: `${plural(form.totalAuthors, "author")} is over the limit of ${rules.max_authors}`,
       detail: rules.why.max_authors,
       step: 2,
     })

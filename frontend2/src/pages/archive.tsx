@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { paperTitle } from "@/lib/names"
 import { useEffect, useState } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
@@ -212,7 +213,7 @@ export function PastClaims() {
         if (p.results.length === 0 || all.length >= p.total) break
       }
       saveCsv(all)
-      toast.ok(all.length === 1 ? "Downloaded 1 claim as CSV" : `Downloaded ${all.length} claims as CSV`)
+      toast.ok(all.length === 1 ? "Downloaded 1 claim as CSV" : `Downloaded ${plural(all.length, "claim")} as CSV`)
     } catch (e) {
       toast.fail(e, "Could not download the CSV. Try again.")
     } finally {
@@ -290,7 +291,7 @@ export function PastClaims() {
       <div className="-mt-4 flex min-h-8 flex-wrap items-center gap-2" role="status" aria-live="polite">
         {!isLoading && !isError && (
           <Meta className="tabular">
-            {total === 1 ? "1 claim" : `${total.toLocaleString("en-IN")} claims`}
+            {total === 1 ? "1 claim" : `${plural(total, "claim")}`}
             {filtered ? " matching these filters" : ""}
           </Meta>
         )}
@@ -383,7 +384,7 @@ function ArchiveRow({ row: r, sameDoi }: { row: Row; sameDoi: (doi: string) => s
           <ClaimNo ticket={r.ticket_number} origin={r.origin} />
           {real(r.journal_title) && <span className="max-w-[18rem] truncate">{real(r.journal_title)}</span>}
           {r.publication_year && <span className="tabular">{r.publication_year}</span>}
-          <span>{r.file_count === 0 ? "No files" : r.file_count === 1 ? "1 file" : `${r.file_count} files`}</span>
+          <span>{r.file_count === 0 ? "No files" : r.file_count === 1 ? "1 file" : `${plural(r.file_count, "file")}`}</span>
         </p>
         {(r.same_doi_others ?? 0) > 0 && r.doi && (
           <Link to={sameDoi(r.doi)} className="mt-0.5 block text-xs text-caution underline-offset-4 hover:underline">

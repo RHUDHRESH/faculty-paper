@@ -61,6 +61,12 @@ def my_payments(request: HttpRequest):
     rows = list(ledger_for(user).filter(amount__gt=0).order_by("-payout_month", "-id"))
     since = academic_year_start()
     research = research_threshold.summary(user)
+    # A paper the college paid more than once is marked on each of its payments.
+    from collections import Counter
+
+    from core.services.normalize import normalize_title
+
+    paid_times = Counter(normalize_title(r.paper_title) or f"row:{r.id}" for r in rows)
     return {
         # Only research faculty carry this: the threshold, what is used and
         # what is left before their incentives are paid.
@@ -79,6 +85,7 @@ def my_payments(request: HttpRequest):
                 "journal_title": r.journal_title,
                 "amount": r.amount,
                 "voucher_number": r.voucher_number,
+                "paid_again": paid_times[normalize_title(r.paper_title) or f"row:{r.id}"] > 1,
             }
             for r in rows
         ],

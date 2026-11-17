@@ -23,7 +23,7 @@ from typing import Any, Callable, Iterator
 
 from django.conf import settings
 
-from core.services import integrations
+from core.services import integrations, user_keys
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ def model_name() -> str:
 
 
 def resolve_model(fast: bool = False) -> str:
-    if fast:
+    if fast and not user_keys.own_in_use("ai"):
         return (getattr(settings, "AI_FAST_MODEL", "") or "").strip() or model_name()
     return model_name()
 

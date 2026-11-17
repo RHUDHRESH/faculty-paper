@@ -1,15 +1,19 @@
 import { useMemo, useState } from "react"
 import { Link } from "react-router-dom"
-import { Info, Stamp } from "lucide-react"
+import { Ellipsis, Info, Stamp } from "lucide-react"
 
+import { useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { AuthoriseDialog, SendBackDialog, thresholdClause } from "@/pages/authorise-dialogs"
 import { BudgetStrip, budgetLine } from "@/pages/budget-strip"
 import { useBudgetNow } from "@/pages/pay-parts"
 import { Button } from "@/ui/button"
+import { CountOnlyDialog, canAcceptForCountOnly } from "@/ui/count-only"
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/ui/menu"
 import { money, stageOf } from "@/ui/paper"
 import { useQueueKeys } from "@/ui/queue-keys"
 
+import { decisionKeys } from "./decisions"
 import type { WorkspaceClaim } from "./types"
 
 /**
@@ -39,8 +43,9 @@ export function AuthoriseBar({
   /** After a decision: the workspace opens the next claim. */
   onDone: () => void
 }) {
+  const { me } = useAuth()
   const budget = useBudgetNow()
-  const [dialog, setDialog] = useState<"authorise" | "sendback" | null>(null)
+  const [dialog, setDialog] = useState<"authorise" | "sendback" | "countonly" | null>(null)
   const ready = !own && claim.status === "PRINCIPAL_APPROVED" && claim.remuneration != null && !claim.calc_error
 
   const keys = useMemo<Record<string, () => void>>(
@@ -112,6 +117,18 @@ export function AuthoriseBar({
               <Key>s</Key>
             </Button>
           )}
+          {claim.claim_reason !== "COUNT_ONLY" && canAcceptForCountOnly(me?.role, claim.status) && (
+            <Menu>
+              <MenuTrigger asChild>
+                <Button kind="quiet" size="icon" aria-label="More actions">
+                  <Ellipsis />
+                </Button>
+              </MenuTrigger>
+              <MenuContent align="end" side="top" className="min-w-[14rem]">
+                <MenuItem onSelect={() => setDialog("countonly")}>Accept for count only</MenuItem>
+              </MenuContent>
+            </Menu>
+          )}
         </div>
         <div className="min-w-0 flex-1 basis-64 space-y-1.5 max-md:basis-full">
           <p className="truncate text-sm text-fg-muted" data-testid="bar-budget-line">
@@ -128,6 +145,12 @@ export function AuthoriseBar({
       {dialog === "sendback" && (
         <SendBackDialog claim={target} onClose={() => setDialog(null)} onDone={onDone} />
       )}
+      <CountOnlyDialog
+        claim={claim}
+        open={dialog === "countonly"}
+        onOpenChange={(o) => setDialog(o ? "countonly" : null)}
+        invalidates={decisionKeys(claim.id)}
+      />
     </>
   )
 }

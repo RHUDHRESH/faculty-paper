@@ -177,7 +177,7 @@ class ListingTests(Base):
         done = note("faculty", scopus_row(staff="TS777", current="1", incoming="2"), status="resolved",
                     resolved_at=dt.datetime.now(dt.timezone.utc))
         r = self.as_user(self.cell).get(URL).json()
-        self.assertEqual(r["counts"], {"open": 3, "open_faculty": 2, "open_amount": 1, "resolved_week": 1})
+        self.assertEqual(r["counts"], {"open": 3, "open_faculty": 2, "open_amount": 1, "open_double_payment": 0, "to_recover": 0, "resolved_week": 1})
         self.assertEqual(len(r["rows"]), 3)
         row = next(x for x in r["rows"] if x["id"] == a.id)
         self.assertEqual((row["field_label"], row["current"], row["incoming"]), ("Scopus author ID", "57999999999", "57000000002"))

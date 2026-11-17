@@ -116,6 +116,14 @@ describe("the year brief", () => {
     expect(screen.getByText(/2026 is to date: 1,126 papers/)).toBeInTheDocument()
   })
 
+  it("keeps the year-against-year table inside its own scroller, so a phone's page does not scroll sideways", async () => {
+    mount(<YearBrief />, "/reports/brief")
+    const table = (await screen.findAllByRole("table"))[0]
+    const scroller = table.parentElement!
+    expect(scroller.className).toContain("overflow-x-auto")
+    expect(scroller).toHaveAttribute("role", "region")
+  })
+
   it("names what is not ready for the council and the department to call about", async () => {
     mount(<YearBrief />, "/reports/brief")
     // What is left to settle is one step away, with its count on the door.

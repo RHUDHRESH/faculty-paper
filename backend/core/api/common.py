@@ -449,6 +449,22 @@ def _desk_people(claim: Claim, roles):
     return people
 
 
+def desk_line(claim: Claim, amount: float | None) -> str:
+    """What a desk alert says about a paper: the amount, whose it is, and its title.
+
+    A count-only paper asks for no money, so it says that instead of "₹0":
+    the desk is being asked to check a record, not to release a payment.
+    """
+    count_only = claim.claim_reason in (ClaimReason.COUNT_ONLY, ClaimReason.STUDENT_PROJECT)
+    if count_only:
+        what = "Count only, no incentive"
+    elif not amount:
+        what = "No incentive due"
+    else:
+        what = f"₹{amount:,.0f}"
+    return f"{what} for {claim.owner.name}: {claim.paper_title}"
+
+
 def _notify_admins(claim: Claim, title: str, body: str) -> None:
     """A submitted ticket waits on admin clearing, so admins are who hear about it."""
     for u in _desk_people(claim, rbac.ADMIN_ROLES):
@@ -560,7 +576,9 @@ def price_claim(
             claim.total_authors,
             claim.author_position,
             cfg,
-            is_student_publication=claim.is_student_publication,
+            # Counted and never paid: a student publication, or any claim
+            # filed or accepted as count only, whatever the student flag says.
+            is_student_publication=claim.is_student_publication or claim.claim_reason == ClaimReason.COUNT_ONLY,
             publication_type=pub_type,
             indexing_level=claim.indexing_level,
             engineering_class=claim.engineering_class,

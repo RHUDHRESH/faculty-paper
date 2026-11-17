@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useEffect, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { AlertTriangle, CircleCheck, Download, Pencil, Search } from "lucide-react"
@@ -375,7 +376,7 @@ function Standing({
             "Where the college stands."
           ) : (
             <>
-              NAAC 3.3.1: {perTeacher == null ? "no papers" : `${perTeacher} papers per teacher`}, band {d.naac_331.band} of 4.
+              NAAC 3.3.1: {perTeacher == null ? "no papers" : `${plural(perTeacher, "paper")} per teacher`}, band {d.naac_331.band} of 4.
             </>
           )}
         </AnswerLine>

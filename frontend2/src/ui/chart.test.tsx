@@ -38,3 +38,18 @@ describe("RankedBars overflow note", () => {
     expect(container.textContent).not.toContain(" — ")
   })
 })
+
+describe("RankedBars with an unknown bucket", () => {
+  it("lists what is unknown last and always, however large and however many rows there are", () => {
+    const points = [
+      ...Array.from({ length: 14 }, (_, i) => ({ key: `k${i}`, label: `Row ${i}`, count: 100 - i })),
+      { key: "none", label: "No department on the account (900)", count: 900, unknown: true },
+    ]
+    const { container } = render(<RankedBars title="Papers" dimension="department" points={points} />)
+    const names = [...container.querySelectorAll("li")].map((li) => li.textContent ?? "")
+    expect(names).toHaveLength(10)
+    expect(names[0]).toContain("Row 0")
+    expect(names[9]).toContain("No department on the account (900)")
+    expect(names.filter((n) => n.includes("No department"))).toHaveLength(1)
+  })
+})

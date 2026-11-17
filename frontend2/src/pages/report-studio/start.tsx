@@ -15,6 +15,7 @@ import { toast } from "@/ui/toast"
 import { Ago } from "@/ui/when"
 import { useAsk, useDatasets, useDelete, useDuplicate, useSavedReports, useTemplates } from "./data"
 import { describeSchedule, type SavedReport } from "./model"
+import { KeyText } from "@/pages/my-keys"
 
 const AI_OFF_KEY = "report-studio:ai-off"
 
@@ -103,7 +104,13 @@ function AskBox() {
             placeholder="For example: papers in Scopus journals last year, by department, with the total incentive paid"
           />
         </Field>
-        {error && <InlineError message={error} />}
+        {error && error.includes("My API keys") ? (
+          <p role="alert" className="text-sm text-fg-muted">
+            <KeyText text={error} />
+          </p>
+        ) : (
+          error && <InlineError message={error} />
+        )}
         <Button type="submit" kind="primary" loading={ask.isPending}>
           <Sparkles />
           Make my report

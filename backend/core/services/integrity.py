@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Callable, Optional
 
 from django.apps import apps
@@ -38,6 +40,7 @@ from core.models import (
     Thread,
     User,
 )
+from core.services.ellipsis import ellipsize
 from core.services.normalize import normalize_doi
 
 logger = logging.getLogger(__name__)
@@ -83,13 +86,13 @@ def _user_row(u: User, extra: str = "") -> dict[str, Any]:
 
 def _claim_row(c: Claim, extra: str = "") -> dict[str, Any]:
     label = c.ticket_number or c.pk
-    title = (c.paper_title or "")[:80]
+    title = ellipsize(c.paper_title, 80)
     return {"id": c.pk, "label": f"{label} [{c.status}] {title}{(' - ' + extra) if extra else ''}",
             "href": f"/papers/{c.pk}"}
 
 
 def _pub_row(p: Publication, extra: str = "") -> dict[str, Any]:
-    return {"id": p.pk, "label": f"{p.year or '?'} {(p.title or '(no title)')[:80]}{(' - ' + extra) if extra else ''}",
+    return {"id": p.pk, "label": f"{p.year or '?'} {ellipsize(p.title or '(no title)', 80)}{(' - ' + extra) if extra else ''}",
             "href": ""}
 
 
@@ -201,7 +204,50 @@ def check_claims() -> list[Finding]:
     formula.count = len(active) if len(active) > 1 else 0
     formula.rows = [{"id": x.pk, "label": f"{x.name} v{x.version}", "href": "/policy"} for x in active]
     out.append(formula)
+    out.append(check_publication_dates())
     return out
+
+
+def _iso_day(text: Optional[str]) -> Optional[date]:
+    """The day a claim says its paper was published, when it is written as one."""
+    m = re.match(r"^\s*(\d{4})-(\d{2})-(\d{2})", text or "")
+    if not m:
+        return None
+    try:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
+
+
+def check_publication_dates() -> Finding:
+    """Papers dated in the future, or after the claim for them was filed.
+
+    A paper cannot be published after somebody filed it, or after today. The
+    date is reported, never changed: only the author knows which of the two
+    figures is the typing slip.
+    """
+    f = Finding("claim_publication_date", "Claims", "Papers dated after their claim was filed, or in the future",
+                "warning", help="Check the publication date on the claim against the journal's page. "
+                                "Nothing is changed here.")
+    today = timezone.localdate()
+    for c in Claim.objects.exclude(publication_date__isnull=True).exclude(publication_date="").exclude(
+        status=ClaimStatus.DRAFT
+    ).only("id", "ticket_number", "status", "paper_title", "publication_date", "submitted_at", "created_at").iterator():
+        day = _iso_day(c.publication_date)
+        if day is None:
+            continue
+        filed = c.submitted_at or c.created_at
+        filed_day = timezone.localtime(filed).date() if filed else None
+        if day > today:
+            why = f"published {day.isoformat()}, which is in the future"
+        elif filed_day and day > filed_day:
+            why = f"published {day.isoformat()}, after it was filed on {filed_day.isoformat()}"
+        else:
+            continue
+        f.count += 1
+        if len(f.rows) < SAMPLE:
+            f.rows.append(_claim_row(c, why))
+    return f
 
 
 # ---------------------------------------------------------------- ledger --

@@ -35,7 +35,7 @@ from core.models import (
     Team,
     User,
 )
-from core.services import claim_scope, exporters, rbac
+from core.services import claim_scope, exporters, paper_fields, rbac
 from core.services.api_tokens import TokenRefused as ApiError
 from core.services.search.money import may_see_money
 
@@ -95,14 +95,19 @@ FIELDS: dict[str, dict[str, Any]] = {
             _f("department", "text", "Claimant's department."),
             _f("title", "text", "Paper title."),
             _f("journal", "text", "Journal or conference."),
+            _f("staff_id", "text", "Claimant's staff id."),
             _f("issn", "text", "ISSN."),
+            _f("category", "text", "Engineering or Non-engineering."),
             _f("doi", "text", "DOI."),
             _f("year", "number", "Publication year."),
-            _f("quartile", "text", "Quartile used for the claim."),
-            _f("snip", "number", "SNIP used for the claim."),
+            _f("quartile", "text", "Quartile (Q1 to Q4): the claim's, else the payment record's, the paper record's or the journal tables'."),
+            _f("snip", "number", "SNIP, from the same sources in the same order."),
             _f("type", "text", "Publication type."),
-            _f("author_position", "number", "The claimant's position in the author list."),
-            _f("total_authors", "number", "Number of authors."),
+            _f("document_type", "text", "Document type, for example Journal or Conference Proceeding."),
+            _f("indexing", "text", "Indexed or Not yet indexed in Scopus."),
+            _f("author_position", "number", "The claimant's position in the author list. Empty when no source has it."),
+            _f("total_authors", "number", "Number of authors. Empty when no source has it."),
+            _f("remark", "text", "Remark, for example Count only or Student publication."),
             _f("stage", "text", "Where the claim stands, in the words the viewer sees in the app."),
             _f("filed_on", "date", "Date filed (YYYY-MM-DD)."),
             _f("updated_at", "datetime", "When the claim last changed."),
@@ -127,8 +132,21 @@ FIELDS: dict[str, dict[str, Any]] = {
             _f("faculty", "text", "Who was paid."),
             _f("staff_id", "text", "Staff id."),
             _f("title", "text", "Paper title."),
-            _f("journal", "text", "Journal."),
-            _f("amount", "money", "Amount in rupees.", money=True),
+            _f("journal", "text", "Journal name."),
+            _f("issn", "text", "ISSN."),
+            _f("category", "text", "Engineering or Non-engineering."),
+            _f("quartile", "text", "Quartile (Q1 to Q4): the claim's, else the payment record's, the paper record's or the journal tables'."),
+            _f("snip", "number", "SNIP, from the same sources in the same order."),
+            _f("total_authors", "number", "Number of authors. Empty when no source has it."),
+            _f("author_position", "number", "The payee's position in the author list. Empty when no source has it."),
+            _f("amount", "money", "Amount paid in rupees.", money=True),
+            _f("academic_year", "text", "Academic year of the month paid, for example 2025-26."),
+            _f("doi", "text", "DOI."),
+            _f("document_type", "text", "Document type, for example Journal or Conference Proceeding."),
+            _f("indexing", "text", "Indexed or Not yet indexed in Scopus."),
+            _f("claim_no", "text", "Claim number, when the payment is for a claim filed in the app."),
+            _f("status", "text", "Paid, Reversed or Corrected."),
+            _f("remark", "text", "Remark, for example Count only or Student publication."),
             _f("voucher", "text", "Voucher number."),
             _f("updated_at", "datetime", "When the row was written."),
         ],
@@ -411,23 +429,25 @@ def _stage(viewer: User, c: Claim) -> str:
     return staff.get(c.status, "In progress")
 
 
-def _claim_row(c: Claim, viewer: User) -> dict[str, Any]:
+#: The paper's figures that every report reads from `paper_fields`.
+_PAPER_KEYS = ("issn", "category", "quartile", "snip", "total_authors", "author_position", "doi", "document_type",
+               "indexing", "remark")
+
+
+def _claim_row(c: Claim, viewer: User, found: dict[str, Any] | None = None) -> dict[str, Any]:
+    found = found if found is not None else paper_fields.for_claim(c)
     row: dict[str, Any] = {
         "id": c.id,
         "claim_no": c.ticket_number,
         "owner_id": c.owner_id,
         "owner": c.owner.name,
+        "staff_id": c.staff_id or c.owner.staff_id,
         "department": c.owner.department,
-        "title": c.paper_title,
-        "journal": c.journal_title,
-        "issn": c.issn,
-        "doi": c.doi,
+        "title": found["title"] or c.paper_title,
+        "journal": found["journal"] or c.journal_title,
         "year": c.publication_year,
-        "quartile": c.quartile,
-        "snip": c.snip,
         "type": (c.publication_type or "").split(",")[0].strip() or None,
-        "author_position": c.author_position,
-        "total_authors": c.total_authors,
+        **{k: found[k] for k in _PAPER_KEYS},
         "stage": _stage(viewer, c),
         "filed_on": _day(c.submitted_at),
         "updated_at": _iso(c.updated_at),
@@ -499,10 +519,15 @@ def _payments(viewer: User, p: Params) -> _Concat:
             Q(paper_title__icontains=p.q) | Q(journal_title__icontains=p.q)
             | Q(owner__name__icontains=p.q) | Q(voucher_number__icontains=p.q)
         )
-    return _Concat(ledger.order_by("-payout_month", "-id"), claims.order_by("-payout_month", "-id"))
+    return _Concat(ledger.select_related("claim").order_by("-payout_month", "-id"), claims.order_by("-payout_month", "-id"))
 
 
-def _payment_row(source: int, obj: Any, viewer: User) -> dict[str, Any]:
+_PAYMENT_STATUS = {"PAYMENT": "Paid", "REVERSAL": "Reversed", "ADJUSTMENT": "Corrected"}
+
+
+def _payment_row(source: int, obj: Any, viewer: User, found: dict[str, Any] | None = None) -> dict[str, Any]:
+    if found is None:
+        found = paper_fields.for_ledger_row(obj) if source == 0 else paper_fields.for_claim(obj)
     if source == 0:
         row = {
             "id": obj.id,
@@ -513,11 +538,12 @@ def _payment_row(source: int, obj: Any, viewer: User) -> dict[str, Any]:
             "department": obj.department,
             "faculty": obj.faculty_name,
             "staff_id": obj.staff_id,
-            "title": obj.paper_title,
-            "journal": obj.journal_title,
+            "claim_no": obj.claim.ticket_number if obj.claim_id else None,
+            "status": _PAYMENT_STATUS.get(obj.kind, "Paid"),
             "voucher": obj.voucher_number,
             "updated_at": _iso(obj.created_at),
         }
+        month = obj.payout_month
         amount = obj.amount
     else:
         row = {
@@ -529,12 +555,17 @@ def _payment_row(source: int, obj: Any, viewer: User) -> dict[str, Any]:
             "department": obj.owner.department,
             "faculty": obj.owner.name,
             "staff_id": obj.owner.staff_id,
-            "title": obj.paper_title,
-            "journal": obj.journal_title,
+            "claim_no": obj.ticket_number,
+            "status": "Paid",
             "voucher": obj.voucher_number,
             "updated_at": _iso(obj.updated_at),
         }
+        month = obj.payout_month or (obj.paid_at.date() if obj.paid_at else None)
         amount = obj.remuneration or 0
+    row.update({
+        "title": found["title"], "journal": found["journal"], "academic_year": paper_fields.academic_year(month),
+        **{k: found[k] for k in _PAPER_KEYS},
+    })
     if may_see_money(viewer.role):
         row["amount"] = amount
     return row
@@ -660,10 +691,19 @@ def fetch(kind: str, viewer: User, p: Params) -> tuple[list[dict[str, Any]], int
         return [_paper_row(x, viewer) for x in qs[lo:hi]], qs.count()
     if kind == "claims":
         qs = _claims_queryset(viewer, p)
-        return [_claim_row(x, viewer) for x in qs[lo:hi]], qs.count()
+        page = list(qs[lo:hi])
+        found = paper_fields.for_claims(page)
+        return [_claim_row(x, viewer, found[x.pk]) for x in page], qs.count()
     if kind == "payments":
         both = _payments(viewer, p)
-        return [_payment_row(i, x, viewer) for i, x in both.slice(lo, hi)], both.count()
+        page = both.slice(lo, hi)
+        found = {
+            **paper_fields.for_ledger_rows([x for i, x in page if i == 0]),
+            **{f"claim-{k}": v for k, v in paper_fields.for_claims([x for i, x in page if i == 1]).items()},
+        }
+        return [
+            _payment_row(i, x, viewer, found[x.pk if i == 0 else f"claim-{x.pk}"]) for i, x in page
+        ], both.count()
     if kind == "faculty":
         rows = _faculty_rows(viewer, p)
         return rows[lo:hi], len(rows)

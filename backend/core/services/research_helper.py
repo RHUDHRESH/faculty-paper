@@ -60,7 +60,7 @@ from core.models import (
     ScimagoJournal,
     User,
 )
-from core.services import ai
+from core.services import ai, user_keys
 from core.services import ai_harness as harness
 from core.services import coauthors as graph
 from core.services import discover
@@ -1030,6 +1030,8 @@ def ai_block(health: dict[str, Any], user: User) -> dict[str, Any]:
     detail = None
     if not ready:
         detail = OFF_TEXT if code in (None, "not_configured") else UNAVAILABLE_TEXT
+        if code == "own_key_required":
+            detail = health.get("detail") or user_keys.blocked_message("ai")
     return {
         "state": state,
         "label": LABEL,

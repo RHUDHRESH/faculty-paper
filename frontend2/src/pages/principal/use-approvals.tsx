@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useState } from "react"
 
 import { useAuth } from "@/app/auth"
@@ -58,7 +59,7 @@ export function useApprovals(options: { rows?: QueueClaim[]; onApproved?: (ids: 
           "Approved",
           res.approved === 1
             ? `${money(sum)} sent to the Director${done[0]?.ticket_number ? `. ${done[0].ticket_number}` : ""}.`
-            : `${res.approved} claims, ${money(sum)}, sent to the Director.`
+            : `${plural(res.approved, "claim")}, ${money(sum)}, sent to the Director.`
         )
         options.onApproved?.(done.map((c) => c.id))
       }

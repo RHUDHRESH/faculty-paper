@@ -319,6 +319,7 @@ export function Authorisations() {
               rows={order}
               href={href}
               id="authorisations"
+              countOnlyStage="PRINCIPAL_APPROVED"
               title="Authorisations"
               caption="Approved claims waiting for authorisation, ready ones first"
               active={activeRow}

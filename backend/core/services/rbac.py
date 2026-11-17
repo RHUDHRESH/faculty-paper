@@ -15,6 +15,8 @@ ROLE_RANK = {
     Role.HOD: 1,
     Role.RESEARCH_COORDINATOR: 5,
     Role.PRINCIPAL: 3,
+    # Reads what the Principal reads, decides nothing (see READ_ONLY_OVERSIGHT).
+    Role.VICE_PRINCIPAL: 3,
     # Oversight, like the Principal. Rank is a permission ladder, not the
     # approval chain -- the Director comes *after* the Principal in the chain
     # while seeing the same things, so they sit on the same rung.
@@ -39,7 +41,24 @@ ADMIN_ROLES = (Role.SUPER_ADMIN, Role.RESEARCH_CELL, Role.RESEARCH_COORDINATOR)
 #: (ADMIN_ROLES) prepares and clears claims, so it may not create, edit,
 #: deactivate or reset the password of any of these -- only a super admin may,
 #: or the desk that clears a payment could take over the desks that pay it.
-PROTECTED_ROLES = (Role.SUPER_ADMIN, Role.DIRECTOR, Role.FINANCE, Role.PRINCIPAL)
+PROTECTED_ROLES = (
+    Role.SUPER_ADMIN,
+    Role.DIRECTOR,
+    Role.FINANCE,
+    Role.PRINCIPAL,
+    # Decides nothing, but is the college's second officer: the office that
+    # manages accounts may not edit, reset or deactivate it either.
+    Role.VICE_PRINCIPAL,
+)
+
+#: Roles that read everything the Principal reads and act on none of it: no
+#: approving, authorising, paying, clearing or managing accounts. Every
+#: "may read" helper below lists them; every "may act" helper does not.
+READ_ONLY_OVERSIGHT = (Role.VICE_PRINCIPAL,)
+
+#: Who stands at the top of the college for reading: the Principal and the
+#: Vice principal. Used where the code means "the Principal can see this".
+PRINCIPAL_SEATS = (Role.PRINCIPAL, Role.VICE_PRINCIPAL)
 
 #: The accounts a claim can belong to: everybody on the staff who publishes,
 #: which is everybody but the super admin. A head of department is faculty
@@ -59,6 +78,7 @@ CLAIMANT_ROLES = (
     Role.RESEARCH_CELL,
     Role.RESEARCH_COORDINATOR,
     Role.PRINCIPAL,
+    Role.VICE_PRINCIPAL,
     Role.DIRECTOR,
     Role.FINANCE,
 )
@@ -99,6 +119,11 @@ def can_principal_portal(role: str) -> bool:
     return role in (Role.PRINCIPAL, Role.SUPER_ADMIN)
 
 
+def is_read_only_oversight(role: str | None) -> bool:
+    """The Vice principal: sees the Principal's college, changes none of it."""
+    return role in READ_ONLY_OVERSIGHT
+
+
 def can_director_portal(role: str) -> bool:
     return role in (Role.DIRECTOR, Role.SUPER_ADMIN)
 
@@ -128,7 +153,7 @@ def portal_for_role(role: str) -> str:
         return "director"
     if role == Role.FINANCE:
         return "finance"
-    if role == Role.PRINCIPAL:
+    if role in (Role.PRINCIPAL, Role.VICE_PRINCIPAL):
         return "principal"
     if role in ADMIN_ROLES:
         return "admin"
@@ -157,7 +182,7 @@ def can_edit_formula(role: str) -> bool:
 
 
 def can_view_college_wide(role: str) -> bool:
-    return role in (*ADMIN_ROLES, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE)
+    return role in (*ADMIN_ROLES, *PRINCIPAL_SEATS, Role.DIRECTOR, Role.FINANCE)
 
 
 def can_view_reports(role: str) -> bool:
@@ -166,7 +191,7 @@ def can_view_reports(role: str) -> bool:
     Reporting is not the same permission as moving money: everyone who oversees
     the scheme can read the numbers, only Finance can pay.
     """
-    return role in (*ADMIN_ROLES, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE)
+    return role in (*ADMIN_ROLES, *PRINCIPAL_SEATS, Role.DIRECTOR, Role.FINANCE)
 
 
 def can_issue_claims(role: str) -> bool:
@@ -232,7 +257,13 @@ def sits_at_a_desk(role: str) -> bool:
 
 
 def can_view_audit(role: str) -> bool:
-    return role in (*ADMIN_ROLES, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE)
+    return role in (*ADMIN_ROLES, *PRINCIPAL_SEATS, Role.DIRECTOR, Role.FINANCE)
+
+
+def can_read_conflicts(role: str) -> bool:
+    """Read the Data conflicts list: whoever may import, and the Vice principal
+    (read-only: settling a conflict is `can_manage_users`)."""
+    return can_import_prior(role) or role in READ_ONLY_OVERSIGHT
 
 
 def can_review_flags(role: str) -> bool:

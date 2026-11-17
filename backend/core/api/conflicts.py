@@ -5,7 +5,8 @@ POST /admin/conflicts/{id}/resolve        one action on one conflict
 
 The importers note each difference (`services/import_conflicts.py`); this is
 where the office settles them by clicking. The list is read by the roles that
-may import (`rbac.can_import_prior`). Changing anything is for the office that
+may import (`rbac.can_import_prior`) and by the Vice principal, read-only
+(`rbac.can_read_conflicts`). Changing anything is for the office that
 manages accounts (`rbac.can_manage_users`): a settled amount is money and a
 settled email or Staff ID is somebody's sign-in. An account that decides
 whether money moves is a super admin's alone (`_refuse_protected`), here as
@@ -53,7 +54,7 @@ def _row(c: ImportConflict, account: User | None, actor: User) -> dict:
     locked = None
     actions: list[str] = []
     paused = c.paused_at is not None
-    if account is not None and account.role in rbac.PROTECTED_ROLES and actor.role != Role.SUPER_ADMIN:
+    if c.kind != svc.DOUBLE and account is not None and account.role in rbac.PROTECTED_ROLES and actor.role != Role.SUPER_ADMIN:
         locked = PERSON_LOCKED if c.kind == svc.FACULTY else LEDGER_LOCKED
     elif c.kind == svc.FACULTY:
         if account is not None:
@@ -63,6 +64,9 @@ def _row(c: ImportConflict, account: User | None, actor: User) -> dict:
                     actions.append("pause_account")
             if paused:
                 actions.append("reactivate")
+    elif c.kind == svc.DOUBLE:
+        if c.status == svc.OPEN:
+            actions = list(svc.DOUBLE_ACTIONS)
     elif c.status == svc.OPEN:
         actions = ["update_ledger", "keep_ledger"]
     out = {
@@ -82,6 +86,8 @@ def _row(c: ImportConflict, account: User | None, actor: User) -> dict:
         "month": p.get("month"),
         "ledger_amount": p.get("ledger_amount"),
         "file_amount": p.get("file_amount"),
+        "payments": p.get("payments"),
+        "total": p.get("total"),
         "resolution": c.resolution,
         "resolution_note": c.resolution_note,
         "resolved_by": (c.resolved_by.name or c.resolved_by.email) if c.resolved_by_id else None,
@@ -98,12 +104,12 @@ def _row(c: ImportConflict, account: User | None, actor: User) -> dict:
 @api.get("/admin/conflicts", auth=session_auth)
 def list_conflicts(request: HttpRequest, status: str = "open", kind: str = ""):
     user = require_user(request)
-    if not rbac.can_import_prior(user.role):
+    if not rbac.can_read_conflicts(user.role):
         raise HttpError(403, "Forbidden")
     if status not in (*STATUSES, "all"):
         raise HttpError(400, "Status must be open, resolved, dismissed or all.")
-    if kind not in ("", svc.FACULTY, svc.AMOUNT):
-        raise HttpError(400, "Kind must be faculty or amount.")
+    if kind not in ("", svc.FACULTY, svc.AMOUNT, svc.DOUBLE):
+        raise HttpError(400, "Kind must be faculty, amount or double_payment.")
     qs = ImportConflict.objects.select_related("resolved_by")
     if status != "all":
         qs = qs.filter(status=status)
@@ -117,7 +123,7 @@ def list_conflicts(request: HttpRequest, status: str = "open", kind: str = ""):
     faculty = [c for c in rows if c.kind == svc.FACULTY]
     mine = svc.targets_for([c.payload or {} for c in faculty])
     accounts: dict[str, User | None] = {c.id: mine[i] for i, c in enumerate(faculty)}
-    amounts = [c for c in rows if c.kind == svc.AMOUNT]
+    amounts = [c for c in rows if c.kind in (svc.AMOUNT, svc.DOUBLE)]
     staff_map = svc.by_staff({staff_key((c.payload or {}).get("staff_id")) for c in amounts})
     for c in amounts:
         found = staff_map.get(staff_key((c.payload or {}).get("staff_id")), [])

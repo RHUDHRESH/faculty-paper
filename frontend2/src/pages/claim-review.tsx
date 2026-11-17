@@ -81,6 +81,8 @@ export type ClaimReview = {
   file_checks: FileCheck[]
   /** The claimant's proof-locker checks on the same files, by file URL. */
   locker_checks?: Record<string, import("./filing/locker").ProofCheck[]>
+  /** A student-project claim's team, checked by the server; null on any other claim. */
+  team_check?: import("./review/team-check").TeamCheck | null
 }
 
 /** In the order a reviewer is likeliest to want them. */

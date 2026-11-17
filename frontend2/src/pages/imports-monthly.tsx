@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 
 import { api } from "@/lib/api"
 import { Answer, type AnswerItem } from "@/ui/answer"
@@ -38,7 +38,7 @@ function countOf(v: unknown): number {
 type Phase = "idle" | "checking" | "checked" | "importing" | "imported"
 
 /** What a card needs to say about one file and its result. */
-type CardKind<R extends { dry_run: boolean }> = {
+type CardKind<R extends { dry_run: boolean; fill?: FillQueued }> = {
   title: string
   purpose: string
   fileLabel: string
@@ -51,7 +51,49 @@ type CardKind<R extends { dry_run: boolean }> = {
   Result: (props: { result: R }) => React.ReactNode
 }
 
-function MonthlyCard<R extends { dry_run: boolean }>({ kind }: { kind: CardKind<R> }) {
+/** What an applied import says about the gap-filling job it queued (core/api/masters.py). */
+type FillQueued = { queued: boolean; job_id?: string; error?: string }
+type FillJob = { status: string; result?: { text?: string; errors?: Record<string, string> } }
+
+/**
+ * Follows the fills queued by an applied import and says what they filled:
+ * "Filled: 1,240 departments, 380 journals". Quiet when nothing was queued.
+ */
+function FilledLine({ fill }: { fill: FillQueued | undefined }) {
+  const [text, setText] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  const jobId = fill?.queued ? fill.job_id : undefined
+  useEffect(() => {
+    if (!jobId) return
+    let stop = false
+    void (async () => {
+      for (let i = 0; i < 400 && !stop; i++) {
+        await new Promise((r) => setTimeout(r, 3000))
+        if (stop) return
+        try {
+          const job = await api<FillJob>(`/api/admin/jobs/${jobId}`)
+          if (job.status === "done") return setText(job.result?.text ?? "Nothing left to fill from the college's files.")
+          if (job.status === "failed") return setFailed(true)
+        } catch {
+          return setFailed(true)
+        }
+      }
+    })()
+    return () => {
+      stop = true
+    }
+  }, [jobId])
+  if (!fill) return null
+  if (!fill.queued) return <p className="text-sm text-fg-muted">The gaps were not filled automatically. Fill them from Data health.</p>
+  if (failed) return <p className="text-sm text-caution">Filling the gaps did not finish. Run it again from Data health.</p>
+  return (
+    <p className="text-sm text-fg-muted" role="status">
+      {text ?? "Filling blank departments, journals and author matches from the files."}
+    </p>
+  )
+}
+
+function MonthlyCard<R extends { dry_run: boolean; fill?: FillQueued }>({ kind }: { kind: CardKind<R> }) {
   const [file, setFile] = useState<File | null>(null)
   const [phase, setPhase] = useState<Phase>("idle")
   const [result, setResult] = useState<R | null>(null)
@@ -162,6 +204,7 @@ function MonthlyCard<R extends { dry_run: boolean }>({ kind }: { kind: CardKind<
               {result.dry_run ? "Checked. Nothing is saved yet." : "Imported. This is what was saved."}
             </p>
             <kind.Result result={result} />
+            {!result.dry_run && <FilledLine fill={result.fill} />}
           </div>
         )}
 
@@ -388,6 +431,7 @@ export type SettledClaimsResult = {
     unmatched_staff: number
     unparseable_amount: number
     doi_filled: number
+    claim_at_zero?: number
   }
   new_total_amount: number
   by_month: { month: string; new: number; amount: number }[]
@@ -400,6 +444,35 @@ export type SettledClaimsResult = {
     month: string
   }[]
   unmatched_staff: { staff_id: string; name: string }[]
+  /** A paper paid more than once to one person: every payment is recorded, and listed here. */
+  double_payments?: {
+    count: number
+    total_amount: number
+    rows: { staff_id: string; name: string; title: string; count: number; total: number; payments: { month: string; amount: number }[] }[]
+  }
+  /** The college sheet's payment, recorded against an app claim that was paid at nothing. */
+  claim_payments_from_sheet?: {
+    count: number
+    total_amount: number
+    rows: { ticket: string | null; staff_id: string; name: string; title: string; amount: number; month: string | null }[]
+  }
+  blank_amounts?: {
+    count: number
+    rows: { staff_id: string; name: string; title: string; month: string | null; in_sheet: string | null }[]
+  }
+  /** Paid in the app, with money, and not in the college sheet. Nothing is changed. */
+  paid_in_app_not_in_sheet?: {
+    count: number
+    total_amount: number
+    rows: { ticket: string | null; staff_id: string; name: string; title: string; amount: number; month: string; listed_under: string[] }[]
+  }
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+const monthWord = (iso: string | null | undefined) => {
+  const m = /^(\d{4})-(\d{2})/.exec(iso ?? "")
+  return m && MONTHS[Number(m[2]) - 1] ? `${MONTHS[Number(m[2]) - 1]} ${m[1]}` : (iso ?? "")
 }
 
 function SettledClaimsResultView({ result }: { result: SettledClaimsResult }) {
@@ -416,7 +489,9 @@ function SettledClaimsResultView({ result }: { result: SettledClaimsResult }) {
       tone: counts.amount_differs > 0 ? "caution" : "neutral",
     },
   ]
+  const twice = result.double_payments
   const others = [
+    (counts.claim_at_zero ?? 0) > 0 && `${nf(counts.claim_at_zero ?? 0)} payments recorded for claims the app had at ₹0`,
     counts.unmatched_staff > 0 && `${nf(counts.unmatched_staff)} staff not found`,
     counts.zero_amount > 0 && `${nf(counts.zero_amount)} with a zero amount`,
     counts.unparseable_amount > 0 && `${nf(counts.unparseable_amount)} with an amount that could not be read`,
@@ -477,6 +552,87 @@ function SettledClaimsResultView({ result }: { result: SettledClaimsResult }) {
         ]}
       />
       <Listing
+        heading="Papers paid more than once"
+        id="claims-twice"
+        rows={twice?.rows ?? []}
+        getKey={(r) => `${r.staff_id}-${r.title}`}
+        columns={[
+          { key: "staff", header: "Staff", cell: (r) => `${r.name} (${r.staff_id})` },
+          { key: "title", header: "Paper", truncate: true, className: "max-w-[18rem]", cell: (r) => r.title },
+          {
+            key: "payments",
+            header: "Payments",
+            cell: (r) => r.payments.map((p) => `${monthWord(p.month)} ${money(p.amount)}`).join(", "),
+            exportValue: (r) => r.payments.map((p) => `${p.month.slice(0, 7)} ${p.amount}`).join("; "),
+          },
+          {
+            key: "total",
+            header: "Total",
+            align: "right",
+            cell: (r) => money(r.total),
+            exportValue: (r) => r.total,
+            exportKind: "money",
+          },
+        ]}
+      />
+      <Listing
+        heading="Payments recorded from the college sheet for a claim the app had at ₹0"
+        id="claims-at-zero"
+        rows={result.claim_payments_from_sheet?.rows ?? []}
+        getKey={(r) => `${r.ticket}-${r.staff_id}-${r.title}`}
+        columns={[
+          { key: "ticket", header: "Claim no.", cell: (r) => r.ticket ?? "" },
+          { key: "staff", header: "Staff", cell: (r) => `${r.name} (${r.staff_id})` },
+          { key: "title", header: "Paper", truncate: true, className: "max-w-[18rem]", cell: (r) => r.title },
+          { key: "month", header: "Month paid", cell: (r) => monthWord(r.month) },
+          {
+            key: "amount",
+            header: "Amount",
+            align: "right",
+            cell: (r) => money(r.amount),
+            exportValue: (r) => r.amount,
+            exportKind: "money",
+          },
+        ]}
+      />
+      <Listing
+        heading="Amount blank in the sheet (recorded as a settled paper at ₹0)"
+        id="claims-blank"
+        rows={result.blank_amounts?.rows ?? []}
+        getKey={(r) => `${r.staff_id}-${r.title}`}
+        columns={[
+          { key: "staff", header: "Staff", cell: (r) => `${r.name} (${r.staff_id})` },
+          { key: "title", header: "Paper", truncate: true, className: "max-w-[18rem]", cell: (r) => r.title },
+          { key: "month", header: "Month", cell: (r) => monthWord(r.month) },
+        ]}
+      />
+      <Listing
+        heading="Paid in the app, not in the college sheet"
+        id="claims-not-in-sheet"
+        rows={result.paid_in_app_not_in_sheet?.rows ?? []}
+        getKey={(r) => `${r.ticket}-${r.staff_id}-${r.title}`}
+        columns={[
+          { key: "ticket", header: "Claim no.", cell: (r) => r.ticket ?? "" },
+          { key: "staff", header: "Staff", cell: (r) => `${r.name} (${r.staff_id})` },
+          { key: "title", header: "Paper", truncate: true, className: "max-w-[18rem]", cell: (r) => r.title },
+          { key: "month", header: "Month paid", cell: (r) => monthWord(r.month) },
+          {
+            key: "amount",
+            header: "Amount",
+            align: "right",
+            cell: (r) => money(r.amount),
+            exportValue: (r) => r.amount,
+            exportKind: "money",
+          },
+          {
+            key: "under",
+            header: "Sheet lists it under",
+            cell: (r) => r.listed_under.join(", "),
+            empty: "Nobody",
+          },
+        ]}
+      />
+      <Listing
         heading="Staff not found"
         id="claims-unmatched"
         rows={result.unmatched_staff}
@@ -496,7 +652,8 @@ const CLAIMS_CARD: CardKind<SettledClaimsResult> = {
   fileLabel: "Settled claims workbook",
   fileHint: "The .xlsx, one row for each payment made.",
   path: "/api/admin/settled-claims/import",
-  caution: "Amounts that differ are reported only; nothing already recorded is changed.",
+  caution:
+    "Every row of the sheet is a payment: a paper listed twice is recorded twice and flagged. Amounts that differ are reported only; nothing already recorded is changed.",
   imported: "Imported",
   Result: SettledClaimsResultView,
 }

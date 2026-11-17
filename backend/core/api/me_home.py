@@ -30,6 +30,35 @@ from core.services.person_record import papers_for
 UNFILED_SHOWN = 3
 
 
+def journal_standing(p: dict) -> tuple[Optional[str], Optional[float]]:
+    """The quartile and SNIP the filing form shows for this paper's journal.
+
+    The publication row often has no quartile of its own, while the form fills
+    it from the Scimago and SNIP tables by ISSN (`/lookup/enrich`). Home asks
+    the same tables, so the two cannot say "None" and "Q4" about one paper.
+    """
+    from django.db.models import Q
+
+    from core.models import SnipSource
+    from core.services.scimago import issn_variants, lookup_scimago
+
+    quartile = p.get("quartile") or None
+    sc = lookup_scimago(issn=p.get("issn"), title=p.get("venue")) if (p.get("issn") or p.get("venue")) else None
+    if sc and sc.get("found") and not quartile:
+        quartile = sc.get("matched_quartile") or None
+    codes = {v for raw in (p.get("issn"), (sc or {}).get("issn"), (sc or {}).get("eissn")) if raw for v in issn_variants(raw)}
+    snip = None
+    if codes:
+        hit = (
+            SnipSource.objects.filter(Q(print_issn__in=codes) | Q(e_issn__in=codes))
+            .exclude(snip__isnull=True)
+            .order_by("-year")
+            .first()
+        )
+        snip = hit.snip if hit else None
+    return quartile, snip
+
+
 def unfiled_of(user: User) -> Optional[dict]:
     """`{count, items}` of papers on the record with no live claim, or None
     while the person has no authorships (the row is hidden, never "0")."""
@@ -48,13 +77,15 @@ def unfiled_of(user: User) -> Optional[dict]:
         if key in seen:
             continue
         seen.add(key)
+        quartile, snip = journal_standing(p)
         items.append({
             "id": p["id"], "title": p["title"], "venue": p["venue"], "year": p["year"],
             # The journal's quartile as the record holds it, or null. It says
             # how much a paper is worth filing without guessing an amount:
             # the figure itself needs the journal's SNIP and subject class,
             # which are only settled while filing.
-            "quartile": p.get("quartile") or None,
+            "quartile": quartile,
+            "snip": snip,
         })
         if len(items) == UNFILED_SHOWN:
             break

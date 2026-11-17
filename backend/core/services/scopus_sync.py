@@ -26,6 +26,7 @@ from django.utils import timezone
 from core.models import Publication, User
 from core.services.normalize import clean_venue, normalize_doi, normalize_issn, normalize_title
 from core.services.publications import ensure_user_authorship
+from core.services import user_keys
 from core.services.scopus import SCOPUS_BASE, ScopusError, scopus_fetch
 from core.services.scopus_profiles import normalize_scopus_id
 
@@ -118,19 +119,51 @@ def sync_user(user: User, *, search: Search = scopus_search) -> dict[str, int]:
     out = {"total": 0, "seen": 0, "created": 0}
     if not sid:
         return out
+    # The first sync of a person brings in everything they have ever written;
+    # that is a backfill, not news, so only later syncs say what they found.
+    backfill = user.scopus_synced_at is None
+    found: list[str] = []
     start = 0
-    for _ in range(MAX_PAGES):
-        entries, total = _entries(search(f"AU-ID({sid})", start))
-        out["total"] = total
-        for e in entries:
-            _, created = upsert_entry(e, user)
-            out["seen"] += 1
-            out["created"] += created
-        start += PAGE
-        if not entries or start >= total:
-            break
+    # Their profile is read on their own Scopus key if they brought one.
+    with user_keys.acting_if_own(user, "scopus"):
+        for _ in range(MAX_PAGES):
+            entries, total = _entries(search(f"AU-ID({sid})", start))
+            out["total"] = total
+            for e in entries:
+                pub, created = upsert_entry(e, user)
+                out["seen"] += 1
+                out["created"] += created
+                if created:
+                    found.append(pub.title or "Untitled")
+            start += PAGE
+            if not entries or start >= total:
+                break
     User.objects.filter(id=user.id).update(scopus_synced_at=timezone.now())
+    if found and not backfill:
+        tell_papers_found(user, found)
     return out
+
+
+def tell_papers_found(user: User, titles: list[str]) -> None:
+    """Tell a person a sync found papers of theirs that nobody has filed.
+
+    One alert per sync that found anything, never one per paper. It can never
+    fail the sync: an alert that cannot be written is logged and dropped."""
+    from core.services.notify import notify
+
+    count = len(titles)
+    shown = "; ".join(titles[:3]) + (f"; and {count - 3} more" if count > 3 else "")
+    try:
+        notify(
+            user,
+            "paper_found",
+            "A new paper was found on your Scopus record" if count == 1
+            else f"{count} new papers were found on your Scopus record",
+            f"{shown}. Check they are yours, then file the ones that qualify.",
+            "/papers",
+        )
+    except Exception:  # noqa: BLE001 -- see the docstring
+        logger.exception("paper_found_notice_failed user=%s", user.pk)
 
 
 def sync_scopus_authors(

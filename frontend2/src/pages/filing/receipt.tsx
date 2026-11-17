@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { LoaderCircle, Search } from "lucide-react"
 
 import { useCollegeName } from "@/app/institution"
@@ -187,7 +188,7 @@ export function PreFlight({
     { key: "indexing", label: "At least one indexing level, with its reference", fallbacks: ["au", "ugc", "yukthi"] },
     { key: "quartile", label: "The journal has a quartile" },
     { key: "scopus", label: "Your Scopus author profile is linked", fallbacks: ["linkage"] },
-    { key: "author-cap", label: `The paper has ${rules.max_authors} authors or fewer`, fallbacks: ["authors", "position", "position-found"] },
+    { key: "author-cap", label: `The paper has ${plural(rules.max_authors, "author")} or fewer`, fallbacks: ["authors", "position", "position-found"] },
     { key: "affiliation", label: `Affiliated to ${collegeName}`, fallbacks: ["affiliation-found"] },
     { key: "paper-file", label: "The published paper is attached", fallbacks: ["file-twice", "file-dup"] },
     {

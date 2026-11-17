@@ -43,7 +43,7 @@ export type SearchItem = {
   meta?: Record<string, any>
   secondary_action?: { label: string; url?: string; copy?: string } | null
 }
-export type GroupKind = "exact" | "person" | "paper" | "claim" | "journal" | "topic" | "department" | "page" | "action"
+export type GroupKind = "exact" | "person" | "paper" | "claim" | "team" | "journal" | "topic" | "department" | "page" | "action"
 export type SearchGroup = { kind: GroupKind; total: number; items: SearchItem[]; status: "ok" | "partial" | "error" }
 export type SearchAll = {
   q: string
@@ -57,6 +57,7 @@ export const GROUP_LABEL: Record<GroupKind, string> = {
   person: "People",
   paper: "Papers",
   claim: "Your claims",
+  team: "Student teams",
   journal: "Journals",
   topic: "Topics",
   department: "Departments",
@@ -68,6 +69,7 @@ export const GROUP_ICON: Record<GroupKind, LucideIcon> = {
   person: UserRound,
   paper: FileText,
   claim: Ticket,
+  team: UsersRound,
   journal: BookOpen,
   topic: Sparkles,
   department: Building2,
@@ -78,12 +80,13 @@ export const GROUP_AREA: Partial<Record<GroupKind, Area>> = {
   person: "people",
   paper: "record",
   claim: "record",
+  team: "people",
   journal: "research",
   topic: "research",
   exact: "record",
 }
 /** The order groups appear in (docs/ux/02 §Palette). */
-export const GROUP_ORDER: GroupKind[] = ["exact", "person", "paper", "claim", "journal", "topic", "department", "page", "action"]
+export const GROUP_ORDER: GroupKind[] = ["exact", "person", "paper", "claim", "team", "journal", "topic", "department", "page", "action"]
 
 export const DOI_PATTERN = /10\.\d{4,}\/\S+/
 
@@ -104,7 +107,7 @@ export type SearchAction = {
   run: (ctx: ActionContext) => void
 }
 
-const CLAIMANT_ROLES: Role[] = ["FACULTY", "HOD", "RESEARCH_CELL", "RESEARCH_COORDINATOR", "PRINCIPAL", "DIRECTOR", "FINANCE"]
+const CLAIMANT_ROLES: Role[] = ["FACULTY", "HOD", "RESEARCH_CELL", "RESEARCH_COORDINATOR", "PRINCIPAL", "VICE_PRINCIPAL", "DIRECTOR", "FINANCE"]
 
 /** Verbs, each with the words people type for it. */
 export const ACTIONS: SearchAction[] = [

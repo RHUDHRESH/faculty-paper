@@ -311,7 +311,7 @@ describe("the Convocation sidebar", () => {
     expect(items.map((i) => i.label)).toEqual([
       "Search", "Home",
       "My papers", "File a paper",
-      "My research", "Events and research", "Research tools",
+      "My research", "Events and research", "Research tools", "My standing",
       "Who to work with", "Messages", "Discussions", "Leaderboard",
       "Calendar",
     ])
@@ -381,5 +381,69 @@ describe("the Convocation sidebar", () => {
     expect(kw("/research")).toContain("goals")
     expect(kw("/collaborate")).toContain("college network")
     expect(kw("/leaderboard")).toContain("wall of fame")
+  })
+})
+
+/**
+ * The Vice principal reads what the Principal reads and decides nothing
+ * (`rbac.READ_ONLY_OVERSIGHT`): the same reports, directory, departments,
+ * Track and money pages, none of the desks, and their own papers like any
+ * officer.
+ */
+describe("the Vice principal", () => {
+  const paths = (role: Parameters<typeof navFor>[0]) => pagesFor(role).map((i) => i.to)
+  const doors = (role: Parameters<typeof navFor>[0]) => navFor(role).filter((i) => !i.fold && !i.pinned).map((i) => i.to)
+
+  it("can open every page the Principal reads, and Home, Reports and Report studio among them", () => {
+    expect(paths("VICE_PRINCIPAL")).toEqual(
+      expect.arrayContaining([
+        "/", "/reports/all", "/reports", "/reports/studio", "/reports/departments", "/reports/brief", "/reports/papers",
+        "/faculty", "/track", "/money", "/statements", "/budget", "/journals", "/insights", "/admin/conflicts",
+      ])
+    )
+  })
+
+  it("is given the doors Home, Track, Faculty, Money, Reports and Ask the data", () => {
+    expect(doors("VICE_PRINCIPAL")).toEqual(["/", "/track", "/faculty", "/money", "/reports/all", "/insights"])
+  })
+
+  it("is offered no desk, queue or account page: nothing to approve, authorise, pay or manage", () => {
+    for (const to of ["/approvals", "/clearing", "/coordination", "/authorisations", "/payments", "/people", "/people/passwords", "/admin", "/imports", "/flags", "/archive", "/duplicates", "/ledger", "/research-faculty", "/requests"]) {
+      expect(paths("VICE_PRINCIPAL"), to).not.toContain(to)
+    }
+  })
+
+  it("files and tracks their own papers like any officer, under Research", () => {
+    expect(paths("VICE_PRINCIPAL")).toEqual(expect.arrayContaining(["/papers", "/papers/new"]))
+    const mine = navFor("VICE_PRINCIPAL").filter((i) => i.to.startsWith("/papers"))
+    expect(mine.map((i) => i.label)).toEqual(["My papers", "File a paper"])
+    expect(mine.every((i) => i.group === "Research" && i.fold)).toBe(true)
+    expect(can("VICE_PRINCIPAL").fileOwnPapers).toBe(true)
+  })
+
+  it("reads figures and money but acts on nothing", () => {
+    const c = can("VICE_PRINCIPAL")
+    expect(c.seeMoney).toBe(true)
+    expect(c.viewReports).toBe(true)
+    expect(c.viewAudit).toBe(true)
+    expect(c.readOnly).toBe(true)
+    for (const act of ["approve", "authorise", "pay", "clear", "manageUsers", "manageMoney", "admin"] as const) {
+      expect(c[act], act).toBe(false)
+    }
+    expect(can("PRINCIPAL").readOnly).toBe(false)
+  })
+
+  it("is not shown the doubts about a paper, as the Director and Finance are not", () => {
+    expect(reviewsFlags("VICE_PRINCIPAL")).toBe(false)
+  })
+
+  it("lights Track, Reports and Money for the pages behind them", () => {
+    expect(activeDoor("VICE_PRINCIPAL", "/track")).toBe("/track")
+    expect(activeDoor("VICE_PRINCIPAL", "/reports/studio")).toBe("/reports/all")
+    expect(activeDoor("VICE_PRINCIPAL", "/statements")).toBe("/money")
+  })
+
+  it("gets no queue badge, because no desk is theirs", () => {
+    expect(navBadges("VICE_PRINCIPAL", { checked: 9, filed: 4 })).toEqual({})
   })
 })

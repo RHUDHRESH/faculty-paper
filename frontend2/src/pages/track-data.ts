@@ -46,6 +46,8 @@ export type TrackRowData = {
   /** Paid claims: the day, or the first of the month when only the month is known. */
   paid_on?: string | null
   paid_month_only?: boolean
+  /** False when the only month on file is the one the import stamped. */
+  paid_month_recorded?: boolean
   /** The office only: what is missing from an old-ERP claim. */
   fixes?: string[]
   open_flags?: number

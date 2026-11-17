@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useRef, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link } from "react-router-dom"
@@ -111,7 +112,7 @@ export function ProofLocker() {
   const items = locker.data?.items ?? []
   const count = items.length
   const look = items.filter((p) => p.worst === "warn" || p.worst === "bad").length
-  const files = count === 1 ? "1 file is" : `${count} files are`
+  const files = count === 1 ? "1 file is" : `${plural(count, "file")} are`
 
   return (
     <div className="page space-y-6 pb-24 sm:pb-6">

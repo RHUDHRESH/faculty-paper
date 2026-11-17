@@ -119,7 +119,7 @@ def _mark_read(thread: Thread, user: User) -> None:
     now = timezone.now()
     ThreadParticipant.objects.filter(thread=thread, user=user).update(last_read_at=now)
     # The bell should not still be ringing about a conversation that is open.
-    Notification.objects.filter(user=user, href=_href(thread.id), read=False).update(read=True)
+    Notification.objects.filter(user=user, href=_href(thread.id), read=False).update(read=True, read_at=now)
 
 
 def _conversation_dict(thread: Thread, viewer: User) -> dict[str, Any]:

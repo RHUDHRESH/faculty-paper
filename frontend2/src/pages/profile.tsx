@@ -28,6 +28,7 @@ import {
 import { Link } from "react-router-dom"
 
 import { ApiAccessSection } from "@/pages/api-access"
+import { MyKeysSection } from "@/pages/my-keys"
 import { BadgeStrip } from "@/pages/person-social"
 import { Avatar, initialsOf } from "@/ui/person"
 import { Field, Input, Textarea } from "@/ui/field"
@@ -448,6 +449,10 @@ export function Profile() {
       {/* ---- api access ---------------------------------------------------- */}
 
       <ApiAccessSection />
+
+      {/* ---- my api keys ----------------------------------------------------- */}
+
+      <MyKeysSection />
 
       {/* What colleagues see of you, last: it is not what this page is for.
           The yearly target lives on My research, where the pace is. */}

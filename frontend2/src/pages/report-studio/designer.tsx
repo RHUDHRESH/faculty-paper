@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom"
 import { ArrowLeft, CalendarClock, ChevronDown, Download, Link2, Play, Save, Sparkles } from "lucide-react"
 
 import { ApiError } from "@/lib/api"
-import type { ExportFormat } from "@/lib/table-export"
+import { exportTable, type ExportFormat } from "@/lib/table-export"
 import { Button } from "@/ui/button"
 import { Field, Select } from "@/ui/field"
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/ui/menu"
@@ -18,6 +18,7 @@ import {
   emptyDefinition,
   FILE_FORMATS,
   problemsWith,
+  rowObjects,
   type Dataset,
   type Definition,
   type RunResult,
@@ -65,6 +66,7 @@ export function Designer({ savedId, templateKey, seed }: { savedId: string | nul
   const started = useRef<string | null>(null)
   const after = useRef<"schedule" | "link" | null>(null)
   const justSaved = useRef(false)
+  const running = useRef(false)
 
   const datasets = datasetsQ.data
   const dataset: Dataset | undefined = datasets?.find((d) => d.key === def.dataset)
@@ -72,6 +74,9 @@ export function Designer({ savedId, templateKey, seed }: { savedId: string | nul
   const problems = problemsWith(def)
 
   async function runDef(d: Definition, viaSavedId?: string) {
+    // One run per press: a second click while the first is still on its way
+    // is the same question, and used to be asked of the server twice.
+    if (running.current) return
     const list = problemsWith(d)
     if (list.length > 0) {
       setError(list[0])
@@ -79,6 +84,7 @@ export function Designer({ savedId, templateKey, seed }: { savedId: string | nul
     }
     const ds = datasets?.find((x) => x.key === d.dataset)
     const sent = buildRunBody(d, ds)
+    running.current = true
     setPending(true)
     setError(null)
     try {
@@ -90,6 +96,7 @@ export function Designer({ savedId, templateKey, seed }: { savedId: string | nul
       // department"), never a code.
       setError(e instanceof ApiError || e instanceof Error ? e.message : "The report could not be made. Please try again.")
     } finally {
+      running.current = false
       setPending(false)
     }
   }
@@ -154,6 +161,30 @@ export function Designer({ savedId, templateKey, seed }: { savedId: string | nul
     }
     if (problems.length > 0) {
       toast.fail(null, problems[0])
+      return
+    }
+    // The report on screen is the report asked for: when it is whole and the
+    // report has not been changed since, the file is made from it, not from a
+    // second run of the same query (the first export used to take as long as
+    // running the report again).
+    if (result && ran && !stale && !result.truncated) {
+      const name = await exportTable({
+        title,
+        format,
+        filename: title.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-") || "report",
+        columns: result.columns.map((c) => ({
+          key: c.key,
+          label: c.label,
+          kind: c.type === "money" ? "money" : c.type === "number" ? "number" : c.type === "date" ? "date" : "text",
+        })),
+        rows: rowObjects(result).map((r) =>
+          result.columns.map((c) => {
+            const v = r[c.key]
+            return v == null || typeof v === "string" || typeof v === "number" || typeof v === "boolean" ? (v ?? null) : String(v)
+          })
+        ),
+      })
+      toast.ok(`Downloaded ${name}`)
       return
     }
     const name = await downloadReport(body, format, title)

@@ -14,7 +14,7 @@ import json
 import logging
 from typing import Any
 
-from core.services import ai, ai_harness as harness
+from core.services import ai, ai_harness as harness, user_keys
 from core.services import report_datasets, report_engine
 
 logger = logging.getLogger(__name__)
@@ -137,7 +137,7 @@ _STATUS = {
     "not_configured": 501, "misconfigured": 503, "unreachable": 503, "timeout": 503, "model_missing": 503,
     "rate_limited": 429, "person_limit": 429, "feature_limit": 429, "college_cap": 429, "busy": 429,
     "circuit_open": 503, "too_large": 400, "invalid": 422, "unparsable": 422, "blocked": 422, "error": 503,
-    "rejected": 503,
+    "rejected": 503, "own_key_required": 403,
 }
 
 
@@ -148,6 +148,8 @@ def ask(user: Any, question: str) -> dict[str, Any]:
         raise Refused("Type what you want the report to show.", 400)
     if len(q) > MAX_QUESTION:
         raise Refused(f"Keep the question under {MAX_QUESTION} characters.", 400)
+    if user_keys.blocked("ai"):
+        raise Refused(user_keys.blocked_message("ai"), 403)
     if not is_configured():
         raise Refused(NOT_SET_UP, 501)
 

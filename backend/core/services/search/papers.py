@@ -28,7 +28,7 @@ from urllib.parse import quote
 import httpx
 from django.conf import settings
 
-from core.services import integrations
+from core.services import integrations, user_keys
 from core.services.normalize import normalize_doi, normalize_issn, normalize_title
 from core.services.search import resolve, upstream
 
@@ -208,6 +208,15 @@ def scopus_configured() -> bool:
     return bool(key) and key != "your-scopus-api-key"
 
 
+def scopus_off_status() -> str:
+    """Why Scopus is not being used for this person: "own_key_required" or "not_configured"."""
+    return "own_key_required" if user_keys.blocked("scopus") else "not_configured"
+
+
+def scopus_off_detail(default: str) -> str:
+    return user_keys.blocked_message("scopus") if user_keys.blocked("scopus") else default
+
+
 def fetch_scopus(query: str, limit: int) -> list[dict[str, Any]]:
     """Scopus, when there is a key. Never called when there is not.
 
@@ -221,7 +230,7 @@ def fetch_scopus(query: str, limit: int) -> list[dict[str, Any]]:
         return [_from_scopus(e) for e in search_candidates(title=query, limit=min(limit, 25))]
 
     return upstream.cached(
-        upstream.cache_key("works", "scopus", query.lower(), limit),
+        upstream.cache_key("works", "scopus", query.lower(), limit, user_keys.scope_tag("scopus")),
         upstream.WORKS_TTL,
         produce,
     )

@@ -69,6 +69,7 @@ const HodHome = page(() => import("@/pages/home-hod"), "HodHome")
 const OfficeHome = page(() => import("@/pages/home-staff"), "OfficeHome")
 const AdminHome = page(() => import("@/pages/home-admin"), "AdminHome")
 const PrincipalHome = page(() => import("@/pages/home-principal"), "PrincipalHome")
+const VicePrincipalHome = page(() => import("@/pages/home-vice-principal"), "VicePrincipalHome")
 const Accreditation = page(() => import("@/pages/accreditation"), "Accreditation")
 const Approvals = page(() => import("@/pages/approvals"), "Approvals")
 const Budget = page(() => import("@/pages/budget"), "Budget")
@@ -111,6 +112,7 @@ const Privacy = page(() => import("@/pages/privacy"), "Privacy")
 const PaperDetail = page(() => import("@/pages/paper-detail"), "PaperDetail")
 const Journals = page(() => import("@/pages/journals"), "Journals")
 const Leaderboard = page(() => import("@/pages/leaderboard"), "Leaderboard")
+const Standings = page(() => import("@/pages/standings"), "Standings")
 const JournalRecord = page(() => import("@/pages/journals"), "JournalRecord")
 const Batch = page(() => import("@/pages/batches"), "Batch")
 const Batches = page(() => import("@/pages/batches"), "Batches")
@@ -142,8 +144,11 @@ const Search = page(() => import("@/pages/search"), "Search")
 const People = page(() => import("@/pages/people"), "People")
 const ResearchFaculty = page(() => import("@/pages/research-faculty"), "ResearchFaculty")
 const AuthorMatches = page(() => import("@/pages/author-matches"), "AuthorMatches")
+const NoDepartment = page(() => import("@/pages/no-department"), "NoDepartment")
 const FacultyDirectory = page(() => import("@/pages/faculty"), "FacultyDirectory")
 const FacultyRecord = page(() => import("@/pages/faculty-record"), "FacultyRecord")
+const Teams = page(() => import("@/pages/teams"), "Teams")
+const TeamDetailPage = page(() => import("@/pages/team-detail"), "TeamDetailPage")
 const Person = page(() => import("@/pages/people"), "Person")
 const PeoplePasswords = page(() => import("@/pages/people"), "PeoplePasswords")
 const Policy = page(() => import("@/pages/policy"), "Policy")
@@ -165,6 +170,7 @@ const HOMES: Record<Role, Page> = {
   FACULTY: FacultyHome,
   HOD: HodHome,
   PRINCIPAL: PrincipalHome,
+  VICE_PRINCIPAL: VicePrincipalHome,
   DIRECTOR: DirectorHome,
   FINANCE: FinanceHome,
   RESEARCH_CELL: OfficeHome,
@@ -211,6 +217,7 @@ const PRELOADS: [string, Page][] = [
   ["/journal-check", JournalCheck],
   ["/insights", Insights],
   ["/leaderboard", Leaderboard],
+  ["/standings", Standings],
   ["/wall", WallOfFame],
   ["/calendar", Calendar],
   ["/department", Department],
@@ -240,9 +247,12 @@ const PRELOADS: [string, Page][] = [
   ["/faults", Faults],
   ["/jobs", Jobs],
   ["/help", Help],
+  ["/teams/:code", TeamDetailPage],
+  ["/teams", Teams],
   ["/faculty/:id", FacultyRecord],
   ["/faculty", FacultyDirectory],
   ["/people/matches", AuthorMatches],
+  ["/people/no-department", NoDepartment],
   ["/people/passwords", PeoplePasswords],
   ["/research-faculty", ResearchFaculty],
   ["/people/:id", Person],
@@ -309,6 +319,8 @@ function Home() {
       return <FacultyHome />
     case "PRINCIPAL":
       return <PrincipalHome />
+    case "VICE_PRINCIPAL":
+      return <VicePrincipalHome />
     case "DIRECTOR":
       return <DirectorHome />
     case "FINANCE":
@@ -448,6 +460,7 @@ function App() {
           <Route path="/insights" element={<Insights />} />
           <Route path="/collaborate" element={<Collaborate />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
+          <Route path="/standings" element={<Standings />} />
           <Route path="/discussions" element={<Feed />} />
           <Route path="/discussions/p/:id" element={<FeedPostPage />} />
           {/* Old thread links (and notifications carrying them) still land:
@@ -491,10 +504,13 @@ function App() {
           <Route path="/help" element={<Help />} />
           {/* Setup is first-run only; a signed-in admin wants the institution settings. */}
           <Route path="/setup" element={<Navigate to="/settings" replace />} />
+          <Route path="/teams" element={<Teams />} />
+          <Route path="/teams/:code" element={<TeamDetailPage />} />
           <Route path="/faculty" element={<FacultyDirectory />} />
           <Route path="/faculty/:id" element={<FacultyRecord />} />
           <Route path="/people" element={<People />} />
           <Route path="/people/matches" element={<AuthorMatches />} />
+          <Route path="/people/no-department" element={<NoDepartment />} />
           <Route path="/people/passwords" element={<PeoplePasswords />} />
           <Route path="/research-faculty" element={<ResearchFaculty />} />
           <Route path="/people/:id" element={<Person />} />

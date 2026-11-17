@@ -113,7 +113,10 @@ export function TableToolbar({
   prefs,
   onExport,
   search,
+  compact = false,
 }: {
+  /** A short table: only Export. Choosing columns, grid lines and row density are for tables worth rearranging. */
+  compact?: boolean
   /** Every column in order, with the name a person sees. The first is locked on. */
   columns: { key: string; label: string }[]
   prefs: TablePrefs
@@ -151,6 +154,8 @@ export function TableToolbar({
     <div className="table-tools mb-3 flex flex-wrap items-center gap-2">
       {search && <div className="min-w-0 max-sm:w-full sm:w-72">{search}</div>}
       <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+      {!compact && (
+      <>
       <Menu>
         <MenuTrigger asChild>
           <Button kind="default" size="sm" type="button">
@@ -210,6 +215,8 @@ export function TableToolbar({
       <Button kind="quiet" size="sm" type="button" onClick={prefs.reset}>
         Reset
       </Button>
+      </>
+      )}
 
       <Menu>
         <MenuTrigger asChild>

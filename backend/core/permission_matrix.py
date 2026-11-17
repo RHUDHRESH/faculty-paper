@@ -115,6 +115,17 @@ CAPABILITIES: list[Capability] = [
         {"reason": "short"}, "Desks"),
     cap("Resume a held paper", "POST", "/api/claims/{claim}/resume",
         ADMINS, "The desk that may hold it may resume it.", {}, "Desks"),
+    cap("Accept a paper for count only", "POST", "/api/claims/{claim}/count-only",
+        ADMINS,
+        "The people who decide at the step the paper is at. A submitted paper is "
+        "at the research supervisor's desk, so not the Principal's; the Principal "
+        "may do it once it is cleared and the Director once it is approved. The "
+        "payload is missing its note, so an allowed role is refused with a 400.",
+        {"reason": "other"}, "Desks"),
+    cap("Undo count only", "POST", "/api/claims/{claim}/count-only/undo",
+        {SUPER_ADMIN},
+        "Putting a paper back to the incentive scheme is the super admin's rescue.",
+        {}, "Desks"),
     cap("Return a paper to the faculty", "POST",
         "/api/claims/{claim}/return-to-faculty",
         ADMINS,

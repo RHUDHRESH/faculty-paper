@@ -12,6 +12,7 @@ import { ErrorState, NotOpen, SkeletonRows } from "@/ui/state"
 import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { Ago } from "@/ui/when"
+import { OwnKeysAdmin } from "@/pages/own-keys-admin"
 
 /**
  * Integrations: the AI key, the Scopus key and the OpenAlex settings.
@@ -96,6 +97,7 @@ export function Integrations() {
       ) : (
         data.providers.map((p) => <ProviderSection key={p.provider} provider={p} />)
       )}
+      <OwnKeysAdmin />
     </div>
   )
 }

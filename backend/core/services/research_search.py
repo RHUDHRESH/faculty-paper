@@ -38,6 +38,7 @@ import httpx
 from django.core.cache import cache
 from django.utils import timezone
 
+from core.services import user_keys
 from core.services.normalize import normalize_doi, normalize_title
 
 logger = logging.getLogger(__name__)
@@ -358,7 +359,7 @@ def search(
         batches: list[list[Hit]] = []
         failed: list[str] = []
         with ThreadPoolExecutor(max_workers=len(wanted) or 1) as pool:
-            futures = {pool.submit(SOURCES[name], query, limit): name for name in wanted}
+            futures = {pool.submit(user_keys.bind(SOURCES[name]), query, limit): name for name in wanted}
             for future in as_completed(futures):
                 name = futures[future]
                 try:

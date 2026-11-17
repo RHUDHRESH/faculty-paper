@@ -479,31 +479,47 @@ describe("saving, scheduling, downloading and the live link", () => {
     await waitFor(() => expect(callsTo("DELETE", "/api/reports/saved/s1/schedule")).toHaveLength(1))
   })
 
-  it("downloads the whole report as Excel, PDF or CSV from the server", async () => {
+  it("makes the file from the report on screen, without running it a second time", async () => {
     const user = userEvent.setup()
     serve(base)
     vi.mocked(apiFile).mockResolvedValue({ blob: new Blob(["x"]), filename: "papers-by-department.xlsx" })
     renderStudio("/reports/studio?t=by-department")
     await screen.findByTestId("result-summary")
+    expect(callsTo("POST", "/api/reports/run")).toHaveLength(1)
 
     await user.click(screen.getByRole("button", { name: /Download/ }))
     await user.click(await screen.findByRole("menuitem", { name: "PDF" }))
     await waitFor(() => expect(apiFile).toHaveBeenCalledTimes(1))
     const [path, body] = vi.mocked(apiFile).mock.calls[0]
-    expect(path).toBe("/api/reports/export")
-    expect(body).toMatchObject({ dataset: "papers", group_by: ["department"], format: "pdf", title: "Papers by department" })
+    // The server only formats the rows already on screen; it does not run the report again.
+    expect(path).toBe("/api/export/table")
+    expect(body).toMatchObject({ format: "pdf", title: "Papers by department" })
+    expect((body as { rows: unknown[] }).rows.length).toBe(RUN_RESULT.rows.length)
   })
 
-  it("sends the table's own Export menu to the same server export", async () => {
+  it("asks the server for the whole report when what is on screen is only the first rows", async () => {
     const user = userEvent.setup()
-    serve(base)
+    serve({ ...base, "POST /api/reports/run": () => ({ ...RUN_RESULT, truncated: true, total_rows: 5000 }) })
     vi.mocked(apiFile).mockResolvedValue({ blob: new Blob(["x"]), filename: "r.csv" })
     renderStudio("/reports/studio?t=by-department")
     await screen.findByTestId("result-summary")
     await user.click(screen.getByRole("button", { name: "Export" }))
     await user.click(await screen.findByRole("menuitem", { name: "CSV" }))
     await waitFor(() => expect(apiFile).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(apiFile).mock.calls[0][0]).toBe("/api/reports/export")
     expect(vi.mocked(apiFile).mock.calls[0][1]).toMatchObject({ format: "csv", group_by: ["department"] })
+  })
+
+  it("runs once per press, even when the button is pressed twice in a row", async () => {
+    const user = userEvent.setup()
+    let release: (v: unknown) => void = () => {}
+    serve({ ...base, "POST /api/reports/run": () => new Promise((r) => (release = r)) })
+    await openBlank(user)
+    const run = screen.getByRole("button", { name: "Run report" })
+    await user.dblClick(run)
+    release(RUN_RESULT)
+    await screen.findByTestId("result-summary")
+    expect(callsTo("POST", "/api/reports/run")).toHaveLength(1)
   })
 
   it("makes a live link with the Excel and Google Sheets steps, and turns it off", async () => {

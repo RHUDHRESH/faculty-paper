@@ -206,6 +206,13 @@ class _Departments:
         given = _clean_department(given)
         if not given:
             return ""
+        # The college's own code for any spelling the list uses ("Maths" is
+        # S&H-MATHS, "TRG" is TRAINING); see core/services/data_fill.py.
+        from core.services.data_fill import canonical_department
+
+        code = canonical_department(given)
+        if code:
+            return code
         stripped = _clean_department(_RND.sub("", given))
         for candidate in (given, stripped):
             hit = self.known.get(candidate.casefold())

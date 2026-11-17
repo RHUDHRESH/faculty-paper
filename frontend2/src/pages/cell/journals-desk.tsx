@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useEffect, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { Eye, Search, SearchX } from "lucide-react"
@@ -395,7 +396,7 @@ export function JournalsDesk({ showMoney }: { showMoney: boolean }) {
             <Table rows={q || showAll ? journals : journals.slice(0, 15)} columns={columns} getKey={(j) => j.key} rowLink={(j) => `/journals/${encodeURIComponent(j.key)}`} maxHeight="none" minWidth="34rem" caption="Journals the college has published in" tools={{ id: "journals", title: "Journals the college has published in", getAllRows: async () => journals }} />
             {!q && !showAll && journals.length > 15 && (
               <Button kind="quiet" size="sm" className="mt-2" onClick={() => setShowAll(true)}>
-                Show all {journals.length.toLocaleString("en-IN")} journals
+                Show all {plural(journals.length, "journal")}
               </Button>
             )}
             {journals.length >= 500 && <Meta className="mt-2 block">Showing the top 500. Narrow the search to find one further down.</Meta>}

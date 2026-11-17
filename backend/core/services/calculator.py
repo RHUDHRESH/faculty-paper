@@ -541,7 +541,7 @@ def claim_inputs(c: Claim) -> dict[str, Any]:
         "total_authors": c.total_authors,
         "author_position": c.author_position,
         "student_project": c.claim_reason == ClaimReason.STUDENT_PROJECT,
-        "counted_only": bool(c.is_student_publication),
+        "counted_only": bool(c.is_student_publication) or c.claim_reason == ClaimReason.COUNT_ONLY,
     }
 
 

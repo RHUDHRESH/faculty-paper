@@ -59,7 +59,17 @@ def _scopus_failure() -> str:
     any request is made -- so this is decided after the fact rather than by
     skipping the call.
     """
-    return "unavailable" if search_papers.scopus_configured() else "not_configured"
+    if search_papers.scopus_configured():
+        return "unavailable"
+    return search_papers.scopus_off_status()
+
+
+def _why(state: str) -> str:
+    if state == "not_configured":
+        return "is not configured"
+    if state == "own_key_required":
+        return "needs your own key (add it in your Profile, under My API keys)"
+    return "could not be reached"
 
 
 def _declared(hit: dict[str, Any]) -> dict[str, Any]:
@@ -94,7 +104,7 @@ def _crossref_records(state: str, *, doi: str | None, title: str | None, limit: 
             hits = search_papers.fetch_crossref(title, max(1, limit))[:limit]
     except Exception:
         logger.warning("crossref_fallback_failed scopus_status=%s", state, exc_info=True)
-        why = "is not configured" if state == "not_configured" else "could not be reached"
+        why = _why(state)
         raise HttpError(
             502,
             f"{state}: Scopus {why}, and Crossref did not answer either. Enter the "
@@ -177,7 +187,7 @@ def lookup_candidates(request: HttpRequest, payload: CandidateSearchIn):
         logger.warning("lookup_candidates_scopus_failed code=%s scopus_status=%s", e.code, state)
         found, linked_eids = [], set()
     if state != "ok":
-        why = "is not configured" if state == "not_configured" else "could not be reached"
+        why = _why(state)
         if by_author_only:
             # Crossref knows nothing of Scopus author profiles.
             return {
@@ -359,7 +369,7 @@ def lookup_enrich(request: HttpRequest, payload: ScopusLookupIn):
         title=(paper.get("journal_title") if paper else None) or payload.title,
         subject=None,
     )
-    why = "is not configured" if state == "not_configured" else "could not be reached"
+    why = _why(state)
     if not paper and not (scimago and scimago.get("found")):
         return {
             **_empty_enrich(code="not_found", message=f"Scopus {why}, and Crossref has no match"),

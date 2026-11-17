@@ -266,6 +266,7 @@ export function PrincipalReportsHub() {
           <Section title="Look something up">
             <Rows>
               <Tool to="/search" label="Search" purpose="Papers, journals and colleagues." />
+              <Tool to="/teams" label="Student teams" purpose="Every final-year project team, its papers and its claim." />
               <Tool to="/journals" label="Journals" purpose="A journal's quartile and standing." />
               <Tool to="/archive" label="Past claims" purpose="Every claim ever filed." />
               <Tool to="/publications" label="Claims by stage" purpose="Every claim the scheme has handled." />

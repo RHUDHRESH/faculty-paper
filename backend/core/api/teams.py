@@ -22,8 +22,9 @@ from django.http import HttpRequest
 from ninja import File, Form, Schema, UploadedFile
 from ninja.errors import HttpError
 from core.services import filing_conditions
+from core.services.college_totals import NO_DEPARTMENT, canonical_departments
 from core.models import AttachmentKind, AuditLog, Claim, FacultyMaster, FormulaConfig, Role, Team, TeamMember, User
-from core.services import rbac
+from core.services import rbac, student_teams
 from core.services.fyp_roster import RosterError, import_roster, read_roster
 from core.services.remuneration import (
     DEFAULT_STUDENT_PROJECT_AMOUNT,
@@ -91,22 +92,54 @@ def get_team(request: HttpRequest, code: str):
     team that does not exist yet is the normal case the first time a project
     is entered anywhere.
     """
-    require_user(request)
-    team = Team.objects.filter(code__iexact=code.strip()).prefetch_related("members").first()
+    user = require_user(request)
+    team = (
+        student_teams.visible_teams(user)
+        .filter(code__iexact=code.strip())
+        .select_related("mentor")
+        .prefetch_related("members")
+        .first()
+    )
+    # A team the reader may not see is answered exactly as one that does not
+    # exist, so a register number or a code cannot be probed for.
     if team is None:
         raise HttpError(404, f"No team with the code {code.strip()!r}.")
-    return _team_dict(team)
+    # The older keys (members, mentor_name) stay for the screens built on them.
+    return {**_team_dict(team), **student_teams.team_detail(team, user)}
+
+
+@api.get("/teams/by-student/{reg_no}", auth=session_auth)
+def teams_by_student(request: HttpRequest, reg_no: str):
+    """The team, or teams, a register number is on, among those the reader may see."""
+    user = require_user(request)
+    teams = student_teams.students_of(reg_no, user)
+    holders = student_teams.holders_of(teams)
+    return {
+        "reg_no": reg_no.strip(),
+        "results": [student_teams.team_row(t, user, holders) for t in teams],
+    }
 
 
 @api.get("/teams", auth=session_auth)
 def list_teams(
     request: HttpRequest,
     q: Optional[str] = None,
-    limit: int = 20,
+    limit: int = 30,
+    offset: int = 0,
     mine: bool = False,
     owner_id: Optional[str] = None,
+    academic_year: Optional[str] = None,
+    department: Optional[str] = None,
+    mentor: Optional[str] = None,
+    status: Optional[str] = None,
 ):
-    """Teams, searched -- or, with `mine`, the ones the signed-in person mentors.
+    """The student teams page's list, filtered and paged -- or, with `mine`,
+    the ones the signed-in person mentors, for the filing form.
+
+    `q` finds a team by its code, a student's register number or name, the
+    project's title, an article's title or DOI, or the mentor. `mentor` is a
+    staff id. `status` is any of claimed, unclaimed, with_publication,
+    no_publication, joined by commas to mean "and".
 
     `mine` is the filing form's picker for a student-project claim. It is the
     mentor's own teams and nobody else's, whatever the role asking, and each
@@ -146,17 +179,38 @@ def list_teams(
                 for t in own
             ]
         }
-    if q:
-        term = q.strip()
-        qs = qs.filter(
-            Q(code__icontains=term) | Q(title__icontains=term) | Q(members__name__icontains=term)
-        ).distinct()
-    elif not rbac.can_view_reports(user.role):
-        # Without a search, a claimant sees the teams they mentor rather than
-        # the whole college's — a list of every student project is not what
-        # they came for and not theirs to browse.
-        qs = qs.filter(Q(mentor=user) | Q(created_by=user))
-    return {"results": [_team_dict(t) for t in qs[: max(1, min(limit, 100))]]}
+    # The student teams page. What the reader may see is decided by the
+    # service (`student_teams.visible_teams`): everything for the office, the
+    # Principal and the Director; a department for its head, with no money;
+    # the teams they mentor for everybody else.
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    teams_qs = student_teams.filtered(
+        user, academic_year=academic_year, department=department, mentor=mentor,
+        q=q, status=status,
+    )
+    total = teams_qs.count()
+    page = list(
+        teams_qs.select_related("mentor").prefetch_related("members")
+        .order_by("-academic_year", "code")[offset: offset + limit]
+    )
+    holders = student_teams.holders_of(page)
+    scope = (
+        "college" if user.role in student_teams.SEES_ALL
+        else "department" if user.role == Role.HOD
+        else "mine"
+    )
+    return {
+        "results": [student_teams.team_row(t, user, holders) for t in page],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "counts": student_teams.counts(teams_qs),
+        "years": student_teams.years(user),
+        "departments": student_teams.departments(user),
+        "scope": scope,
+        "money": student_teams.sees_money(user),
+    }
 
 
 @api.post("/teams", auth=session_auth)
@@ -430,14 +484,17 @@ def filing_rules(request: HttpRequest):
 def list_departments(request: HttpRequest):
     """Departments actually present in the faculty master — keeps the picker honest."""
     require_user(request)
+    # One spelling for each department, and never the workbooks' "Not Found".
+    canonical = canonical_departments()
     names = set()
     for source in (
         FacultyMaster.objects.values_list("department", flat=True),
         User.objects.filter(role=Role.FACULTY).values_list("department", flat=True),
     ):
         for d in source:
-            if d and d.strip():
-                names.add(d.strip())
+            name = canonical(d)
+            if name != NO_DEPARTMENT:
+                names.add(name)
     return sorted(names)
 
 
@@ -456,6 +513,7 @@ __all__ = [
     'get_team',
     'import_fyp_teams',
     'list_departments',
+    'teams_by_student',
     'list_teams',
     'upsert_team',
 ]

@@ -55,7 +55,7 @@ def hod_overview(request: HttpRequest, year: Optional[int] = None):
             key = (str(value).strip() if value not in (None, "") else blank) or blank
             slot = out.setdefault(key, {"key": key, "count": 0, "amount": 0})
             slot["count"] += 1
-        return sorted(out.values(), key=lambda r: -r["count"])
+        return sorted(out.values(), key=lambda r: (r["key"] == blank, -r["count"]))
 
     # Members of the department, whether or not they have published: a head
     # needs to see who has nothing as much as who has most. The head is one of
@@ -370,7 +370,7 @@ def hod_person(request: HttpRequest, user_id: str):
             key = (str(value).strip() if value not in (None, "") else blank) or blank
             slot = out.setdefault(key, {"key": key, "count": 0, "amount": 0})
             slot["count"] += 1
-        return sorted(out.values(), key=lambda r: -r["count"])
+        return sorted(out.values(), key=lambda r: (r["key"] == blank, -r["count"]))
 
     years = sorted({y for y in claims.values_list("publication_year", flat=True) if y})
     by_year = []

@@ -1,11 +1,13 @@
 import { useState } from "react"
 import { keepPreviousData } from "@tanstack/react-query"
+import { Link } from "react-router-dom"
 
 import { useAuth } from "@/app/auth"
 import { deptLabel } from "@/lib/names"
 import { formatCount } from "@/lib/count"
 import { useApi } from "@/lib/query"
 import { Select } from "@/ui/field"
+import { FIRST_PERIOD, PeriodFrame, periodQuery, type Period, type PeriodChoices, type PeriodState } from "@/pages/period-frame"
 import { Avatar, PersonLink } from "@/ui/person"
 import { money } from "@/ui/paper"
 import { Section } from "@/ui/section"
@@ -34,30 +36,29 @@ export type Top5Row = {
   photo_url?: string | null
   initials?: string | null
   value: number
+  /** On the incentive list only: papers the college paid for more than once (counted once, paid in full). */
+  paid_more_than_once?: number
 }
 
 export type Top5Payload = {
   period: Period
   label: string
+  /** "2026-09" for a month; the year of an academic year (its first) or of a calendar year. */
+  month?: string | null
+  year?: number | null
+  academic?: boolean
   department: string | null
   generated_at: string
+  /** The months paid in and the years around them, for the pickers. */
+  choices?: PeriodChoices
   snip: Top5Row[]
-  /** Null for a head of department. */
-  /** Left out entirely for the money-blind roles (a head of department). */
-  remuneration?: Top5Row[] | null
+  /** Left out entirely for a head of department: the server never sends the key. */
+  remuneration?: Top5Row[]
   count: Top5Row[]
 }
 
-type Period = "all" | "year" | "month"
-
-const PERIODS: { value: Period; label: string }[] = [
-  { value: "all", label: "All time" },
-  { value: "year", label: "This academic year" },
-  { value: "month", label: "This month" },
-]
-
 /** The roles the server answers for (`api/top5.py`). */
-const COLLEGE_WIDE = new Set(["PRINCIPAL", "DIRECTOR", "SUPER_ADMIN", "RESEARCH_COORDINATOR", "FINANCE"])
+const COLLEGE_WIDE = new Set(["PRINCIPAL", "VICE_PRINCIPAL", "DIRECTOR", "SUPER_ADMIN", "RESEARCH_COORDINATOR", "FINANCE"])
 
 export const top5Allowed = (role: string | undefined) => !!role && (COLLEGE_WIDE.has(role) || role === "HOD")
 
@@ -83,7 +84,7 @@ function columns(spec: ListSpec): Column<Top5Row>[] {
       key: "rank",
       header: "Rank",
       align: "right",
-      className: "w-12 tabular-nums text-fg-muted",
+      className: "w-10 px-2 tabular-nums text-fg-muted",
       exportValue: (r) => r.rank,
       exportKind: "number",
       cell: (r) => r.rank,
@@ -91,16 +92,20 @@ function columns(spec: ListSpec): Column<Top5Row>[] {
     {
       key: "name",
       header: "Name",
+      // `max-w-0` with `w-full` is what lets a table cell shrink below its
+      // content: the name takes what the value does not need and ends in an
+      // ellipsis, so the figure beside it is never the thing that is cut.
+      className: "w-full max-w-0 px-2",
       exportValue: (r) => r.name,
       cell: (r) => (
-        <span className="flex min-w-0 items-center gap-2.5">
+        <span className="flex min-w-0 items-center gap-2">
           <Avatar
             size="sm"
             person={{ name: r.name, initials: r.initials ?? "", photo_url: r.photo_url ?? r.photo ?? null }}
           />
-          <span className="min-w-0">
+          <span className="min-w-0 flex-1">
             <PersonLink id={r.user_id} name={r.name} className="block truncate" />
-            {r.department && <span className="block truncate text-xs text-fg-muted">{deptLabel(r.department)}</span>}
+            {r.department && <span className="block truncate text-xs text-fg-muted" title={deptLabel(r.department)}>{deptLabel(r.department)}</span>}
           </span>
         </span>
       ),
@@ -117,10 +122,21 @@ function columns(spec: ListSpec): Column<Top5Row>[] {
       header: spec.header,
       label: spec.title,
       align: "right",
-      className: "tabular-nums font-medium",
+      className: "whitespace-nowrap px-2 tabular-nums font-medium",
+      headerClassName: "px-2",
       exportValue: (r) => r.value,
       exportKind: spec.kind,
-      cell: (r) => spec.show(r.value),
+      cell: (r) =>
+        r.paid_more_than_once ? (
+          <span className="block">
+            {spec.show(r.value)}
+            <span className="block text-xs font-normal text-fg-muted">
+              {r.paid_more_than_once === 1 ? "Includes 1 paper paid more than once" : `Includes ${r.paid_more_than_once} papers paid more than once`}
+            </span>
+          </span>
+        ) : (
+          spec.show(r.value)
+        ),
     },
   ]
 }
@@ -137,12 +153,12 @@ export function Top5Board({
   const { me } = useAuth()
   const wide = !!me?.role && COLLEGE_WIDE.has(me.role)
   const allowed = top5Allowed(me?.role)
-  const [period, setPeriod] = useState<Period>("all")
+  const [when, setWhen] = useState<PeriodState>(FIRST_PERIOD)
   const [department, setDepartment] = useState("")
 
   const query = useApi<Top5Payload>(
-    ["top5", period, wide ? department : ""],
-    `/api/dashboard/top5?period=${period}${wide && department ? `&department=${encodeURIComponent(department)}` : ""}`,
+    ["top5", periodQuery(when), wide ? department : ""],
+    `/api/dashboard/top5?${periodQuery(when)}${wide && department ? `&department=${encodeURIComponent(department)}` : ""}`,
     { enabled: allowed, placeholderData: keepPreviousData }
   )
   const departments = useApi<string[]>(["meta", "departments"], "/api/meta/departments", { enabled: wide })
@@ -154,82 +170,81 @@ export function Top5Board({
   const empty = !!data && lists.every((l) => (data[l.key] ?? []).length === 0)
   const scope = data?.department ? `${deptLabel(data.department)}, ` : ""
 
-  const controls = (
-    <div className="flex flex-wrap items-center gap-2">
-      <Select
-        size="sm"
-        aria-label="Period"
-        value={period}
-        onChange={(e) => setPeriod(e.target.value as Period)}
-        className="w-auto max-sm:w-full"
-      >
-        {PERIODS.map((p) => (
-          <option key={p.value} value={p.value}>
-            {p.label}
-          </option>
-        ))}
-      </Select>
-      {wide && (
-        <Select
-          size="sm"
-          aria-label="Department"
-          value={department}
-          onChange={(e) => setDepartment(e.target.value)}
-          className="w-auto max-w-full max-sm:w-full"
-        >
-          <option value="">All departments</option>
-          {(departments.data ?? []).map((d) => (
-            <option key={d} value={d}>
-              {deptLabel(d)}
-            </option>
-          ))}
-        </Select>
-      )}
-    </div>
-  )
+  const controls = wide ? (
+    <Select
+      size="sm"
+      aria-label="Department"
+      value={department}
+      onChange={(e) => setDepartment(e.target.value)}
+      className="w-auto max-w-full max-sm:w-full"
+    >
+      <option value="">All departments</option>
+      {(departments.data ?? []).map((d) => (
+        <option key={d} value={d}>
+          {deptLabel(d)}
+        </option>
+      ))}
+    </Select>
+  ) : null
 
   return (
     <Section id={id} title={title} action={controls} className={className} data-testid="top5-board">
-      {query.isError ? (
-        <InlineError message="Could not load the Top 5. Nothing has changed." onRetry={() => void query.refetch()} />
-      ) : !data ? (
-        <SkeletonRows rows={5} rowHeight={48} />
-      ) : empty ? (
-        <EmptyState
-          size="compact"
-          title="Nothing settled in this period"
-          message="Papers appear here once they have been settled. Try all time, or another department."
-        />
-      ) : (
-        <div
-          className={
-            lists.length === 3
-              ? "grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-3 lg:gap-6"
-              : "grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-2 lg:gap-6"
-          }
-        >
-          {lists.map((spec) => {
-            const rows = data[spec.key] ?? []
-            return (
-              <section key={spec.key} aria-label={spec.title} className="min-w-0" data-testid={`top5-${spec.key}`}>
-                <h3 className="mb-2 text-base font-medium text-fg">{spec.title}</h3>
-                <Table
-                  rows={rows}
-                  columns={columns(spec)}
-                  getKey={(r) => r.user_id ?? r.staff_id ?? r.name}
-                  stack={false}
-                  empty={<span>Nothing settled in this period.</span>}
-                  tools={{
-                    id: `top5-${spec.key}`,
-                    title: `Top 5, ${spec.title.toLowerCase()}`,
-                    subtitle: `${scope}${data.label}`,
-                  }}
-                />
-              </section>
-            )
-          })}
-        </div>
-      )}
+      <PeriodFrame state={when} onChange={setWhen} choices={data?.choices} used={data} idPrefix={`${id}-period`}>
+        {query.isError ? (
+          <InlineError message="Could not load the Top 5. Nothing has changed." onRetry={() => void query.refetch()} />
+        ) : !data ? (
+          <SkeletonRows rows={5} rowHeight={48} />
+        ) : empty ? (
+          <EmptyState
+            size="compact"
+            title="Nothing settled in this period"
+            message="Papers appear here once they have been settled. Try all time, or another department."
+          />
+        ) : (
+          <div className="space-y-4">
+          {/* The lists take as many columns as the room beside the strip allows
+              (a container query, not the window's width): three need 64rem, two
+              need 42rem, else they stack. Each is then over 18rem wide, so a
+              value never has to be clipped. */}
+          <div className="@container">
+          <div
+            className={
+              lists.length === 3
+                ? "grid grid-cols-[minmax(0,1fr)] gap-8 @2xl:grid-cols-2 @5xl:grid-cols-3 @2xl:gap-6"
+                : "grid grid-cols-[minmax(0,1fr)] gap-8 @2xl:grid-cols-2 @2xl:gap-6"
+            }
+          >
+            {lists.map((spec) => {
+              const rows = data[spec.key] ?? []
+              return (
+                <section key={spec.key} aria-label={spec.title} className="min-w-0" data-testid={`top5-${spec.key}`}>
+                  <h3 className="mb-2 text-base font-medium text-fg">{spec.title}</h3>
+                  <Table
+                    rows={rows}
+                    columns={columns(spec)}
+                    getKey={(r) => r.user_id ?? r.staff_id ?? r.name}
+                    stack={false}
+                    empty={<span>Nothing settled in this period.</span>}
+                    tools={{
+                      id: `top5-${spec.key}`,
+                      title: `Top 5, ${spec.title.toLowerCase()}`,
+                      subtitle: `${scope}${data.label}`,
+                    }}
+                  />
+                </section>
+              )
+            })}
+          </div>
+          </div>
+          <p className="text-sm text-fg-muted">
+            {data.label}{data.period === "all" ? "" : ", by the month the money was paid"}.{" "}
+            <Link to="/standings" className="font-medium text-accent underline-offset-2 hover:underline">
+              See everybody
+            </Link>
+          </p>
+          </div>
+        )}
+      </PeriodFrame>
     </Section>
   )
 }

@@ -4,6 +4,11 @@ Pinned on a small fixture where every figure can be worked out by hand:
 each category's winner and value, zeros left unranked (no "=54"), ties,
 per-faculty department figures, filters, the reader's own place, and that
 no money key reaches any role.
+
+Every paper here is Scopus-linked (flagged by the sync, with an EID), and its
+quartile and SNIP sit in the journal tables under its ISSN: that is the only
+place the leaderboard reads them from. `pub(..., linked=False)` makes the
+claim-only paper that must never count.
 """
 
 from __future__ import annotations
@@ -15,25 +20,50 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.test import Client, TestCase
 
-from core.models import Authorship, PaidLedger, Publication, Role, User
-from core.services import honours_board
+from itertools import count
+
+from core.models import Authorship, PaidLedger, Publication, Role, ScimagoJournal, SnipSource, User
+from core.services import honours_board, leaderboard_weights
 from core.test_search import money_keys_in
 
 TODAY = date(2026, 9, 24)  # academic year 2026-27 from 1 June 2026
 
 
-def pub(title, when, *, quartile="", cites=0, venue="Journal A", topics=("Power systems",)):
+_SERIAL = count(1)
+
+
+def _issn() -> str:
+    """A real-shaped ISSN with its check digit, unique per call."""
+    body = f"{2000000 + next(_SERIAL):07d}"
+    total = sum(int(d) * w for d, w in zip(body, range(8, 1, -1)))
+    check = (11 - total % 11) % 11
+    return f"{body[:4]}-{body[4:]}{'X' if check == 10 else check}"
+
+
+def pub(title, when, *, quartile="", cites=0, venue="Journal A", topics=("Power systems",), snip=None, linked=True,
+        corresponding=False):
+    """A paper. `quartile` and `snip` are put in the journal tables for its ISSN,
+    not on the paper. `cites` is the Scopus count. `linked=False` is a paper only a
+    claim or the ledger knows: no EID, not flagged by the sync."""
+    issn = _issn()
+    year = when.year if when else 2026
+    if quartile:
+        ScimagoJournal.objects.create(title=venue, issn=issn, year=year, sjr=1.0, categories_json=f"Energy ({quartile})")
+    if snip is not None:
+        SnipSource.objects.create(title=venue, print_issn=issn, snip=snip, year=year)
+    n = next(_SERIAL)
     return Publication.objects.create(
         title=title, year=when.year if when else None, date=when, quartile=quartile, citations=cites,
-        venue=venue, topics_json=json.dumps(list(topics)), source="record",
+        scopus_citations=cites if linked else None, scopus_indexed=linked, eid=f"2-s2.0-{8500000000 + n}" if linked else None,
+        issn=issn, venue=venue, topics_json=json.dumps(list(topics)), source="record",
     )
 
 
-def on(p, user=None, position=None, name="Outside", country=""):
+def on(p, user=None, position=None, name="Outside", country="", corresponding=False, match="author_id"):
     return Authorship.objects.create(
         publication=p, user=user, position=position, display_name=user.name if user else name,
         author_key=f"u:{user.id}" if user else f"n:{name.lower()}", is_college=user is not None,
-        institution_country=country,
+        institution_country=country, is_corresponding=corresponding, match_method=match,
     )
 
 
@@ -81,15 +111,19 @@ class HonoursBoardTests(TestCase):
         return next(r for r in data["rows"] if r["person"]["id"] == user.id)
 
     def test_score_board_values_and_podium(self):
+        # Weight Q1 and Q2 papers alone, so the figures can be worked out by hand.
+        leaderboard_weights.save(self.principal, {"q1q2": 100}, "Quartile only, for this test")
         d = self.get(self.asha, category="score", period="academic")
-        # Asha: Q1 (4) + Q2 (3) = 7. Ravi: Q2 (3) + other (1) = 4. Mina: Q1 = 4.
-        self.assertEqual([(r["person"]["name"], r["value"]) for r in d["podium"]], [("Asha", 7), ("Mina", 4), ("Ravi", 4)])
+        # Q1+Q2 papers: Asha 2, Ravi 1, Mina 1, the other two 0. Of 5 people, Asha is at or
+        # above all 5 (100); Ravi and Mina at or above 4 (80), tied.
+        self.assertEqual([(r["person"]["name"], r["value"]) for r in d["podium"]], [("Asha", 100), ("Mina", 80), ("Ravi", 80)])
         self.assertEqual((self.row(d, self.ravi)["rank"], self.row(d, self.ravi)["joint"]), (2, True))
         self.assertEqual(self.row(d, self.asha)["breakdown"], {"q1": 1, "q2": 1, "q3": 0, "q4": 0, "other": 0})
         self.assertEqual(d["ranked"], 3)
         self.assertEqual(d["me"]["rank"], 1)
         self.assertEqual(d["me"]["dept_rank"], 1)
         self.assertEqual(d["me"]["percentile"], 34)
+        self.assertEqual(d["method"]["source"], "Counted from Scopus-linked papers only")
 
     def test_zero_is_unranked_not_tied(self):
         d = self.get(self.zero, category="score", period="academic")
@@ -119,8 +153,10 @@ class HonoursBoardTests(TestCase):
 
     def test_rising_compares_with_last_year(self):
         d = self.get(self.asha, category="rising", period="academic")
-        self.assertEqual(self.row(d, self.asha)["value"], 7)
-        self.assertEqual(self.row(d, self.mina)["value"], 4 - 12)
+        # Change in the weighted score (0-100) between this academic year and last.
+        self.assertGreater(self.row(d, self.asha)["value"], 0)
+        self.assertEqual(self.row(d, self.asha)["rank"], 1)
+        self.assertLess(self.row(d, self.mina)["value"], 0)
         self.assertIsNone(self.row(d, self.mina)["rank"])
 
     def test_newcomers_are_recent_first_papers(self):

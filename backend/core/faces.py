@@ -71,6 +71,37 @@ def _owners(data: Any, out: list[tuple[dict, str, str, str]]) -> None:
                 _owners(v, out)
 
 
+def _unidentified(data: Any) -> None:
+    """Say "Claimant not identified" where the person is the import's "Not Found".
+
+    The old workbooks' "Not Found" owns claims nobody could be matched to. It
+    is not a person and not a department, so no response may print it as
+    either; the claims stay, named for what they are. Lists of people leave the
+    account out at the source (`core.services.placeholders`); this is the
+    net under every claim-shaped dict that names its claimant.
+    """
+    from core.services import placeholders
+
+    if isinstance(data, dict):
+        for _id_key, name_key, prefix in _PAIRS[:1]:
+            if name_key in data and isinstance(data.get(name_key), str) and placeholders.is_placeholder_name(data[name_key]):
+                data[name_key] = placeholders.UNIDENTIFIED
+                dept_key = f"{prefix}_department"
+                if dept_key in data and placeholders.is_not_a_department(data[dept_key]):
+                    data[dept_key] = None
+        if _uid(data) and isinstance(data.get("name"), str) and placeholders.is_placeholder_name(data["name"]):
+            data["name"] = placeholders.UNIDENTIFIED
+            if "department" in data and placeholders.is_not_a_department(data["department"]):
+                data["department"] = None
+        for v in data.values():
+            if isinstance(v, (dict, list, tuple)):
+                _unidentified(v)
+    elif isinstance(data, (list, tuple)):
+        for v in data:
+            if isinstance(v, (dict, list, tuple)):
+                _unidentified(v)
+
+
 def fill(data: Any) -> Any:
     """Add `photo_url` and `initials` to every person dict in `data`, and
     `owner_photo_url` (or `author_`, `created_by_`) to every claim, post and
@@ -78,6 +109,7 @@ def fill(data: Any) -> Any:
     from core.models import User
     from core.social import initials
 
+    _unidentified(data)
     owners: list[tuple[dict, str, str, str]] = []
     _owners(data, owners)
     if owners:

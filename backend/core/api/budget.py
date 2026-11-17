@@ -21,6 +21,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
+from core.services.college_totals import NO_DEPARTMENT, canonical_departments
 from core.models import AuditLog, Budget, ClaimStatus, PaidLedger, Role, User
 from core.services import rbac
 
@@ -69,10 +70,19 @@ def _budget_status(fy: str, user: User) -> dict[str, Any]:
         )
     )
 
+    # One spelling per department, and "Not Found" (what the old workbooks wrote
+    # for nobody) is no department: its money stays in the college row and is
+    # reported as "no department", never as a department of its own.
+    canonical = canonical_departments()
+
+    def dept_key(raw) -> str:
+        name = canonical(raw)
+        return "" if name == NO_DEPARTMENT else name
+
     def by_dept(qs) -> dict[str, float]:
         out: dict[str, float] = {}
         for row in qs.values("owner__department").annotate(s=Sum("remuneration")):
-            key = (row["owner__department"] or "").strip()
+            key = dept_key(row["owner__department"])
             out[key] = round(out.get(key, 0) + (row["s"] or 0), 2)
         return out
 
@@ -87,13 +97,13 @@ def _budget_status(fy: str, user: User) -> dict[str, Any]:
         .values("department")
         .annotate(s=Sum("amount"))
     ):
-        key = (row["department"] or "").strip()
+        key = dept_key(row["department"])
         spent_by[key] = round(spent_by.get(key, 0) + (row["s"] or 0), 2)
     for key, amount in by_dept(paid.filter(ledger_rows__isnull=True)).items():
         spent_by[key] = round(spent_by.get(key, 0) + amount, 2)
     committed_by = by_dept(committed)
     budgets = {
-        (b.department or ""): b
+        dept_key(b.department): b
         for b in Budget.objects.filter(financial_year=fy)
     }
 
@@ -150,6 +160,13 @@ def _budget_status(fy: str, user: User) -> dict[str, Any]:
         "ends": end.isoformat(),
         "college": college,
         "departments": [slice_for(d) for d in departments],
+        # Money that could not be given a department (the old workbooks'
+        # "Not Found"): it is in the college row above, listed here so the
+        # rows do not seem to fall short of it.
+        "no_department": {
+            "spent": spent_by.get("", 0.0),
+            "committed": committed_by.get("", 0.0),
+        },
         "years_on_record": sorted(
             {b.financial_year for b in Budget.objects.all()}
             | {financial_year_of(timezone.localdate())},

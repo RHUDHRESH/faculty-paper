@@ -32,10 +32,12 @@ import type { Crumb } from "@/ui/breadcrumbs"
 type Detail = { pattern: string; label: string; parent?: string; own?: boolean }
 const DETAILS: Detail[] = [
   { pattern: "/faculty/:id", label: "Faculty record", parent: "/faculty" },
+  { pattern: "/teams/:code", label: "Team", parent: "/teams" },
   { pattern: "/reports/departments/:name", label: "Department", parent: "/reports/departments" },
   { pattern: "/reports/departments", label: "Departments" },
   { pattern: "/reports/papers", label: "Papers" },
   { pattern: "/people/matches", label: "Author matches" },
+  { pattern: "/people/no-department", label: "Accounts with no department", parent: "/people" },
   { pattern: "/people/passwords", label: "Issue passwords", parent: "/people" },
   { pattern: "/people/:id", label: "Person", parent: "/people" },
   { pattern: "/batches/:id", label: "Monthly run", parent: "/batches" },
@@ -75,7 +77,13 @@ const detailOf = (pathname: string) => DETAILS.find((d) => matches(d.pattern, pa
  * The trail for a path, or an empty list when the path has nowhere above it.
  * `dynamic` is the name of the record on screen, if the page supplied one.
  */
-export function crumbsFor(role: Role | undefined, pathname: string, dynamic?: string): Crumb[] {
+export function crumbsFor(
+  role: Role | undefined,
+  pathname: string,
+  dynamic?: string,
+  /** The page the record belongs to when the route's default is wrong for this reader. */
+  parent?: Crumb
+): Crumb[] {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname
   if (!role || path === "/") return []
 
@@ -86,6 +94,10 @@ export function crumbsFor(role: Role | undefined, pathname: string, dynamic?: st
   const door = detail?.own ? undefined : activeDoor(role, path)
   // The path is the door's own page: nothing above it.
   if (door && door === path) return []
+
+  if (parent && detail?.parent) {
+    return [{ label: parent.label, to: parent.to }, { label: dynamic ?? nameOf(path) ?? "Details" }]
+  }
 
   const trail: Crumb[] = []
   if (door) trail.push({ label: DOOR_LABELS[door] ?? nameOf(door) ?? "Back", to: door })
@@ -105,16 +117,40 @@ export function crumbsFor(role: Role | undefined, pathname: string, dynamic?: st
 /* ------------------------------------------------------------------------ */
 
 type Setter = (label: string | undefined) => void
-const LabelContext = createContext<{ label: string | undefined; set: Setter }>({
+const LabelContext = createContext<{ label: string | undefined; set: Setter; parent: Crumb | undefined; setParent: (p: Crumb | undefined) => void }>({
   label: undefined,
   set: () => {},
+  parent: undefined,
+  setParent: () => {},
 })
 
 /** Holds the record name a page has supplied, for the shell to read. */
 export function CrumbLabelProvider({ children }: { children: React.ReactNode }) {
   const [label, set] = useState<string | undefined>()
-  const value = useMemo(() => ({ label, set }), [label])
+  const [parent, setParent] = useState<Crumb | undefined>()
+  const value = useMemo(() => ({ label, set, parent, setParent }), [label, parent])
   return <LabelContext.Provider value={value}>{children}</LabelContext.Provider>
+}
+
+/** The page a detail page says it belongs to, when that is not the route's default. */
+export function useCrumbParentValue(): Crumb | undefined {
+  return useContext(LabelContext).parent
+}
+
+/**
+ * A claim page is "My papers / Claim" for its owner and nothing of the kind for
+ * a reader who opened somebody else's: they came from Track, or their
+ * department, and "My papers" is a page that does not hold it. Pass the
+ * reader's own page for it, or `undefined` for the route's default.
+ */
+export function useCrumbParent(parent: Crumb | undefined): void {
+  const { setParent } = useContext(LabelContext)
+  const to = parent?.to
+  const label = parent?.label
+  useEffect(() => {
+    setParent(to && label ? { to, label } : undefined)
+    return () => setParent(undefined)
+  }, [to, label, setParent])
 }
 
 /** The name of the record a detail page is showing, once known. */

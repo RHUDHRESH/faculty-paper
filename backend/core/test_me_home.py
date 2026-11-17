@@ -70,3 +70,30 @@ class MyHomeTests(TestCase):
         self.assertEqual(home["unfiled"]["count"], 6)
         self.assertEqual(len(home["unfiled"]["items"]), 3)
         self.assertEqual(home["unfiled"]["items"][0]["title"], "Paper 5")
+
+
+class HomeQuartileAgreesWithTheFilingFormTests(TestCase):
+    """Red team: Home said "None" for a paper whose journal the filing form
+    shows as Q4 with a SNIP. Both read the Scimago and SNIP tables by ISSN."""
+
+    def test_an_unfiled_paper_gets_the_quartile_and_snip_the_form_shows(self):
+        from core.models import ScimagoJournal, SnipSource
+
+        cache.clear()
+        me = User.objects.create_user(email="q@x.edu", password="p", name="Q Person", role=Role.FACULTY, staff_id="Q1")
+        p = Publication.objects.create(
+            title="A paper with no quartile of its own", normalized_title="a paper with no quartile of its own",
+            year=2025, date=date(2025, 3, 1), venue="Journal of Things", issn="12345679",
+        )
+        Authorship.objects.create(publication=p, user=me, position=1, display_name=me.name,
+                                  author_key=f"u:{me.id}", is_college=True)
+        ScimagoJournal.objects.create(
+            title="Journal of Things", issn="12345679", year=2024, sjr=0.2,
+            categories_json='[{"name": "Engineering (miscellaneous)", "quartile": "Q4"}]',
+        )
+        SnipSource.objects.create(title="Journal of Things", print_issn="12345679", snip=0.106, year=2025)
+        c = Client()
+        c.force_login(me)
+        item = c.get("/api/me/home").json()["unfiled"]["items"][0]
+        self.assertEqual(item["quartile"], "Q4")
+        self.assertEqual(item["snip"], 0.106)

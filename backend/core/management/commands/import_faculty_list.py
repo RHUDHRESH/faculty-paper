@@ -19,6 +19,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("xlsx")
         parser.add_argument("--apply", action="store_true", help="Write the changes. Without it nothing is written.")
+        parser.add_argument("--no-fill", action="store_true", help="With --apply: do not fill the gaps afterwards (core/services/data_fill.py).")
 
     def handle(self, *args, **opts):
         try:
@@ -45,3 +46,7 @@ class Command(BaseCommand):
         out(f"  active accounts not in the list: {r['not_in_list']}")
         if not opts["apply"]:
             out("Run again with --apply to import.")
+        elif not opts["no_fill"]:
+            from core.services import data_fill
+
+            out(data_fill.run_safe_fills(None, "import:faculty list")["text"])

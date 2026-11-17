@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useEffect, useRef, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { keepPreviousData } from "@tanstack/react-query"
@@ -42,9 +43,10 @@ import { EmptyCell } from "@/ui/table"
 import { Meta, SectionTitle, Sub } from "@/ui/text"
 import { WallBoard } from "@/pages/wall"
 import { nextStep, stepSentence } from "@/pages/leaderboard-next"
+import { HowScored, WeightsButton, syncedOn } from "@/pages/leaderboard-weights"
 
 /**
- * The leaderboard (docs/ux/07), counted from the publication record. It opens
+ * The leaderboard (docs/ux/07), counted from Scopus-linked papers only. It opens
  * on the reader: where they stand, who is around them and what would move
  * them, then a short Top 10 and the people rising. The full table is one
  * click away (and is what Print and CSV use). Three tabs; old `?view=trend`
@@ -70,6 +72,8 @@ export type BoardRow = {
   cited: number
   h_index: number
   breakdown: Record<string, number>
+  /** Points from each weighted factor, on the Overall board only; they add up to `value`. */
+  contributions?: { factor: string; points: number }[]
   spark: number[]
   move: number | null
   new: boolean
@@ -110,7 +114,16 @@ export type HonoursBoard = {
   journal_options: string[]
   totals: { papers: number; people: number; people_with_papers: number }
   spark_years: number[]
-  method: { weights: Record<string, number>; source: string; papers_in_record: number; newcomer_months: number; updated: string }
+  method: {
+    weights: Record<string, number>
+    source: string
+    /** When anybody's Scopus profile was last synced; null before the first sync. */
+    scopus_synced_at?: string | null
+    scoring?: { weights: { key: string; name: string; meaning: string; weight: number }[]; normalisation: string }
+    papers_in_record: number
+    newcomer_months: number
+    updated: string
+  }
   me: {
     id: string
     rank: number | null
@@ -181,7 +194,7 @@ export function rankText(rank: number | null, joint: boolean): string {
 }
 
 function count(n: number): string {
-  return n.toLocaleString("en-IN")
+  return n.toLocaleString("en-IN", { maximumFractionDigits: 1 })
 }
 
 /**
@@ -246,23 +259,27 @@ const BOARD_NAME: Partial<Record<Measure, string>> = { score: "Overall", papers:
 
 /** One sentence under the chips saying what the chosen board counts. */
 export function describeBoard(measure: Measure, weights: Record<string, number> | undefined, newcomerMonths = 24): string {
-  const w = weights ?? { Q1: 4, Q2: 3, Q3: 2, Q4: 1, other: 1 }
+  void weights
   switch (measure) {
     case "score":
-      return w.Q4 === w.other
-        ? `Points for each paper: Q1 ${w.Q1}, Q2 ${w.Q2}, Q3 ${w.Q3}, Q4 and others ${w.Q4}.`
-        : `Points for each paper: Q1 ${w.Q1}, Q2 ${w.Q2}, Q3 ${w.Q3}, Q4 ${w.Q4}, others ${w.other}.`
+      return "A score from 0 to 100, from the weights the research coordinator has set. Open “How the leaderboard is scored” for them."
     case "papers": return "Every paper counts once."
     case "q1": return "Papers in Q1 journals, the top quarter of their field."
     case "first": return "Papers where you are the first author."
-    case "cited": return "Citations to your papers, from the record."
-    case "h_index": return "Your h-index, from the citations in the record."
-    case "rising": return "Your score this period minus the period before."
+    case "cited": return "Scopus citations to your papers."
+    case "h_index": return "Your h-index, from the Scopus citations of your papers."
+    case "rising": return "How much your overall score changed since the period before."
     case "collab": return "How many different co-authors you wrote with."
     case "cross_dept": return "Papers written with a colleague from another department."
     case "international": return "Papers with a co-author abroad."
-    case "newcomer": return `People whose first paper came in the last ${newcomerMonths} months.`
+    case "newcomer": return `People whose first Scopus-linked paper came in the last ${newcomerMonths} months, ranked by overall score.`
   }
+}
+
+/** One line under the title: where the figures come from, and how fresh they are. */
+export function scopusLine(b: HonoursBoard | undefined): string {
+  const synced = syncedOn(b?.method.scopus_synced_at)
+  return `Counted from Scopus-linked papers only.${b ? (synced ? ` Last Scopus sync: ${synced}.` : " No Scopus sync is recorded yet.") : ""}`
 }
 
 export function Leaderboard() {
@@ -320,8 +337,16 @@ export function Leaderboard() {
         <PageHeader
           spot="leaderboard-honours"
           title="Leaderboard"
-          sub={view === "wall" ? "New papers, month by month." : "Counted from the publication record."}
-          action={view === "wall" ? null : <HowCounted board={b} />}
+          sub={view === "wall" ? "New papers, month by month." : scopusLine(b)}
+          action={
+            view === "wall" ? null : (
+              <div className="flex flex-wrap items-center gap-2">
+                <HowScored board={b} />
+                <HowCounted board={b} />
+                <WeightsButton period={period} department={department} />
+              </div>
+            )
+          }
         />
       </div>
 
@@ -380,11 +405,11 @@ export function Leaderboard() {
       {view === "wall" ? null : (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-4 print:hidden">
           <Meta className="flex items-center gap-1.5">
-            {b ? `${count(b.totals.papers)} papers counted in this period.` : "Counted from the publication record."}
+            {b ? `${count(b.totals.papers)} papers counted in this period.` : "Counted from Scopus-linked papers only."}
             <InfoTip label="About these counts">
               {b
-                ? `Counted from the ${count(b.method.papers_in_record)} papers written by current faculty in the publication record. `
-                : "From the college's publication record. "}
+                ? `Counted from the ${count(b.method.papers_in_record)} Scopus-linked papers written by current faculty. `
+                : "From Scopus-linked papers only. "}
               No money is shown.
             </InfoTip>
           </Meta>
@@ -416,12 +441,12 @@ function YouAreHere({ board }: { board: HonoursBoard }) {
   const bars = board.distribution.filter((d) => d.bucket !== "0")
   if (!bars.length) return null
   const max = Math.max(1, ...bars.map((d) => d.count))
-  const label = `How ${board.label.toLowerCase()} is spread: ${bars.map((d) => `${d.bucket}: ${d.count} people`).join(", ")}.${mark ? ` You are in ${mark}.` : ""}`
+  const label = `How ${board.label.toLowerCase()} is spread: ${bars.map((d) => `${d.bucket}: ${plural(d.count, "person", "people")}`).join(", ")}.${mark ? ` You are in ${mark}.` : ""}`
   return (
     <figure className="space-y-1.5">
       <div role="img" aria-label={label} className="flex h-12 items-end gap-1">
         {bars.map((d) => (
-          <div key={d.bucket} className="relative flex h-full flex-1 items-end" title={`${d.bucket} ${board.unit}: ${d.count} people`}>
+          <div key={d.bucket} className="relative flex h-full flex-1 items-end" title={`${d.bucket} ${board.unit}: ${plural(d.count, "person", "people")}`}>
             <div
               className={cn("w-full rounded-t-sm", d.bucket === mark ? "bg-accent" : "bg-fg/15")}
               style={{ height: `${Math.max(6, (d.count / max) * 100)}%` }}
@@ -1089,7 +1114,6 @@ function DepartmentsView({ board }: { board: HonoursBoard }) {
 }
 
 function HowCounted({ board }: { board: HonoursBoard | undefined }) {
-  const w = board?.method.weights
   return (
     <Sheet>
       <SheetTrigger asChild>
@@ -1098,17 +1122,18 @@ function HowCounted({ board }: { board: HonoursBoard | undefined }) {
       <SheetContent>
         <SheetHeader>
           <SheetTitle>How it's counted</SheetTitle>
-          <SheetDescription>From the college's publication record. These are the same papers as on Home and My papers.</SheetDescription>
+          <SheetDescription>From Scopus-linked papers only: nothing from claims, payments or the college's spreadsheets.</SheetDescription>
         </SheetHeader>
         <SheetBody className="space-y-3 text-sm">
           <SectionTitle>Score</SectionTitle>
-          <p>{w ? `Q1 = ${w.Q1}, Q2 = ${w.Q2}, Q3 = ${w.Q3}, Q4 = ${w.Q4}, any other indexed paper = ${w.other}.` : "Q1 = 4, Q2 = 3, Q3 = 2, Q4 = 1, other = 1."}</p>
+          <p>The Overall board scores each person from 0 to 100 using weights the research coordinator sets. Open “How the leaderboard is scored” to read them.</p>
+          <p>Departments are ranked by the total of their members’ scores, and per head by the average.</p>
           <SectionTitle>Categories</SectionTitle>
           <ul className="list-disc space-y-1 pl-5">
-            <li>Most improved: score this period minus the period before.</li>
+            <li>Most improved: the change in overall score since the period before.</li>
             <li>Collaborative: distinct co-authors. Cross-department: papers with a colleague from another department. International: papers with a co-author abroad.</li>
-            <li>Newcomers: first paper within the last {board?.method.newcomer_months ?? 24} months.</li>
-            <li>h-index and citations use the citation counts in the record.</li>
+            <li>Newcomers: first Scopus-linked paper within the last {board?.method.newcomer_months ?? 24} months, ranked by overall score.</li>
+            <li>Citations and h-index use the Scopus citation counts. A journal's quartile and SNIP come from the journal tables.</li>
           </ul>
           <SectionTitle>Ties and zeros</SectionTitle>
           <p>Equal figures share a rank, shown as “=4”. People with nothing counted in the period are listed without a rank, so zeros never make a tie.</p>

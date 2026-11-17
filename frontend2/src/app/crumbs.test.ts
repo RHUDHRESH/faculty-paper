@@ -49,3 +49,12 @@ describe("breadcrumbs from the route", () => {
     expect(labels("SUPER_ADMIN", "/settings")).toEqual(["Admin", "Institution"])
   })
 })
+
+describe("somebody else's claim", () => {
+  it("is not under My papers: the reader's own page is the parent", () => {
+    expect(labels("FACULTY", "/papers/abc")).toEqual(["My papers", "Claim"])
+    const theirs = crumbsFor("SUPER_ADMIN", "/papers/abc", undefined, { label: "Track", to: "/track" })
+    expect(theirs.map((c) => c.label)).toEqual(["Track", "Claim"])
+    expect(theirs[0].to).toBe("/track")
+  })
+})

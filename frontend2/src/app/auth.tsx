@@ -1,11 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react"
 
+import { canOpenRoute } from "@/app/access"
 import { api, bootAnswer, forgetCsrf } from "@/lib/api"
 
 export type Role =
   | "FACULTY"
   | "HOD"
   | "PRINCIPAL"
+  | "VICE_PRINCIPAL"
   | "DIRECTOR"
   | "RESEARCH_COORDINATOR"
   | "FINANCE"
@@ -133,6 +135,10 @@ export function can(role: Role | undefined) {
   // filed paper, a coordinator may do.
   const office =
     r === "SUPER_ADMIN" || r === "RESEARCH_CELL" || r === "RESEARCH_COORDINATOR"
+  // `rbac.READ_ONLY_OVERSIGHT`: reads what the Principal reads, decides and
+  // manages nothing. Listed in the two "may read" answers below and in none
+  // of the "may act" ones.
+  const vice = r === "VICE_PRINCIPAL"
   return {
     /**
      * Money across the college or the department. Not a head of department's
@@ -175,7 +181,7 @@ export function can(role: Role | undefined) {
     /** `rbac.can_manage_users` */
     manageUsers: office,
     /** `rbac.can_view_audit` */
-    viewAudit: office || r === "PRINCIPAL" || r === "DIRECTOR" || r === "FINANCE",
+    viewAudit: office || r === "PRINCIPAL" || vice || r === "DIRECTOR" || r === "FINANCE",
     /**
      * `rbac.can_view_reports` — the gate on the ledger, the budget, the
      * duplicate findings and both report endpoints. Note who is *not* here:
@@ -184,10 +190,20 @@ export function can(role: Role | undefined) {
      * them a 403, which reads as a broken account rather than as a screen
      * that was never theirs.
      */
-    viewReports: office || r === "PRINCIPAL" || r === "DIRECTOR" || r === "FINANCE",
+    viewReports: office || r === "PRINCIPAL" || vice || r === "DIRECTOR" || r === "FINANCE",
     /** `budgets` and `duplicate-findings` writes: ADMIN_ROLES or Finance. */
     manageMoney: office || r === "FINANCE",
 
+    /** `rbac.is_read_only_oversight`: the Vice principal. Hide every action, keep every figure. */
+    readOnly: vice,
+    /**
+     * Whether this role may open `href` (`app/access.ts`). Ask before drawing
+     * a link: a link to a page the role cannot open is a dead end, so draw
+     * plain text instead (`<AccessLink>` does this).
+     */
+    open: (href: string, selfId?: string | null) => canOpenRoute(r, href, selfId),
+    /** A journal opens for everybody; a faculty member sees the journal and their own papers in it. */
+    openJournal: !!r,
     seeCollege: !!r && r !== "FACULTY",
     seeDepartment: r === "HOD",
     admin: r === "SUPER_ADMIN",

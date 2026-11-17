@@ -51,6 +51,20 @@ const CLAIMS_CHECK = {
     { staff_id: "TS007", name: "Dr Old Hand", title: "A study of beams", ledger_amount: 5000, file_amount: 7500, month: "2026-08" },
   ],
   unmatched_staff: [{ staff_id: "TS999", name: "Unknown Person" }],
+  double_payments: {
+    count: 1,
+    total_amount: 1000,
+    rows: [{
+      staff_id: "TS010", name: "Dev Anand", title: "Solar cells for rural roofs", count: 2, total: 1000,
+      payments: [{ month: "2026-08-01", amount: 500 }, { month: "2026-09-01", amount: 500 }],
+    }],
+  },
+  claim_payments_from_sheet: { count: 0, total_amount: 0, rows: [] },
+  blank_amounts: { count: 0, rows: [] },
+  paid_in_app_not_in_sheet: {
+    count: 1, total_amount: 0,
+    rows: [{ ticket: "FP-2026-000009", staff_id: "TS011", name: "Ira Das", title: "Left out", amount: 0, month: "2026-09-01", listed_under: ["TS012"] }],
+  },
 }
 
 function dryRunOf(call: unknown[]): string | null {
@@ -66,6 +80,7 @@ function mount(opts: { me?: Me; faculty?: () => unknown; claims?: () => unknown 
     "/api/admin/erp-stats": () => STATS,
     "/api/admin/faculty-master": () => [],
     "/api/admin/process": () => [],
+    "/api/admin/jobs/": () => ({ status: "done", result: { text: "Filled: 1,240 departments, 380 journals" } }),
   })
   // The import answers carry `dry_run` as the request asked for it.
   const answer = (path: string, init: unknown, make: () => unknown) => {
@@ -113,6 +128,19 @@ describe("the monthly files", () => {
     expect(within(card).getByRole("button", { name: "Check the file" })).toBeEnabled()
   })
 
+  it("says what the fills that followed an applied import filled, and says nothing for a check", { timeout: 20000 }, async () => {
+    const user = userEvent.setup()
+    mount({ faculty: () => ({ ...FACULTY_CHECK, fill: { queued: true, job_id: "j7" } }) })
+    const card = await screen.findByRole("region", { name: "Faculty list" })
+    await user.upload(within(card).getByLabelText(/faculty list workbook/i), xlsx())
+    await user.click(within(card).getByRole("button", { name: "Check the file" }))
+    await within(card).findByText(/Nothing is saved yet/)
+    expect(within(card).queryByText(/Filling blank departments/)).toBeNull()
+    await user.click(within(card).getByRole("button", { name: "Import" }))
+    expect(await within(card).findByText(/Filling blank departments/)).toBeInTheDocument()
+    expect(await within(card).findByText("Filled: 1,240 departments, 380 journals", {}, { timeout: 9000 })).toBeInTheDocument()
+  })
+
   it("checks the faculty list, then imports it", async () => {
     const user = userEvent.setup()
     mount({ faculty: () => ({ ...FACULTY_CHECK, dry_run: false }) })
@@ -152,8 +180,13 @@ describe("the monthly files", () => {
     expect(within(card).getByText("A study of beams")).toBeInTheDocument()
     expect(within(card).getByText("₹7,500")).toBeInTheDocument()
     expect(within(card).getByText("Unknown Person")).toBeInTheDocument()
+    // a paper paid twice is listed with each payment, and a paid claim the sheet leaves out is named
+    expect(within(card).getByText("Papers paid more than once (1)")).toBeInTheDocument()
+    expect(within(card).getByText("Aug 2026 ₹500, Sep 2026 ₹500")).toBeInTheDocument()
+    expect(within(card).getByText("Paid in the app, not in the college sheet (1)")).toBeInTheDocument()
+    expect(within(card).getByText("TS012")).toBeInTheDocument()
     expect(
-      within(card).getByText("Amounts that differ are reported only; nothing already recorded is changed.")
+      within(card).getByText(/Amounts that differ are reported only; nothing already recorded is changed./)
     ).toBeInTheDocument()
 
     await user.click(within(card).getByRole("button", { name: "Import" }))

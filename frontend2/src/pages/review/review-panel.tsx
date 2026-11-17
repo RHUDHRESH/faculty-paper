@@ -22,6 +22,7 @@ import { claimDiff, type DiffRow } from "./claim-diff"
 import { actionSentence, formatDateTime } from "./history"
 import type { WorkspaceClaim } from "./types"
 import { DirectorVerdict } from "./director-verdict"
+import { TeamCheckBlock } from "./team-check"
 import { Verdict } from "./verdict"
 
 /**
@@ -165,6 +166,8 @@ export function ReviewPanel({
             </p>
             <ClaimOfficeThread claimId={claim.id} />
           </section>
+
+          <TeamCheckBlock check={review.data?.team_check} />
 
           <section aria-labelledby="rv-diff" className="space-y-2">
             <h3 id="rv-diff" className="text-base font-semibold">

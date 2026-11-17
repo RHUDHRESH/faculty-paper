@@ -908,7 +908,7 @@ def _answer(code: str, message: str, **extra: Any) -> dict[str, Any]:
     return {
         "ok": False, "code": code, "message": message, "paper": None, "claimant": None,
         "affiliation": None, "metrics": None, "field_sources": {}, "sources": [],
-        "scopus_status": "ok" if search_papers.scopus_configured() else "not_configured",
+        "scopus_status": "ok" if search_papers.scopus_configured() else search_papers.scopus_off_status(),
         "warnings": [], "to_check": [], "already_filed": None, "candidates": [], **extra,
     }
 
@@ -1014,8 +1014,9 @@ def lookup(
         for sid in ("openalex", "crossref", "scopus") if sid in tasks
     ]
     if not scopus_on:
-        source_list.append(sources.not_configured("scopus", "Scopus is not connected on this server."))
-    scopus_status = ("not_configured" if not scopus_on
+        source_list.append(sources.not_configured(
+            "scopus", search_papers.scopus_off_detail("Scopus is not connected on this server.")))
+    scopus_status = (search_papers.scopus_off_status() if not scopus_on
                      else "ok" if "scopus" not in errors else "unavailable")
 
     if not records:

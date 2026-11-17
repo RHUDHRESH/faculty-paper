@@ -446,7 +446,13 @@ function ClaimTable({
             className={cn("font-normal text-fg-muted", late && "font-medium text-critical", slow && "text-caution")}
             title={!paid && d != null ? `${days(d)} at this stage` : undefined}
           >
-            {paid && r.paid_on ? paidLabel(r.paid_on, r.paid_month_only) : paid && sinceFiling ? "Complete" : days(d)}
+            {paid && r.paid_on
+              ? paidLabel(r.paid_on, r.paid_month_only)
+              : paid && r.paid_month_recorded === false
+                ? "Paid, month not recorded"
+                : paid && sinceFiling
+                  ? "Complete"
+                  : days(d)}
             {late && <span className="sr-only"> (over a month)</span>}
           </span>
         )

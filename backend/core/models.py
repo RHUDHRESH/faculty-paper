@@ -42,6 +42,10 @@ class Role(models.TextChoices):
     FACULTY = "FACULTY"
     HOD = "HOD"
     PRINCIPAL = "PRINCIPAL"
+    #: Sees what the Principal sees, across the whole college, and decides
+    #: nothing: no approving, authorising, paying or managing accounts. Still
+    #: an academic, so files and tracks their own papers like any staff.
+    VICE_PRINCIPAL = "VICE_PRINCIPAL"
     #: Sits between the Principal and Finance. The Principal agrees the spend
     #: is right; the Director authorises it against the institution's own
     #: position before any money moves.
@@ -1276,6 +1280,7 @@ class ImportConflict(models.Model):
     class Kind(models.TextChoices):
         FACULTY = "faculty", "A faculty list value differs"
         AMOUNT = "amount", "A settled amount differs"
+        DOUBLE_PAYMENT = "double_payment", "A paper was paid more than once"
 
     class Status(models.TextChoices):
         OPEN = "open", "Open"
@@ -1283,15 +1288,17 @@ class ImportConflict(models.Model):
         DISMISSED = "dismissed", "Dismissed"
 
     id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
-    kind = models.CharField(max_length=12, choices=Kind.choices)
+    kind = models.CharField(max_length=16, choices=Kind.choices)
     source_file = models.CharField(max_length=255, blank=True, default="")
     detected_at = models.DateTimeField(default=timezone.now)
     #: Stable across runs: "faculty:<staff_id>:<field>" or
-    #: "amount:<staff_id>:<title hash>:<month>". One row per key, ever.
+    #: "amount:<staff_id>:<title hash>:<month>" or "double_payment:<staff_id>:<title hash>".
+    #: One row per key, ever.
     key = models.CharField(max_length=191, unique=True)
     payload = models.JSONField(default=dict)
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.OPEN)
-    #: The action that settled it ("use_list", "keep_app", "update_ledger", "keep_ledger").
+    #: The action that settled it ("use_list", "keep_app", "update_ledger", "keep_ledger",
+    #: "confirmed", "mark_error").
     resolution = models.CharField(max_length=32, blank=True, default="")
     resolution_note = models.TextField(blank=True, default="")
     resolved_by = models.ForeignKey(
@@ -1459,6 +1466,17 @@ class Notification(models.Model):
     actors = models.JSONField(default=list, blank=True)
     #: When this alert also went out by email. What the daily email cap counts.
     emailed_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    #: When it was read, so the list can say "Read 12 Nov" rather than nothing.
+    #: Null on rows read before this existed, and on rows not read yet.
+    read_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        indexes = [
+            # The bell's number and its list both ask "this person's, unread,
+            # newest first". Without the pair the number is a scan of
+            # everything they have ever been told, on every poll.
+            models.Index(fields=["user", "read", "-created_at"], name="notif_user_read_created"),
+        ]
 
 
 class ProfileChangeRequest(models.Model):
@@ -3308,6 +3326,9 @@ class AIUsage(models.Model):
     tokens_exact = models.BooleanField(default=False)
     #: How many things a guard removed or rewrote in the answer.
     guard_hits = models.PositiveSmallIntegerField(default=0)
+    #: True when the call ran on the person's own key. Such a call is not the
+    #: college's spend, so the college's monthly cap and figures leave it out.
+    own_key = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
@@ -3503,3 +3524,45 @@ class ReportSchedule(models.Model):
 
     def __str__(self) -> str:
         return f"{self.report_id} {self.frequency}"
+
+
+class UserApiKey(models.Model):
+    """A key one person brought: their own AI, Scopus, OpenAlex or Semantic Scholar account.
+
+    The features that person uses then run on this key and its allowance
+    (core/services/user_keys.py holds the rules and the college's policy).
+    ``secret`` is the main key, ``secret_extra`` a JSON object of any second
+    secret (Scopus's institution token); both are Fernet tokens made by the
+    same scheme as the college's saved keys and never hold plaintext.
+    ``options`` holds only what is not secret: the AI service's kind, address
+    and model, or the OpenAlex contact email. No serializer returns a secret;
+    a screen gets the last four characters at most.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="api_keys")
+    provider = models.CharField(max_length=32)
+    secret = models.TextField(blank=True, default="")
+    secret_extra = models.TextField(blank=True, default="")
+    options = models.JSONField(default=dict, blank=True)
+    label = models.CharField(max_length=80, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_used_at = models.DateTimeField(blank=True, null=True)
+    last_test_at = models.DateTimeField(blank=True, null=True)
+    last_test_ok = models.BooleanField(blank=True, null=True)
+    last_test_message = models.CharField(max_length=300, blank=True, default="")
+    #: Calls on this key: the "YYYY-MM-DD" / "YYYY-MM" the counts belong to.
+    usage_day = models.CharField(max_length=10, blank=True, default="")
+    day_calls = models.PositiveIntegerField(default=0)
+    usage_month = models.CharField(max_length=7, blank=True, default="")
+    month_calls = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "provider"], name="one_user_key_per_provider"),
+        ]
+        indexes = [models.Index(fields=["provider"], name="userkey_provider")]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} {self.provider}"

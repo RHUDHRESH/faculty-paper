@@ -6,7 +6,7 @@ import { Button } from "@/ui/button"
 import { Field, Input } from "@/ui/field"
 import { PageHeader } from "@/ui/page-header"
 import { Section } from "@/ui/section"
-import { ErrorState, SkeletonRows } from "@/ui/state"
+import { ErrorState, SkeletonRows, NotOpen } from "@/ui/state"
 import { toast } from "@/ui/toast"
 
 import { AdminApiTokens } from "./api-access"
@@ -88,11 +88,7 @@ export function InstitutionSettings() {
       <div className="page space-y-10">
         {header}
         {error?.status === 403 ? (
-          <ErrorState
-            art="closed-gate"
-            title="Not open to this account"
-            message="The institution's settings belong to the system admins."
-          />
+          <NotOpen message="The institution's settings belong to the system admins." />
         ) : (
           <ErrorState
             title="Could not load the settings"

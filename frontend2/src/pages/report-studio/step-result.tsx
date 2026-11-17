@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useMemo, useState } from "react"
 import { BarChart3, ChartLine, ChartPie, Play, Table2 } from "lucide-react"
 
@@ -66,7 +67,7 @@ export function StepResult({
           )}
           {result.truncated && (
             <Callout tone="caution" title="This is not every row">
-              Showing the first {result.rows.length.toLocaleString("en-IN")} of {result.total_rows.toLocaleString("en-IN")} rows. Add a
+              Showing the first {result.rows.length.toLocaleString("en-IN")} of {plural(result.total_rows, "row")}. Add a
               condition under “Only where” to narrow it, or use Export to get the whole report in a file.
             </Callout>
           )}

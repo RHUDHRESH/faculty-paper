@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { Inbox } from "lucide-react"
@@ -253,10 +254,10 @@ export function Clearing() {
           "Cleared",
           res.cleared === 1
             ? `${money(sum)} sent to the Principal${batch[0].ticket_number ? `. ${batch[0].ticket_number}` : ""}.`
-            : `${res.cleared} claims, ${money(sum)}, sent to the Principal.`
+            : `${plural(res.cleared, "claim")}, ${money(sum)}, sent to the Principal.`
         )
       } else {
-        if (res.cleared > 0) toast.stamp("Cleared", `${res.cleared} claims, ${money(sum)}, sent to the Principal.`)
+        if (res.cleared > 0) toast.stamp("Cleared", `${plural(res.cleared, "claim")}, ${money(sum)}, sent to the Principal.`)
         setResult({ result: res, lookup })
       }
     } catch (err) {
@@ -400,6 +401,7 @@ export function Clearing() {
             rows={ordered}
             href={href}
             id="clearing-queue"
+            countOnlyStage="SUBMITTED"
             title="Clearing queue"
             caption="Submitted claims, ready ones first"
             active={activeRow}

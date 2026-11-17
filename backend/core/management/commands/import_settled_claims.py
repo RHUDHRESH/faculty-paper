@@ -20,6 +20,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("xlsx")
         parser.add_argument("--apply", action="store_true", help="Write the changes. Without it nothing is written.")
+        parser.add_argument("--no-fill", action="store_true", help="With --apply: do not fill the gaps afterwards (core/services/data_fill.py).")
 
     def handle(self, *args, **opts):
         try:
@@ -42,7 +43,24 @@ class Command(BaseCommand):
             out(f"  {m['month'] or 'no month'}: {m['new']} new, {m['amount']:,.2f}")
         for d in r["amount_differs"][:20]:
             out(f"  amount differs {d['staff_id']} {d['name']}: ledger {d['ledger_amount']}, file {d['file_amount']}")
+        d = r["double_payments"]
+        out(f"  papers paid more than once: {d['count']}, {d['total_amount']:,.2f} in all")
+        for x in d["rows"][:20]:
+            out(f"    {x['staff_id']} {x['name']}: {x['title'][:60]} " + ", ".join(
+                f"{p['month'][:7]} {p['amount']:,.0f}" for p in x["payments"]))
+        c = r["claim_payments_from_sheet"]
+        out(f"  claims the app had at nothing, paid per the sheet: {c['count']}, {c['total_amount']:,.2f}")
+        out(f"  amount blank in the sheet: {r['blank_amounts']['count']}")
+        n = r["paid_in_app_not_in_sheet"]
+        out(f"  paid in the app, not in the sheet: {n['count']}")
+        for x in n["rows"][:20]:
+            out(f"    {x['ticket']} {x['staff_id']} {x['title'][:60]} {x['amount']:,.2f}"
+                + (f" (sheet lists it under {', '.join(x['listed_under'])})" if x["listed_under"] else ""))
         if r["unmatched_staff"]:
             out("  unknown Faculty IDs: " + ", ".join(u["staff_id"] or "(blank)" for u in r["unmatched_staff"][:30]))
         if not opts["apply"]:
             out("Run again with --apply to import.")
+        elif not opts["no_fill"]:
+            from core.services import data_fill
+
+            out(data_fill.run_safe_fills(None, "import:settled claims")["text"])

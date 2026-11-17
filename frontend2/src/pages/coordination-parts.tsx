@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 
@@ -190,7 +191,7 @@ export function Throughput({ o }: { o: Overview }) {
     <section aria-labelledby="through-h" className="min-w-0 overflow-x-clip">
       <SectionTitle id="through-h">Throughput per week</SectionTitle>
       <p className="mt-1 text-sm text-fg-muted">
-        In the last {pts.length} weeks {total.r} claims came in and the research office decided {total.d}. Decided is cleared,
+        In the last {pts.length} weeks {plural(total.r, "claim")} came in and the research office decided {total.d}. Decided is cleared,
         sent back or not accepted.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">

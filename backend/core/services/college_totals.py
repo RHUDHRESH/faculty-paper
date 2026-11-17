@@ -31,10 +31,15 @@ from django.db.models.functions import Coalesce
 
 from core.services.record_dates import ledger_month_recorded
 from core.models import Authorship, Claim, ClaimStatus, PaidLedger, Publication, User
+from core.services import placeholders
 from core.services.normalize import normalize_doi, normalize_title
 from core.services.records import collect
 
-NO_DEPARTMENT = "Department not recorded"
+#: The bucket for a paper or payment whose people have no department on their
+#: account even after the fills (core/services/data_fill.py). Reports list it
+#: last, with its count, and link to the accounts to fix.
+NO_DEPARTMENT = "No department on the account"
+FIX_ACCOUNTS_PATH = "/people/no-department"
 
 
 def _dept(value: Optional[str]) -> str:
@@ -42,7 +47,8 @@ def _dept(value: Optional[str]) -> str:
 
 
 #: Stand-ins the workbooks use for "no department". They are not departments.
-_NOT_A_DEPARTMENT = {"notfound", "none", "na", "nil", "unknown", "notrecorded", "departmentnotrecorded"}
+_NOT_A_DEPARTMENT = {"notfound", "none", "na", "nil", "unknown", "notrecorded", "departmentnotrecorded",
+                     "departmentnotsetontheaccount", "nodepartmentontheaccount"}
 
 
 def _dept_key(value: Optional[str]) -> str:
@@ -61,16 +67,26 @@ def canonical_departments() -> Callable[[Optional[str]], str]:
     spellings: dict[str, Counter] = defaultdict(Counter)
     for d in User.objects.filter(active=True).values_list("department", flat=True):
         d = (d or "").strip()
-        if d and _dept_key(d) not in _NOT_A_DEPARTMENT:
+        if d and _dept_key(d) not in _NOT_A_DEPARTMENT and not placeholders.is_not_a_department(d):
             spellings[_dept_key(d)][d] += 1
     canon = {k: c.most_common(1)[0][0] for k, c in spellings.items()}
 
+    seen: dict[Optional[str], str] = {}
+
     def canonical(value: Optional[str]) -> str:
+        # Called once per paper and per payment; the same few dozen spellings
+        # come round thousands of times.
+        hit = seen.get(value)
+        if hit is not None:
+            return hit
         v = (value or "").strip()
         k = _dept_key(v)
-        if not v or k in _NOT_A_DEPARTMENT:
-            return NO_DEPARTMENT
-        return canon.get(k, v)
+        if not v or k in _NOT_A_DEPARTMENT or placeholders.is_not_a_department(v):
+            out = NO_DEPARTMENT
+        else:
+            out = canon.get(k, v)
+        seen[value] = out
+        return out
 
     return canonical
 
@@ -169,15 +185,25 @@ def _papers(year: Optional[int] = None, department: Optional[str] = None) -> lis
     all_dois: set[str] = set()
     all_titles: set[str] = set()
     quartiles: dict[str, str] = {}
-    for pid, pyear, udept, doi, ntitle, title, pq in Authorship.objects.filter(college).values_list(
+    unlinked = None   # who is listed but has no account (built only if a paper needs it)
+    for pid, pyear, udept, doi, ntitle, title, pq, uid, display, raw in Authorship.objects.filter(college).values_list(
         "publication_id", "publication__year", "user__department",
         "publication__doi", "publication__normalized_title", "publication__title",
-        "publication__quartile",
+        "publication__quartile", "user_id", "display_name", "raw_affiliation",
     ):
         years[pid] = pyear
         quartiles[pid] = (pq or "").strip().upper()
         if udept and udept.strip() and canon(udept) != NO_DEPARTMENT:
             depts[pid].add(canon(udept))
+        elif uid is None:
+            # An author no account claims: the faculty list's department for
+            # that name, or the one their own affiliation line names.
+            from core.services import data_fill
+
+            unlinked = unlinked or data_fill.UnlinkedAuthors()
+            found = unlinked.department(display, raw)
+            if found:
+                depts[pid].add(canon(found))
         depts[pid]  # every record paper gets an entry, departments or not
         d = normalize_doi(doi) if doi else None
         if d:

@@ -16,7 +16,7 @@ from django.db.models import Max
 from django.utils import timezone
 
 from core.models import FormulaConfig, Role, StoredFile, User
-from core.services import integrations
+from core.services import integrations, user_keys
 
 #: A backup older than this is reported; the scheduled one runs weekly and
 #: the data-health page can take one on demand.
@@ -161,7 +161,8 @@ def _worker_check() -> dict[str, Any]:
 
 
 def _scopus_check() -> dict[str, Any]:
-    ok = bool(integrations.get("scopus.api_key"))
+    with user_keys.acting_as(None):  # the college's own key, whoever is looking
+        ok = bool(integrations.get("scopus.api_key"))
     return _check(
         "scopus", "The Scopus key is set", ok,
         "Scopus lookups and the monthly run can use it." if ok

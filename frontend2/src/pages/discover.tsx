@@ -32,6 +32,7 @@ import { Callout, EmptyState, ErrorState, InlineError, SkeletonRows, SkeletonTex
 import { Meta, SectionTitle } from "@/ui/text"
 import { StreamingText, ThinkingIndicator } from "@/ui/motion/stream"
 import { toast } from "@/ui/toast"
+import { OwnKeyNotice } from "@/pages/my-keys"
 import { IndustryPartners } from "@/pages/discover-next"
 import { ResearchHelperLink } from "@/pages/research-helper"
 import { FeedCard, FeedRow, ModelCard, VenueRow, useHidden, type FeedItem, type ForYou } from "@/pages/discover-feed"
@@ -149,6 +150,8 @@ export function Discover() {
         ))}
       </div>
 
+      {status.data?.code === "own_key_required" && <OwnKeyNotice what="AI" />}
+
       {feed.isError && tab !== "venues" ? (
         <ErrorState
           title={`Couldn't load ${TABS.find((t) => t.key === tab)?.label.toLowerCase()}`}
@@ -173,7 +176,7 @@ export function Discover() {
               <ModelBadge status={ai} />
               <VenueFinder hosted={!!ai.hosted} />
             </>
-          ) : status.data && status.data.code !== "not_configured" && me?.role === "SUPER_ADMIN" ? (
+          ) : status.data?.code === "own_key_required" ? null : status.data && status.data.code !== "not_configured" && me?.role === "SUPER_ADMIN" ? (
             // The server's remedy (start the service, load the model) is for the person who runs it.
             <ModelUnavailable status={status.data} onRetry={() => void status.refetch()} />
           ) : (

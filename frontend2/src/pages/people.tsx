@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { firstName, paperTitle } from "@/lib/names"
 import { useEffect, useState } from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
@@ -59,6 +60,7 @@ const ROLE_LABEL: Record<Role, string> = {
   FACULTY: "Faculty",
   HOD: "Head of department",
   PRINCIPAL: "Principal",
+  VICE_PRINCIPAL: "Vice principal",
   DIRECTOR: "Director",
   FINANCE: "Finance",
   RESEARCH_CELL: "Research office",
@@ -76,6 +78,7 @@ const ASSIGNABLE_ROLE_KEYS: Role[] = [
   "FACULTY",
   "HOD",
   "PRINCIPAL",
+  "VICE_PRINCIPAL",
   "DIRECTOR",
   "RESEARCH_CELL",
   "RESEARCH_COORDINATOR",
@@ -1267,9 +1270,9 @@ type AccountDetail = AccountFields & {
   }
 }
 
-/** Mirrors `PRIVILEGED_ROLES` in core/api/admin.py: only a super admin
- *  appoints a role that decides whether money moves. */
-const PRIVILEGED: Role[] = ["SUPER_ADMIN", "DIRECTOR", "FINANCE"]
+/** Mirrors `rbac.PROTECTED_ROLES`: only a super admin appoints, edits or
+ *  switches off these accounts, so nobody else is offered them. */
+const PRIVILEGED: Role[] = ["SUPER_ADMIN", "DIRECTOR", "FINANCE", "PRINCIPAL", "VICE_PRINCIPAL"]
 
 const FIELD_NAME: Record<string, string> = {
   name: "Full name",
@@ -1467,7 +1470,7 @@ function AccountForm({
     >
       {data.stats.claims > 0 && (
         <Callout tone="info" title="This account has a record behind it">
-          {data.stats.claims} papers, {data.stats.paid_claims} of them paid. A new staff or biometric ID
+          {plural(data.stats.claims, "paper")}, {data.stats.paid_claims} of them paid. A new staff or biometric ID
           applies to future payments only.
         </Callout>
       )}

@@ -134,6 +134,37 @@ describe("the review workspace", () => {
     expect(paths).not.toContain("/api/claims/c1")
   })
 
+  it("shows the clearing reviewer the team check on a student-project claim, before the claim against the record", async () => {
+    const team_check = {
+      team_code: "ZZ26CS0001",
+      team_url: "/teams/ZZ26CS0001",
+      ok: false,
+      lines: [
+        { key: "roster", ok: true, text: "Team ZZ26CS0001 is on the roster." },
+        { key: "mentor", ok: false, text: "The roster names Dr Roster Only as mentor, not Meera Iyer." },
+        { key: "unclaimed", ok: true, text: "The team is not claimed on any other claim." },
+        { key: "students", ok: true, text: "2 students listed on the team." },
+        { key: "conference", ok: true, text: "The paper is a conference paper (Conference Paper)." },
+      ],
+    }
+    mount("/review/c1", {
+      "/api/claims/c1/workspace": () => bundle("c1", {}, { review: { flags: [], file_checks: [], team_check } }),
+    })
+    const block = await screen.findByTestId("team-check")
+    expect(within(block).getByRole("heading", { name: "Team check" })).toBeInTheDocument()
+    expect(within(block).getAllByRole("listitem")).toHaveLength(5)
+    expect(within(block).getByText(/names Dr Roster Only as mentor/)).toBeInTheDocument()
+    expect(within(block).getByText(/1 of 5 checks does not pass/)).toBeInTheDocument()
+    const before = screen.getByText("Claimed and on record")
+    expect(block.compareDocumentPosition(before) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it("shows no team check on a claim that is not a student project", async () => {
+    mount()
+    await screen.findByText("Claimed and on record")
+    expect(screen.queryByTestId("team-check")).toBeNull()
+  })
+
   it("has a tab for the paper and one for each reference, by its number", async () => {
     mount()
     const tabs = await screen.findAllByRole("tab", { name: /Published paper|Reference 27/ })

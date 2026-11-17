@@ -47,7 +47,13 @@ export type FacultyRow = {
   completeness: number
   missing: MissingKey[]
   incentive?: { amount: number; total_amount: number }
+  /** Cumulative SNIP, papers settled and incentive paid: all time and this academic year. */
+  standing?: Standing
 }
+
+/** A person's three standings numbers. `remuneration` is left out for a head of department. */
+export type StandingFigures = { snip: number; count: number; remuneration?: number }
+export type Standing = { all: StandingFigures; year: StandingFigures }
 
 export type DirectoryPayload = {
   total: number
@@ -160,12 +166,13 @@ export type CoauthorOut = {
 }
 
 export type FacultyRecordPayload = {
-  person: Omit<FacultyRow, "papers" | "papers_year" | "citations" | "h_index" | "last_paper_year" | "last_paper_on" | "claims_filed_year" | "claims_done" | "claims_done_year" | "completeness" | "incentive"> & {
+  person: Omit<FacultyRow, "papers" | "papers_year" | "citations" | "h_index" | "last_paper_year" | "last_paper_on" | "claims_filed_year" | "claims_done" | "claims_done_year" | "completeness" | "incentive" | "standing"> & {
     employee_id: string | null
     email: string | null
     phone: string | null
   }
   viewer: { is_self: boolean; money: boolean; may_edit: boolean; sees_everyone: boolean; year: number }
+  standing?: Standing
   metrics: {
     total_publications: number
     total_citations: number

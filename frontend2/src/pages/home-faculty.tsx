@@ -6,6 +6,7 @@ import { useAuth } from "@/app/auth"
 import { HOME_DATA } from "@/app/home-data"
 import { formatCount } from "@/lib/count"
 import { useApi, useApiMutation } from "@/lib/query"
+import { MyTeams } from "@/pages/home-teams"
 import {
   KindBadge,
   STATUSES,
@@ -202,7 +203,7 @@ export type HomeRecord = {
   /** null until the publication record exists: the row is hidden, never "0". */
   unfiled: {
     count: number
-    items: { id: string; title: string; venue: string | null; year: number | null; quartile?: string | null }[]
+    items: { id: string; title: string; venue: string | null; year: number | null; quartile?: string | null; snip?: number | null }[]
   } | null
 }
 
@@ -388,6 +389,8 @@ export function FacultyHome() {
 
       <ClaimsTable own={own} />
 
+      <MyTeams />
+
       {assigned.data && assigned.data.length > 0 && (
         <AssignedToYou items={assigned.data} open={assigned.data.filter((a) => a.status !== "DONE").length} />
       )}
@@ -478,7 +481,7 @@ function UnfiledTable({ unfiled }: { unfiled: NonNullable<HomeRecord["unfiled"]>
     {
       key: "venue",
       header: "Journal",
-      empty: "Journal not recorded",
+      empty: "–",
       exportValue: (p) => p.venue,
       cell: (p) => (p.venue ? <DetailLink kind="journal" name={p.venue} /> : null),
     },
@@ -486,12 +489,11 @@ function UnfiledTable({ unfiled }: { unfiled: NonNullable<HomeRecord["unfiled"]>
     {
       key: "quartile",
       header: "Quartile",
-      empty: "None",
       exportValue: (p) => p.quartile ?? null,
       cell: (p) =>
         p.quartile ? (
-          <Chip tone={p.quartile === "Q1" ? "gold" : "neutral"} title="The journal's quartile on the college's record">
-            {p.quartile} journal
+          <Chip tone={p.quartile === "Q1" ? "gold" : "neutral"} title="The journal's quartile, the same one the filing form shows">
+            {p.quartile} journal{p.snip != null ? `, SNIP ${p.snip}` : ""}
           </Chip>
         ) : null,
     },

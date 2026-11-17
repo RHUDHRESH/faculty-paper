@@ -65,6 +65,11 @@ INSTALLED_APPS = [
 #                      (60 by default). Each look is a query on the database,
 #                      and an idle database that is queried every 15 s never
 #                      sleeps; a queued job waits up to a minute to start.
+#: Run the safe data fills once after a deploy: set to a run id such as
+#: "2026-11-17". The id is kept (SystemSetting "data_fill_deploy"), so a restart,
+#: or the next deploy with the same id, does nothing. Empty leaves it off.
+DATA_FILL_ON_DEPLOY = os.getenv("DATA_FILL_ON_DEPLOY", "")
+
 Q_CLUSTER = {
     "name": "faculty_paper",
     "workers": 1,  # shares one small container with gunicorn
@@ -89,6 +94,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Whose request this is, for the readers of API keys (core/services/user_keys.py).
+    "core.services.user_keys.ActingPersonMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     # A GET while viewing as somebody is rolled back: view-as writes nothing.
@@ -456,6 +463,7 @@ INTEGRATIONS_CACHE_SECONDS = 0 if _RUNNING_TESTS else float(os.getenv("INTEGRATI
 # which is free without a key; a key only raises the daily budget the title
 # search falls back on when Crossref is down (core/services/paper_lookup.py).
 OPENALEX_API_KEY = os.getenv("OPENALEX_API_KEY", "")
+SEMANTIC_SCHOLAR_API_KEY = (os.getenv("SEMANTIC_SCHOLAR_API_KEY") or "").strip()
 
 # Gemini, for the two discovery features. Absent is a supported state: the
 # endpoints report that the feature is off rather than failing, which is the
@@ -710,6 +718,11 @@ LOGGING = {
         # request line came out twice.
         "core.api": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO"), "propagate": False},
         "core.log": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO"), "propagate": False},
+        # httpx logs every request URL at INFO, and the Scopus client puts the
+        # key in the query string. A person's own key must never reach a log,
+        # so these stay quiet whatever the root level is set to.
+        "httpx": {"level": "WARNING"},
+        "httpcore": {"level": "WARNING"},
     },
 }
 

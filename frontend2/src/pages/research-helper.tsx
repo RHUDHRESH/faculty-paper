@@ -13,6 +13,7 @@ import { Callout, EmptyState, InlineError, Skeleton, SkeletonRows } from "@/ui/s
 import { Meta, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { ChoiceChips } from "@/pages/record-bits"
+import { KeyText } from "@/pages/my-keys"
 
 /**
  * The research helper (docs/ux/20-ai.md, "Where to publish next" and "Intro
@@ -316,7 +317,11 @@ function FirstUse() {
 function AiNote({ ai, useAi }: { ai: AiBlock | undefined; useAi: boolean }) {
   if (!ai) return null
   if (ai.state === "off")
-    return <Meta className="block">{ai.detail ?? "AI is off for this college. The lists are counted from the college's record."}</Meta>
+    return (
+      <Meta className="block">
+        <KeyText text={ai.detail ?? "AI is off for this college. The lists are counted from the college's record."} />
+      </Meta>
+    )
   const where = ai.hosted
     ? `${ai.model} at ${ai.host}. What you paste is sent there to be answered.`
     : `${ai.model}, running on this server. Nothing you paste is sent anywhere else.`

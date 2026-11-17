@@ -62,7 +62,7 @@ export function Conflicts() {
   const status: StatusFilter = (STATUSES as readonly string[]).includes(params.get("status") ?? "")
     ? (params.get("status") as StatusFilter)
     : "open"
-  const kind = params.get("kind") === "faculty" || params.get("kind") === "amount" ? params.get("kind")! : ""
+  const kind = ["faculty", "amount", "double_payment"].includes(params.get("kind") ?? "") ? params.get("kind")! : ""
   const [q, setQ] = useState("")
   const [asking, setAsking] = useState<{ row: ConflictRow; action: Action } | null>(null)
 
@@ -116,6 +116,12 @@ export function Conflicts() {
         items={[
           { value: c?.open_faculty, label: "Open faculty differences", zero: "No faculty differences open", tone: c?.open_faculty ? "caution" : "neutral" },
           { value: c?.open_amount, label: "Open amounts", zero: "No amounts differ", tone: c?.open_amount ? "caution" : "neutral" },
+          {
+            value: c?.open_double_payment,
+            label: "Papers paid more than once",
+            zero: "No paper paid more than once",
+            tone: c?.open_double_payment ? "caution" : "neutral",
+          },
           { value: c?.resolved_week, label: "Resolved this week", zero: "None resolved this week" },
         ]}
       />
@@ -133,6 +139,7 @@ export function Conflicts() {
           <option value="">Every kind</option>
           <option value="faculty">Faculty list</option>
           <option value="amount">Amounts</option>
+          <option value="double_payment">Paid more than once</option>
         </Select>
         <Select
           aria-label="Status"
@@ -245,14 +252,14 @@ function columnsFor(may: boolean, ask: (row: ConflictRow, action: Action) => voi
       key: "app",
       header: "In the app",
       empty: "Empty",
-      exportValue: (r) => (r.kind === "amount" ? r.ledger_amount : (r.current ?? "")),
+      exportValue: (r) => (r.kind === "double_payment" ? inTheApp(r) : r.kind === "amount" ? r.ledger_amount : (r.current ?? "")),
       cell: (r) => inTheApp(r) || null,
     },
     {
       key: "file",
       header: "In the file",
       empty: "Empty",
-      exportValue: (r) => (r.kind === "amount" ? r.file_amount : (r.incoming ?? "")),
+      exportValue: (r) => (r.kind === "double_payment" ? inTheFile(r) : r.kind === "amount" ? r.file_amount : (r.incoming ?? "")),
       cell: (r) => inTheFile(r) || null,
     },
     {
@@ -371,7 +378,7 @@ function Confirm({
   onClose: () => void
   onDone: (result: ResolveResult) => void
 }) {
-  const needsNote = action === "update_ledger"
+  const needsNote = action === "update_ledger" || action === "mark_error"
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -406,7 +413,13 @@ function Confirm({
         <DialogBody className="space-y-3.5">
           <Field
             label={needsNote ? "Note" : "Note (optional)"}
-            hint={needsNote ? "Required. Say why the ledger is being changed." : "Kept with the change in the audit log."}
+            hint={
+              action === "mark_error"
+                ? "Required. Say what went wrong, so the money can be recovered."
+                : needsNote
+                  ? "Required. Say why the ledger is being changed."
+                  : "Kept with the change in the audit log."
+            }
           >
             <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
           </Field>

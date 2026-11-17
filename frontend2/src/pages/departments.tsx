@@ -22,6 +22,8 @@ import {
   deptUrl,
   type Head,
   n,
+  NO_DEPARTMENT,
+  NO_DEPARTMENT_PATH,
   papersUrl,
   rupees,
 } from "@/pages/principal-parts"
@@ -294,12 +296,16 @@ export function Departments() {
             {b.unassigned_papers > 0 && (
               <p>
                 <Link
-                  to={papersUrl({ year: b.year, department: "Department not recorded" })}
+                  to={papersUrl({ year: b.year, department: NO_DEPARTMENT })}
                   className="text-accent underline-offset-4 hover:underline"
                 >
                   {n(b.unassigned_papers)} papers of {b.year}
                 </Link>{" "}
-                carry no department, so no row above holds them.
+                are by people with no department on their account, so no row above holds them.{" "}
+                <Link to={NO_DEPARTMENT_PATH} className="text-accent underline-offset-4 hover:underline">
+                  See the accounts to fix
+                </Link>
+                .
               </p>
             )}
           </div>

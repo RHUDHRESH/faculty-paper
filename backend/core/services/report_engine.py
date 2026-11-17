@@ -107,6 +107,8 @@ class Plan:
     sort: list[tuple[str, str]] = field(default_factory=list)
     limit: int = DEFAULT_LIMIT
     top_n: Optional[int] = None
+    #: A file ends with a Total and an Average row (rows mode only).
+    totals: bool = False
 
 
 def _lookup(dataset: Dataset, viewer: Viewer, key: Any, what: str) -> Field:
@@ -189,7 +191,7 @@ def _filter(dataset: Dataset, viewer: Viewer, raw: Any) -> Filter:
     if not isinstance(raw, dict):
         raise ReportError("Each filter needs a field, an operator and a value.")
     f = _lookup(dataset, viewer, raw.get("field"), "filter")
-    if f.python is not None or not f.filterable:
+    if f.column_only or not f.filterable:
         raise ReportError(f"{f.label} cannot be used to filter. It can only be shown as a column.")
     op = raw.get("op")
     if op not in OPS:
@@ -226,7 +228,7 @@ def _fn_ok(f: Optional[Field], fn: Any, what: str) -> None:
         return
     if f is None:
         raise ReportError(f"The {what} {fn!r} needs a field.")
-    if f.python is not None:
+    if f.column_only:
         raise ReportError(f"{f.label} can only be shown as a column, not calculated on.")
     if fn in ("sum", "avg") and f.type not in ("number", "money"):
         raise ReportError(f"{f.label} is not a number, so it cannot be totalled or averaged. Count it instead.")
@@ -282,6 +284,9 @@ def plan(user, definition: Any) -> Plan:
         limit = DEFAULT_LIMIT
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_LIMIT:
         raise ReportError(f"The limit must be a whole number from 1 to {MAX_LIMIT:,}.")
+    totals = definition.get("totals")
+    if totals is not None and not isinstance(totals, bool):
+        raise ReportError("totals is yes or no.")
     top_n = definition.get("top_n")
     if top_n is not None and (isinstance(top_n, bool) or not isinstance(top_n, int) or not 1 <= top_n <= MAX_LIMIT):
         raise ReportError(f"top_n must be a whole number from 1 to {MAX_LIMIT:,}.")
@@ -301,7 +306,7 @@ def plan(user, definition: Any) -> Plan:
     group_by: list[Field] = []
     for name in group_raw:
         g = _lookup(dataset, viewer, name, "group")
-        if not g.groupable or g.python is not None:
+        if not g.groupable or g.column_only:
             raise ReportError(f"{g.label} cannot be used to group.")
         if g in group_by:
             raise ReportError(f"{g.label} is in group_by twice.")
@@ -332,7 +337,7 @@ def plan(user, definition: Any) -> Plan:
         pivot_rows = _lookup(dataset, viewer, pivot_raw.get("rows"), "pivot")
         pivot_columns = _lookup(dataset, viewer, pivot_raw.get("columns"), "pivot")
         for p in (pivot_rows, pivot_columns):
-            if not p.groupable or p.python is not None:
+            if not p.groupable or p.column_only:
                 raise ReportError(f"{p.label} cannot be used in a pivot.")
         if pivot_rows is pivot_columns:
             raise ReportError("A pivot needs two different fields, one for rows and one for columns.")
@@ -408,11 +413,13 @@ def plan(user, definition: Any) -> Plan:
         "sort": [{"field": k, "dir": d} for k, d in sort],
         "limit": limit,
         "top_n": top_n,
+        **({"totals": True} if totals and mode == "rows" else {}),
     }
     return Plan(
         viewer=viewer, dataset=dataset, mode=mode, definition=normalised, columns=columns, filters=filters,
         group_by=group_by, bucket=bucket, aggregates=aggregates, pivot_rows=pivot_rows,
         pivot_columns=pivot_columns, pivot_value=pivot_value, sort=sort, limit=limit, top_n=top_n,
+        totals=bool(totals) and mode == "rows",
     )
 
 
@@ -426,7 +433,7 @@ def _filter_json(f: Filter) -> dict[str, Any]:
 
 def _sortable_keys(mode, dataset, viewer, group_by, aggregates, pivot_rows) -> set[str]:
     if mode == "rows":
-        return {f.key for f in dataset.fields_for(viewer) if f.sortable and f.python is None}
+        return {f.key for f in dataset.fields_for(viewer) if f.sortable and not f.column_only}
     if mode == "group":
         return {g.key for g in group_by} | {a.key for a in aggregates}
     return {pivot_rows.key, "total"}
@@ -549,12 +556,15 @@ def _annotations(plan_: Plan, fields: list[Field]) -> dict[str, Any]:
 def _used_fields(plan_: Plan) -> list[Field]:
     used: list[Field] = []
 
-    def add(f: Optional[Field]):
-        if f is not None and f.python is None and f not in used:
-            used.append(f)
+    def add(f: Optional[Field], *, shown: bool = False):
+        # A computed field is a column's job in Python; only a queryable one is
+        # also annotated, and only when the query itself uses it.
+        if f is None or f in used or (f.python is not None and (shown or not f.queryable)):
+            return
+        used.append(f)
 
     for c in plan_.columns:
-        add(c)
+        add(c, shown=True)
         if c.python is not None:
             for need in c.python[0]:
                 add(plan_.dataset.field(need))
@@ -854,4 +864,25 @@ def table_for_file(result: dict[str, Any], plan_: Plan) -> tuple[list[str], list
         [("Yes" if r[k] else "No") if (t == "bool" and r[k] is not None) else r[k] for k, t in zip(keys, types)]
         for r in result["rows"]
     ]
+    if plan_.totals and rows:
+        rows = rows + _totals_rows(result["columns"], plan_, rows)
     return headings, rows, kinds
+
+
+def _totals_rows(columns: list[dict[str, Any]], plan_: Plan, rows: list[list[Any]]) -> list[list[Any]]:
+    """A Total row (how many rows, and the sum of each money and totalled number) and an
+    Average row under it. A cell no column adds up stays empty."""
+    total: list[Any] = [None] * len(columns)
+    average: list[Any] = [None] * len(columns)
+    for i, c in enumerate(columns):
+        f = plan_.dataset.field(c["key"])
+        if c["type"] == "money" or (f is not None and f.totalled):
+            values = [r[i] for r in rows if isinstance(r[i], (int, float)) and not isinstance(r[i], bool)]
+            if values:
+                places = 2 if c["type"] == "money" else 3
+                total[i] = round(sum(values), places)
+                average[i] = round(sum(values) / len(values), places)
+    first = next((i for i, c in enumerate(columns) if c["type"] in ("string", "enum")), 0)
+    total[first] = f"Total of {len(rows):,} row{'s' if len(rows) != 1 else ''}"
+    average[first] = "Average"
+    return [total, average]

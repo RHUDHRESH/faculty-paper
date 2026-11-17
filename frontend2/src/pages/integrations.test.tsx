@@ -62,6 +62,25 @@ const LISTING = {
   ],
 }
 
+const OVERVIEW = {
+  providers: [
+    {
+      provider: "ai",
+      label: "AI service",
+      policy: "own_preferred",
+      can_require: true,
+      people_with_own_key: 1,
+      calls_today: 2,
+      calls_month: 40,
+      people: [
+        { user_id: "u1", name: "Asha Rao", initials: "AR", photo_url: null, department: "CSE", calls_today: 2, calls_month: 40, last_used_at: null },
+      ],
+    },
+    { provider: "scopus", label: "Scopus (Elsevier)", policy: "college", can_require: true, people_with_own_key: 0, calls_today: 0, calls_month: 0, people: [] },
+    { provider: "openalex", label: "OpenAlex", policy: "own_preferred", can_require: false, people_with_own_key: 0, calls_today: 0, calls_month: 0, people: [] },
+  ],
+}
+
 const calls = (method: string, prefix: string) =>
   vi
     .mocked(api)
@@ -73,7 +92,7 @@ beforeEach(() => {
 
 function serve(extra: Record<string, () => unknown> = {}) {
   vi.mocked(api).mockImplementation(
-    fakeApi({ "/api/auth/me": () => ADMIN, "/api/admin/integrations": () => LISTING, ...extra })
+    fakeApi({ "/api/auth/me": () => ADMIN, "/api/admin/integrations": () => LISTING, "/api/admin/keys/overview": () => OVERVIEW, ...extra })
   )
 }
 
@@ -141,6 +160,31 @@ describe("Integrations", () => {
     await userEvent.click(within(screen.getByRole("region", { name: "Claude (Anthropic)" })).getByRole("button", { name: "Test connection" }))
     expect(await screen.findByText(/It did not work \(80 ms\)\. Anthropic refused the key \(401\)\./)).toBeTruthy()
     expect(calls("POST", "/api/admin/integrations/scopus/test")).toHaveLength(1)
+  })
+
+  it("shows who brings their own key, by name and count, with a policy for each service", async () => {
+    serve()
+    renderWithProviders(<Integrations />)
+    const section = within(await screen.findByRole("region", { name: "Who brings their own key" }))
+    expect(await section.findByText("Asha Rao")).toBeTruthy()
+    expect(section.getByText(/1 person has their own key\. Calls today 2, this month 40\./)).toBeTruthy()
+    expect((section.getByLabelText("Policy for AI service") as HTMLSelectElement).value).toBe("own_preferred")
+    expect((section.getByLabelText("Policy for Scopus (Elsevier)") as HTMLSelectElement).value).toBe("college")
+    // A service that works without a key cannot be made required.
+    const openalex = within(screen.getByTestId("policy-row-openalex"))
+    expect((openalex.getByRole("option", { name: /must bring their own key/ }) as HTMLOptionElement).disabled).toBe(true)
+    expect(openalex.getByText(/works without a key, so it cannot be made required/)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/sk-|api[_-]?key=/i)
+  })
+
+  it("saves the policy chosen for a service and sends nothing else", async () => {
+    serve({ "/api/admin/keys/policy/scopus": () => OVERVIEW })
+    renderWithProviders(<Integrations />)
+    const section = within(await screen.findByRole("region", { name: "Who brings their own key" }))
+    await userEvent.selectOptions(await section.findByLabelText("Policy for Scopus (Elsevier)"), "own_required")
+    const puts = calls("PUT", "/api/admin/keys/policy/scopus")
+    expect(puts).toHaveLength(1)
+    expect((puts[0][1] as { json: unknown }).json).toEqual({ policy: "own_required" })
   })
 
   it("shows the calm not-open gate and sends nothing for anybody but a super admin", async () => {

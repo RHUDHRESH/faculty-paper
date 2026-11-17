@@ -6,7 +6,7 @@ accounts is their job. It also let them reset the password of the Super Admin,
 the Director, Finance or the Principal and sign in as them -- the desk that
 clears a claim could take over the desks that approve, authorise and pay it.
 
-For those four roles (`rbac.PROTECTED_ROLES`) every user-management write is a
+For those five roles (`rbac.PROTECTED_ROLES`) every user-management write is a
 super admin's alone, whether the account is the *target* (reset, edit,
 deactivate, merge) or the role is being *given* (create, promote). A refusal is
 a 403 that changes nothing and leaves a `USER_ACTION_REFUSED` audit row.
@@ -37,11 +37,15 @@ class ProtectedAccounts(ChainBase):
             email="chain-admin2@test.edu", password=None, name="Second Superadmin",
             role=Role.SUPER_ADMIN,
         )
+        self.vice_principal = User.objects.create_user(
+            email="chain-vp@test.edu", password=None, name="Vimala Vice", role=Role.VICE_PRINCIPAL,
+        )
         self.protected = {
             "super admin": self.second_admin,
             "director": self.director,
             "finance": self.finance,
             "principal": self.principal,
+            "vice principal": self.vice_principal,
         }
         self.office = {"research coordinator": self.coordinator, "research cell": self.cell}
 

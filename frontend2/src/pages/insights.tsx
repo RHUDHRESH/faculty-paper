@@ -16,6 +16,7 @@ import { Section } from "@/ui/section"
 import { InlineError, SkeletonRows } from "@/ui/state"
 import { ColumnLabel, Meta } from "@/ui/text"
 import { claimHref } from "@/pages/track-data"
+import { KeyText } from "@/pages/my-keys"
 
 /**
  * Ask the data: a question in plain English, answered from the college's own
@@ -254,7 +255,7 @@ function AnswerView({
         </p>
         {a.notices.map((n) => (
           <Meta key={n} className="block">
-            {n}
+            <KeyText text={n} />
           </Meta>
         ))}
       </div>

@@ -36,6 +36,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 from django.db.models import Count, Q
+from core.services import placeholders
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -63,7 +64,8 @@ from core.models import (
     Skill,
     User,
 )
-from core.services import aggregate_cache, cell_safe, rbac
+from core.services import aggregate_cache, cell_safe, rbac, top5
+from core.services.search.money import may_see_money
 from core.services import coauthors as graph
 from core.services.person_record import Paper, papers_of
 from core.services.remuneration import MAX_ELIGIBLE_AUTHORS
@@ -141,7 +143,10 @@ def _require_directory(request: HttpRequest) -> User:
 
 
 def _population(viewer: User):
-    qs = User.objects.filter(role__in=DIRECTORY_POPULATION).annotate(completeness_n=completeness_score_expr())
+    # The import's "Not Found" owner is data, not a colleague.
+    qs = placeholders.real_people(
+        User.objects.filter(role__in=DIRECTORY_POPULATION).annotate(completeness_n=completeness_score_expr())
+    )
     if not _sees_everyone(viewer.role):
         qs = qs.filter(department__iexact=hod.department_of(viewer))
     return qs
@@ -329,7 +334,9 @@ def _scopus_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _row(u: User, base: dict[str, Any], viewer: User, scopus_papers: int) -> dict[str, Any]:
+def _row(
+    u: User, base: dict[str, Any], viewer: User, scopus_papers: int, standings: dict[str, Any] | None = None
+) -> dict[str, Any]:
     money = _money_ok(viewer, u.id)
     quota_visible = money or viewer.id == u.id
     row: dict[str, Any] = {
@@ -367,6 +374,12 @@ def _row(u: User, base: dict[str, Any], viewer: User, scopus_papers: int) -> dic
     if money:
         # Under keys `hod.for_head` knows are money, so a slip is stripped for a head.
         row["incentive"] = {"amount": base["paid_year"], "total_amount": base["paid_total"]}
+    # The three standings numbers (docs: Standings), all time and this academic
+    # year. A head never gets the incentive, not even their own: the Standings rule.
+    row["standing"] = top5.standing_of(
+        u.id, standings if standings is not None else top5.totals_by_user(top5.today()),
+        money=money and may_see_money(viewer.role),
+    )
     return row
 
 
@@ -389,7 +402,8 @@ def _select(
     users = list(qs.order_by("name"))
     base = _cached_base(users)
     scopus_papers = _scopus_papers(users)
-    rows = [_row(u, base[u.id], viewer, scopus_papers.get(u.id, 0)) for u in users]
+    standings = top5.totals_by_user(top5.today())
+    rows = [_row(u, base[u.id], viewer, scopus_papers.get(u.id, 0), standings) for u in users]
     # Current staff by default, so the figures here are the ones on the "what
     # is missing" list and on Admin: a leaver without a photo is not a gap to
     # close. The base above is built for everybody so both views share it.
@@ -592,7 +606,7 @@ def _stage_for(viewer: User, c: Claim) -> str:
 
 def _may_review(viewer: User, c: Claim) -> bool:
     return (
-        viewer.role in (*rbac.ADMIN_ROLES, Role.PRINCIPAL, Role.DIRECTOR)
+        viewer.role in (*rbac.ADMIN_ROLES, *rbac.PRINCIPAL_SEATS, Role.DIRECTOR)
         and viewer.id != c.owner_id
         and c.status != ClaimStatus.DRAFT
     )
@@ -808,6 +822,11 @@ def faculty_record(request: HttpRequest, user_id: str):
             "year": year,
         },
         "metrics": {**metrics, "papers_this_year": sum(1 for p in pubs if p["year"] == year)},
+        # Cumulative SNIP, papers settled and (where the reader may see money) the
+        # incentive paid; the page links to "how this is counted".
+        "standing": top5.standing_of(
+            person.id, top5.totals_by_user(top5.today()), money=money and may_see_money(viewer.role)
+        ),
         "papers": paper_rows,
         "claims": claims,
         "payments": _payments(person) if money else None,

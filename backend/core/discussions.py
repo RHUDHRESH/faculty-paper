@@ -14,6 +14,7 @@ from django.db.models import Q
 
 from core.models import Claim, ClaimStatus, Mention, Role, Thread, User
 from core.services import rbac
+from core.services.ellipsis import ellipsize
 
 #: `@name`, `@"a name with spaces"`, or a typed form like `@journal:Nature`.
 #: The quoted form exists because journal titles and people's names both
@@ -169,7 +170,7 @@ def mentionable_papers(user: User):
     else's draft, ever, and a colleague's ticket is not a claimant's to read.
     """
     own = Q(owner=user)
-    if is_office(user.role) or user.role in (Role.PRINCIPAL, Role.FINANCE):
+    if is_office(user.role) or user.role in (*rbac.PRINCIPAL_SEATS, Role.FINANCE):
         return Claim.objects.filter(own | ~Q(status=ClaimStatus.DRAFT))
     return Claim.objects.filter(own)
 
@@ -368,8 +369,8 @@ def mention_candidates(user: User, query: str, kind: str | None, limit: int = 8)
             out.append({
                 "kind": Mention.Kind.PAPER,
                 "id": c.ticket_number or c.id,
-                "label": c.ticket_number or (c.paper_title or "")[:60],
-                "hint": (c.paper_title or "")[:70],
+                "label": c.ticket_number or ellipsize(c.paper_title, 60),
+                "hint": ellipsize(c.paper_title, 70),
             })
 
     if "agent".startswith(text.lower()) or text.lower() in AGENT_NAMES:

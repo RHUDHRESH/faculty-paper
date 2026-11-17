@@ -42,7 +42,15 @@ type Group = { key: string; names: string[]; papers: number; authorships: number
 type MatchesPayload = {
   total: number
   items: Group[]
-  counts: { open: number; ambiguous: number; hidden: number; open_suggested?: number; open_unsuggested?: number }
+  counts: {
+    open: number
+    ambiguous: number
+    hidden: number
+    open_suggested?: number
+    open_unsuggested?: number
+    /** Papers the college's own files placed (a settled claim or a payment named the person). */
+    from_files?: number
+  }
 }
 type Account = {
   id: string
@@ -133,6 +141,14 @@ export function AuthorMatches() {
           },
         ]}
       />
+
+      {c?.from_files != null && c.from_files > 0 && (
+        <p className="max-w-prose text-sm text-fg-muted" role="status">
+          {formatCount(c.from_files)} {c.from_files === 1 ? "paper was" : "papers were"} placed from the college&apos;s own files, the
+          settled claims and payments. Only the {formatCount(c.open)} {c.open === 1 ? "name" : "names"} left here{" "}
+          {c.open === 1 ? "needs" : "need"} a person.
+        </p>
+      )}
 
       <div role="tablist" aria-label="Review" className="flex flex-wrap gap-1 border-b border-line">
         {TABS.map((t) => (

@@ -30,6 +30,7 @@ import { Callout, EmptyState, ErrorState, NotOpen, SkeletonRows } from "@/ui/sta
 import { Table, type Column } from "@/ui/table"
 import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { paperColumns, registerTotals } from "@/pages/paper-columns"
 import { PrintStamp } from "@/pages/reports-print"
 import type { FinancialYear, StatementMonth } from "@/pages/statements"
 import {
@@ -154,16 +155,41 @@ export function PaymentsDone() {
     )
   }
 
+  // The owner's list is what the register opens with: title, journal name, ISSN,
+  // category, quartile, SNIP, number of authors, author position, amount paid.
+  const figure = paperColumns<PayoutClaim>((c) => c.figures, (c) => c.journal_title)
   const columns: Column<PayoutClaim>[] = [
-    { key: "claimant", header: "Paid to", exportValue: (c) => c.owner_name, cell: (c) => <Claimant c={c} size="md" /> },
-    { key: "staff_id", header: "Staff id", defaultHidden: true, exportValue: (c) => c.staff_id ?? null, cell: (c) => c.staff_id },
+    { key: "claimant", header: "Faculty", exportValue: (c) => c.owner_name, cell: (c) => <Claimant c={c} size="md" /> },
+    { key: "paper", header: "Title", exportValue: (c) => c.paper_title, cell: (c) => <PaperCell c={c} journal={false} /> },
+    figure.journal,
+    figure.issn,
+    figure.category,
+    figure.quartile,
+    figure.snip,
+    figure.totalAuthors,
+    figure.authorPosition,
+    { key: "amount", header: "Amount paid", align: "right", exportKind: "money", exportValue: (c) => c.remuneration ?? null, cell: (c) => <AmountCell c={c} /> },
+    { key: "staff_id", header: "Staff ID", defaultHidden: true, exportValue: (c) => c.staff_id ?? null, cell: (c) => c.staff_id },
     { key: "department", header: "Department", defaultHidden: true, exportValue: (c) => c.owner_department ?? null, cell: (c) => c.owner_department },
-    { key: "paper", header: "Paper", exportValue: (c) => c.paper_title, cell: (c) => <PaperCell c={c} journal={false} /> },
-    { key: "claim_no", header: "Claim no.", defaultHidden: true, exportValue: (c) => c.ticket_number, cell: (c) => c.ticket_number },
-    { key: "voucher", header: "Voucher", className: "break-all", empty: "None", exportValue: (c) => c.voucher_number ?? null, cell: (c) => c.voucher_number },
+    {
+      key: "month_paid",
+      header: "Month paid",
+      defaultHidden: true,
+      exportValue: (c) => monthKey(c),
+      cell: (c) => monthLabel(monthKey(c), true),
+    },
+    figure.academicYear,
+    figure.doi,
+    figure.documentType,
+    figure.indexing,
+    { key: "claim_no", header: "Claim number", defaultHidden: true, exportValue: (c) => c.ticket_number, cell: (c) => c.ticket_number },
+    { key: "status", header: "Status", defaultHidden: true, exportValue: () => "Paid", cell: () => "Paid" },
+    figure.remark,
+    { key: "voucher", header: "Voucher", defaultHidden: true, className: "break-all", empty: "None", exportValue: (c) => c.voucher_number ?? null, cell: (c) => c.voucher_number },
     {
       key: "paid",
       header: "Paid on",
+      defaultHidden: true,
       exportValue: (c) => c.paid_at?.slice(0, 10) ?? null,
       cell: (c) => (
         <div>
@@ -172,7 +198,6 @@ export function PaymentsDone() {
         </div>
       ),
     },
-    { key: "amount", header: "Amount", align: "right", exportKind: "money", exportValue: (c) => c.remuneration ?? null, cell: (c) => <AmountCell c={c} /> },
     {
       key: "ledger",
       header: "On the ledger",
@@ -341,7 +366,13 @@ export function PaymentsDone() {
             getKey={(c) => c.id}
             caption="Payments made"
             maxHeight="none"
-            tools={{ id: "payments-paid", title: "Payments made", subtitle: chosen ? chosen.label : undefined, getAllRows: allRows }}
+            tools={{
+              id: "payments-paid",
+              title: "Payments made",
+              subtitle: chosen ? chosen.label : undefined,
+              getAllRows: allRows,
+              exportTotals: (all) => registerTotals(all, (c) => c.remuneration, (c) => c.figures?.snip),
+            }}
           />
           <ErpLegend rows={rows} />
           <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={goToPage} />

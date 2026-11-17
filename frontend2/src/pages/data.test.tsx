@@ -35,4 +35,14 @@ describe("the data index", () => {
     expect(screen.getByText("Payment ledger")).toBeTruthy()
     expect(screen.queryByText("Claims")).toBeNull()
   })
+
+  it.each(["RESEARCH_COORDINATOR", "PRINCIPAL"] as const)("tells %s the raw tables are a super admin's, without asking the server", async (role) => {
+    vi.mocked(api).mockImplementation(
+      fakeApi({ "/api/auth/me": () => ({ ...ADMIN, role }) })
+    )
+    renderWithProviders(<Data />, { route: "/data" })
+    expect(await screen.findByText(/open to a super admin only/)).toBeTruthy()
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect(vi.mocked(api).mock.calls.some((c) => String(c[0]).includes("/api/admin/data/tables"))).toBe(false)
+  })
 })

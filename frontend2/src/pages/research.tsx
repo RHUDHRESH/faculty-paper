@@ -5,7 +5,7 @@ import { AlarmClock, ArrowRight, Hourglass, Lightbulb, Sparkles, TrendingUp, Use
 import { useAuth } from "@/app/auth"
 import { useCollegeName } from "@/app/institution"
 import { cn } from "@/lib/cn"
-import { formatCount } from "@/lib/count"
+import { formatCount, plural } from "@/lib/count"
 import { useApi, useApiMutation } from "@/lib/query"
 import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
@@ -213,7 +213,8 @@ function MeTab({ q }: { q: Q<MyResearch> }) {
   const d = q.data
   const m = d?.metrics
   const noRecord = d && m?.papers === 0
-  const year = d?.this_year.year
+  // The server's year once it answers; this year until then, so the label never reads "in undefined".
+  const year = d?.this_year.year ?? new Date().getFullYear()
 
   return (
     <>
@@ -241,7 +242,7 @@ function MeTab({ q }: { q: Q<MyResearch> }) {
           {
             value: d?.this_year.papers,
             label: `papers so far in ${year}`,
-            zero: `None yet in ${year}`,
+            zero: `No papers yet in ${year}`,
             to: `/papers?year=${year}`,
             detail: d?.this_year.papers ? { kind: "metric", metric: "year", value: year } : undefined,
           },
@@ -858,7 +859,7 @@ function TopicMap({ topics }: { topics: CollegePicture["topics"] }) {
               role="listitem"
               key={t.id}
               to={topicHref(t.label)}
-              title={`${t.label} · ${t.papers} papers`}
+              title={`${t.label} · ${plural(t.papers, "paper")}`}
               style={{ flexGrow: t.papers, flexBasis: `${Math.max(8, share * 26)}rem` }}
               className={cn(
                 "flex min-h-20 flex-col justify-between rounded-lg p-3 text-left transition-colors hover:brightness-95",
@@ -868,7 +869,7 @@ function TopicMap({ topics }: { topics: CollegePicture["topics"] }) {
             >
               <span className="line-clamp-2 text-sm font-medium">{t.label}</span>
               <span className="text-xs tabular opacity-80">
-                {t.papers} papers{t.growth > 0 ? ` · +${t.growth}` : ""}
+                {plural(t.papers, "paper")}{t.growth > 0 ? ` · +${t.growth}` : ""}
               </span>
             </Link>
           )
@@ -917,8 +918,8 @@ function HeatGrid({ d }: { d: CollegePicture }) {
                 return (
                   <td
                     key={t.id}
-                    title={`${dep.name} · ${t.label} · ${n} papers`}
-                    aria-label={`${dep.name}, ${t.label}: ${n} papers`}
+                    title={`${dep.name} · ${t.label} · ${plural(n, "paper")}`}
+                    aria-label={`${dep.name}, ${t.label}: ${plural(n, "paper")}`}
                     className="h-8 min-w-9 rounded-sm text-center tabular"
                     style={{
                       background: n ? `color-mix(in oklab, var(--area) ${Math.round(15 + (n / max) * 85)}%, transparent)` : undefined,

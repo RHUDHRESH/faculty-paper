@@ -110,3 +110,29 @@ describe("PaperDetail — an imported claim's history", () => {
     expect(within(historySection()).getByText(/Paid in March 2025/)).toBeInTheDocument()
   })
 })
+
+describe("PaperDetail: a paper the college counts and does not pay", () => {
+  const COUNTED = { claim_reason: "COUNT_ONLY", status: "SUBMITTED", ticket_number: "FP-2026-000009", paid_at: null }
+
+  it("tells the claimant it is counted, with the reason, and wears the badge", async () => {
+    mount(OWNER, claim({ imported: false }, { ...COUNTED, count_only_reason: "Student publication" }))
+    await screen.findByText("An imported paper")
+    expect(screen.getByText("Counted for the college")).toBeInTheDocument()
+    expect(screen.getByText(/No incentive is paid\. Reason: Student publication\./)).toBeInTheDocument()
+    expect(screen.getByText("Count only")).toBeInTheDocument()
+  })
+
+  it("still says it is counted when the paper was filed that way and no reason was given", async () => {
+    mount(OWNER, claim({ imported: false }, { ...COUNTED, count_only_reason: null }))
+    await screen.findByText("An imported paper")
+    const note = screen.getByText(/This paper is counted for the college\. No incentive is paid\./)
+    expect(note.textContent).not.toMatch(/Reason:/)
+  })
+
+  it("says nothing about counting on an ordinary claim", async () => {
+    mount(OWNER, claim({ imported: false }, { claim_reason: "INCENTIVE", status: "SUBMITTED", paid_at: null }))
+    await screen.findByText("An imported paper")
+    expect(screen.queryByText("Counted for the college")).toBeNull()
+    expect(screen.queryByText("Count only")).toBeNull()
+  })
+})

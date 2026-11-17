@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn"
 import { amountUnrecorded, NOT_RECORDED, NOT_RECORDED_TITLE } from "@/lib/amount"
 import { paperTitle, unshout } from "@/lib/names"
 import { ClaimNo } from "@/ui/claim-number"
+import { CountOnlyBadge, CountOnlyRowMenu, type CountOnlyStage } from "@/ui/count-only"
 import { Checkbox } from "@/ui/field"
 import { money } from "@/ui/paper"
 import { Avatar, initialsOf } from "@/ui/person"
@@ -37,6 +38,10 @@ export type DeskClaim = {
   waiting_days: number | null
   calc_error?: string | null
   remuneration_is_estimate?: boolean
+  owner_email?: string | null
+  status?: string | null
+  /** "COUNT_ONLY" once the paper is counted for the college and not paid. */
+  claim_reason?: string | null
 }
 
 export type DeskSelection<T> = {
@@ -92,6 +97,7 @@ export function DeskTable<T extends DeskClaim>({
   status,
   action,
   actionLabel = "Next step",
+  countOnlyStage,
   empty,
 }: {
   rows: T[]
@@ -113,6 +119,8 @@ export function DeskTable<T extends DeskClaim>({
   /** The last cell of the row: the one thing this desk does. */
   action: (row: T) => React.ReactNode
   actionLabel?: string
+  /** The step this desk holds claims at. Gives each row a More menu with "Accept for count only", where the person may. */
+  countOnlyStage?: CountOnlyStage
   empty: EmptyStateProps
 }) {
   const columns: Column<T>[] = []
@@ -182,6 +190,7 @@ export function DeskTable<T extends DeskClaim>({
                 {r.quartile && <span className="ml-2 rounded-sm bg-sunken px-1.5 font-medium text-fg">{r.quartile}</span>}
               </span>
             )}
+            <CountOnlyBadge claim={r} className="mt-1" />
           </Cursor>
         )
       },
@@ -255,7 +264,12 @@ export function DeskTable<T extends DeskClaim>({
     key: "action",
     header: <span className="sr-only">{actionLabel}</span>,
     label: actionLabel,
-    cell: (r) => <div className="flex flex-wrap items-center justify-end gap-2">{action(r)}</div>,
+    cell: (r) => (
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {action(r)}
+        {countOnlyStage && <CountOnlyRowMenu claim={r} stage={countOnlyStage} />}
+      </div>
+    ),
   })
 
   return (

@@ -159,7 +159,7 @@ export function Department() {
   })
 
   // The Principal has every department, not one: the list of them is her page.
-  if (!isHod && me?.role === "PRINCIPAL") return <Navigate to="/reports/departments" replace />
+  if (!isHod && (me?.role === "PRINCIPAL" || me?.role === "VICE_PRINCIPAL")) return <Navigate to="/reports/departments" replace />
   if (!isHod) {
     return (
       <div className="page py-8">

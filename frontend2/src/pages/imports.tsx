@@ -7,6 +7,7 @@ import { FileSpreadsheet, RefreshCw, Search, Upload, Users } from "lucide-react"
 import { can, useAuth } from "@/app/auth"
 import { api, type ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
+import { plural } from "@/lib/count"
 import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { ConfirmDialog } from "@/ui/dialog"
@@ -54,6 +55,8 @@ import { toast } from "@/ui/toast"
 type ErpStats = {
   faculty_master: number
   claims: number
+  /** Drafts, counted apart from `claims`. */
+  claim_drafts?: number
   claims_paid: number
   prior_payments: number
   paid_ledger: number
@@ -382,7 +385,12 @@ function AlreadyLoaded({ query }: { query: UseQueryResult<ErpStats, ApiError> })
       <Answer
         items={[
           { value: data.faculty_master, label: "People on the roster", to: "?open=faculty-master", zero: "The roster is empty" },
-          { value: data.claims, label: "Papers claimed", to: "/papers", zero: "No papers loaded yet" },
+          {
+            value: data.claims,
+            label: data.claim_drafts ? `Papers claimed (${plural(data.claim_drafts ?? 0, "draft")} not counted)` : "Papers claimed",
+            to: "/papers",
+            zero: "No papers loaded yet",
+          },
           { value: data.claims_paid, label: "Paid", to: "/archive", zero: "Nothing is marked paid" },
           { value: data.prior_payments, label: "Earlier payments held", to: "/ledger", zero: "No payment history loaded" },
         ]}
@@ -407,7 +415,7 @@ function AlreadyLoaded({ query }: { query: UseQueryResult<ErpStats, ApiError> })
             <div key={s.key} title={s.about}>
               <dt className="text-sm text-fg-muted">{s.label}</dt>
               <dd>
-                <span className="figure tabular text-figure">{nf(data[s.key])}</span>
+                <span className="figure tabular text-figure">{nf(data[s.key] ?? 0)}</span>
                 {data[s.key] === 0 && <Meta className="block">None yet</Meta>}
               </dd>
             </div>

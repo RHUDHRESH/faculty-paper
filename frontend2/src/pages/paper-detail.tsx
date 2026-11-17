@@ -3,12 +3,14 @@ import { useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { ArrowLeft, Check, MessageCircle, Printer, Receipt } from "lucide-react"
 
+import { useCrumbParent } from "@/app/crumbs"
 import { cn } from "@/lib/cn"
 
 import { useAuth } from "@/app/auth"
 import { reviewsFlags } from "@/app/nav"
 import { useApi, useApiMutation } from "@/lib/query"
 import { ClaimFlagsPanel, FileCheckLine, useClaimReview } from "@/pages/claim-review"
+import { TeamCheckBlock } from "@/pages/review/team-check"
 import { ProofChecks } from "@/pages/filing/locker"
 import { AttachmentGallery, extensionOf, isOwnMedia, type Attachment } from "@/ui/attachments"
 import { Button } from "@/ui/button"
@@ -29,6 +31,7 @@ import { Answer } from "@/ui/answer"
 import { PageHeader } from "@/ui/page-header"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonText } from "@/ui/state"
 import { ClaimThresholdNote } from "@/ui/research-threshold"
+import { CountOnlyBadge } from "@/ui/count-only"
 import { Meta, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { PrintStamp } from "@/pages/reports-print"
@@ -110,6 +113,10 @@ type Claim = {
   /** Absent on a claimant's own copy: use claimStatus(). */
   status?: string
   status_note: string | null
+  /** "COUNT_ONLY" when the paper is counted for the college and no incentive is paid. */
+  claim_reason?: string | null
+  /** Why the college counted it only, when a reviewer decided that. */
+  count_only_reason?: string | null
   /** REJECTED either way; true when it cannot be fixed and sent again. */
   rejected_outright?: boolean
   /** "2026-09": the month the money went out. */
@@ -243,6 +250,14 @@ export function PaperDetail() {
   // waits for the claim to say whose it is.
   const reviewer = reviewsFlags(me?.role) && !!claim && claim.owner_id !== me?.id
   const review = useClaimReview(id, reviewer)
+  // Somebody else's claim is not in "My papers": say where this reader came from.
+  useCrumbParent(
+    claim && me && claim.owner_id !== me.id
+      ? me.role === "HOD"
+        ? { label: "Department", to: "/department" }
+        : { label: "Track", to: "/track" }
+      : undefined
+  )
   const checksByUrl = new Map((review.data?.file_checks ?? []).map((c) => [c.url, c]))
 
   if (isLoading) {
@@ -423,6 +438,7 @@ export function PaperDetail() {
               ) : (
                 "Not filed yet"
               )}
+              <CountOnlyBadge claim={claim} className="ml-2" />
             </span>
           </>
         }
@@ -559,6 +575,12 @@ export function PaperDetail() {
             ]}
             className="sm:grid-cols-1 md:max-w-md"
           />
+        )}
+        {claim.claim_reason === "COUNT_ONLY" && (
+          <Callout tone="info" title="Counted for the college">
+            This paper is counted for the college. No incentive is paid.
+            {claim.count_only_reason ? ` Reason: ${claim.count_only_reason}.` : ""}
+          </Callout>
         )}
         {settled && isOwner && (
           <p className="text-base text-fg-muted">The college has settled this paper. Thank you for publishing it.</p>
@@ -710,6 +732,7 @@ export function PaperDetail() {
       </section>
 
       {claim.team ? <TeamPanel team={claim.team} /> : null}
+      {reviewer ? <TeamCheckBlock check={review.data?.team_check} /> : null}
 
       {claim.confirmations && claim.confirmations.length > 0 && (
         <Confirmations rows={claim.confirmations} isOwner={isOwner} />
@@ -1435,6 +1458,7 @@ function roleLabel(role: string) {
       RESEARCH_CELL: "Research office",
       RESEARCH_COORDINATOR: "Research coordinator",
       PRINCIPAL: "Principal",
+      VICE_PRINCIPAL: "Vice principal",
     }[role] || role.toLowerCase().replace(/_/g, " ")
   )
 }

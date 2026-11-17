@@ -7,6 +7,7 @@ import { money } from "@/ui/paper"
 import { Avatar, initialsOf } from "@/ui/person"
 import { longDate, type ClaimThreshold } from "@/ui/research-threshold"
 import { Meta } from "@/ui/text"
+import type { PaperFigures } from "@/pages/paper-columns"
 
 /**
  * The pieces the Director's and Finance's money screens share.
@@ -46,6 +47,8 @@ export type PayoutClaim = ClaimThreshold & {
   /** Net on the ledger for this claim: 0 before it is paid. */
   ledger_paid?: number
   ledger_rows?: number
+  /** The paper's figures (`paper_fields`): ISSN, category, quartile, SNIP, authors... */
+  figures?: PaperFigures | null
 }
 
 export type PayableTotals = {

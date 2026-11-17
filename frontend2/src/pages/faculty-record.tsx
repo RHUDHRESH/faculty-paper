@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useMemo, useState } from "react"
 import { stageName } from "@/ui/journey"
 import { Link, useParams, useSearchParams } from "react-router-dom"
@@ -28,6 +29,7 @@ import {
   type FacultyRecordPayload,
   type RecordClaim,
   type RecordPaper,
+  type Standing,
 } from "@/pages/faculty-types"
 
 /**
@@ -114,6 +116,7 @@ export function FacultyRecord() {
       )}
 
       <Figures d={d} tabs={tabs.map((t) => t.id)} />
+      {d.standing && <StandingStrip id={d.person.id} standing={d.standing} self={d.viewer.is_self} />}
 
       <div role="tablist" aria-label="Faculty record" className="flex gap-1 overflow-x-auto border-b border-line" data-area="research">
         {tabs.map((t) => (
@@ -178,7 +181,7 @@ function Header({ d }: { d: FacultyRecordPayload }) {
   const editor = d.viewer.may_edit
   const threshold = p.threshold_set
     ? p.threshold != null
-      ? `Threshold ${p.threshold} papers a year`
+      ? `Threshold ${plural(p.threshold, "paper")} a year`
       : "Threshold set"
     : "Threshold not set"
   return (
@@ -296,6 +299,38 @@ function Missing({ children }: { children?: React.ReactNode }) {
     <span className="text-fg-muted">
       Not on record{children ? <> · {children}</> : null}
     </span>
+  )
+}
+
+const snipText = (v: number) => v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/** The three standings numbers, all time and this academic year, and the way to see how they are made. */
+function StandingStrip({ id, standing, self }: { id: string; standing: Standing; self: boolean }) {
+  const withMoney = standing.all.remuneration != null
+  const cell = (label: string, all: string, year: string) => (
+    <div className="min-w-0">
+      <dt className="text-sm text-fg-muted">{label}</dt>
+      <dd className="tabular text-base font-semibold text-fg">{all}</dd>
+      <dd className="tabular text-sm text-fg-muted">{year} this year</dd>
+    </div>
+  )
+  return (
+    <section aria-label="Standing" data-testid="record-standing" className="space-y-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <SectionTitle>{self ? "My standing" : "Standing"}</SectionTitle>
+        <Link
+          to={`/standings?person=${encodeURIComponent(id)}`}
+          className="text-sm font-medium text-accent underline-offset-2 hover:underline"
+        >
+          How this is counted
+        </Link>
+      </div>
+      <dl className={cn("grid grid-cols-[minmax(0,1fr)] gap-4", withMoney ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+        {cell("Cumulative SNIP", snipText(standing.all.snip), snipText(standing.year.snip))}
+        {withMoney && cell("Incentive paid", money(standing.all.remuneration), money(standing.year.remuneration ?? 0))}
+        {cell("Papers settled", count(standing.all.count), count(standing.year.count))}
+      </dl>
+    </section>
   )
 }
 

@@ -1,3 +1,4 @@
+import { plural } from "@/lib/count"
 import { useEffect, useState } from "react"
 
 import { ApiError } from "@/lib/api"
@@ -52,11 +53,11 @@ export function matchLine(p: Pick<PeoplePayload, "topics" | "ai" | "counted" | "
 
 function inviteLabel(n: number): string {
   if (n === 0) return "Invite people"
-  return n === 1 ? "Invite 1 person" : `Invite ${n} people`
+  return n === 1 ? "Invite 1 person" : `Invite ${plural(n, "person", "people")}`
 }
 
 function inviteToast(n: number): string {
-  return n === 1 ? "Invited 1 person" : `Invited ${n} people`
+  return n === 1 ? "Invited 1 person" : `Invited ${plural(n, "person", "people")}`
 }
 
 /* ------------------------------------------------------------------------ */

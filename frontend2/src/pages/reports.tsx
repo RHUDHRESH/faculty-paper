@@ -8,6 +8,7 @@ import { useAuth } from "@/app/auth"
 import { api } from "@/lib/api"
 import { useApi } from "@/lib/query"
 import { cn } from "@/lib/cn"
+import { plural } from "@/lib/count"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { RankedBars, MixBar, Trend, Distribution, isComparable, type Point } from "@/ui/chart"
@@ -162,7 +163,7 @@ type YearOnYear = {
 
 type ReportsPayload = {
   totals: ReportTotals
-  by_department: Point[]
+  by_department: (Point & { fix_path?: string })[]
   by_quartile: Point[]
   by_month: Point[]
   /** Payments whose month the ERP sheet never recorded: counted in totals, not charted. */
@@ -638,14 +639,14 @@ function CollegeReports() {
               },
               {
                 label: data.totals.paid_claims
-                  ? `Paid, in ${data.totals.paid_claims.toLocaleString("en-IN")} payments${data.per_paper.median > 0 ? `, typically ${money(data.per_paper.median)} each` : ""}`
+                  ? `Paid, in ${plural(data.totals.paid_claims, "payment")}${data.per_paper.median > 0 ? `, typically ${money(data.per_paper.median)} each` : ""}`
                   : "Nothing paid yet",
                 value: money(Math.round(data.totals.paid_amount)),
                 to: drillHref({ label: "Paid claims", filters: { ...scope, status: "PAID" } }),
               },
               {
                 label: data.totals.awaiting_payment
-                  ? `Awaiting payment, in ${data.totals.awaiting_payment.toLocaleString("en-IN")} claims not yet paid`
+                  ? `Awaiting payment, in ${plural(data.totals.awaiting_payment, "claim")} not yet paid`
                   : "Nothing waiting",
                 value: money(data.totals.committed_amount),
                 tone: "caution" as const,
@@ -662,7 +663,7 @@ function CollegeReports() {
 
           {data.month_unrecorded && data.month_unrecorded.count > 0 && (
             <p className="text-sm text-fg-muted">
-              {money(data.month_unrecorded.amount)} in {data.month_unrecorded.count} payments has no month recorded, so it is
+              {money(data.month_unrecorded.amount)} in {plural(data.month_unrecorded.count, "payment")} has no month recorded, so it is
               in the totals but not in the monthly chart.
             </p>
           )}
@@ -704,7 +705,10 @@ function CollegeReports() {
               dimension="Department"
               points={data.by_department.map((p) => ({
                 ...p,
-                to: drillHref({ label: p.label ?? p.key, filters: { ...scope, department: p.key } }),
+                // Unknown is listed last and leads to the accounts to fix, not to a drill-down.
+                to: p.unknown
+                  ? (p.fix_path ?? "/people/no-department")
+                  : drillHref({ label: p.label ?? p.key, filters: { ...scope, department: p.key } }),
               }))}
             />
             <p className="-mt-6 text-sm text-fg-muted print:hidden">
@@ -1283,7 +1287,7 @@ function ConcentrationPanel({ rows }: { rows: BreadthRow[] }) {
             ? `It has fallen from ${earliest.top_ten_share}% in ${earliest.key} to ${latest.top_ten_share}% in ${latest.key}, so the work is spread across more people than it was.`
             : `It has risen from ${earliest.top_ten_share}% in ${earliest.key} to ${latest.top_ten_share}% in ${latest.key}, so the output rests on fewer people than it did.`}
         {thin
-          ? ` Years holding fewer than ${MEANINGFUL_YEAR} papers are listed but never used as the baseline, because a share out of one paper is 100% whatever happened.`
+          ? ` Years holding fewer than ${plural(MEANINGFUL_YEAR, "paper")} are listed but never used as the baseline, because a share out of one paper is 100% whatever happened.`
           : ""}
       </p>
     </section>
@@ -1360,7 +1364,7 @@ function DirectionPanel({
       ) : college && !college.totals.comparable ? (
         <Callout tone="caution" title="The longer view cannot be read off this record">
           {college.totals.not_comparable_why ??
-            `Only ${college.totals.papers_prior.toLocaleString("en-IN")} papers are recorded for ${college.window.prior_from}–${college.window.prior_to}, against ${college.totals.papers.toLocaleString("en-IN")} since ${college.window.recent_from}.`}
+            `Only ${plural(college.totals.papers_prior, "paper")} are recorded for ${college.window.prior_from}–${college.window.prior_to}, against ${college.totals.papers.toLocaleString("en-IN")} since ${college.window.recent_from}.`}
         </Callout>
       ) : college ? (
         <Callout tone="info" title={`Against ${college.window.prior_from}–${college.window.prior_to}`}>
@@ -1534,17 +1538,19 @@ function ReportsSkeleton() {
   )
 }
 
-function plural(n: number, word: string): string {
-  return `${n.toLocaleString("en-IN")} ${word}${n === 1 ? "" : "s"}`
-}
+/** The key the server gives papers whose author has no department. */
+const NO_DEPARTMENT_KEY = "Department not recorded"
 
 /** The college report's one-sentence answer. */
 function collegeAnswer(data: ReportsPayload, department: string, year: string): string {
   const when = year ? `in ${year}` : "across all years on record"
   const who = department || "The college"
   let s = `${who} published ${plural(data.totals.publications, "paper")} ${when}`
-  const lead = [...data.by_department].sort((a, b) => b.count - a.count)[0]
-  if (!department && lead && data.by_department.length > 1) {
+  // Papers with no department on the author's account are not a department,
+  // so they never lead.
+  const named = data.by_department.filter((p) => p.key !== NO_DEPARTMENT_KEY)
+  const lead = [...named].sort((a, b) => b.count - a.count)[0]
+  if (!department && lead && named.length > 1) {
     s += `; ${lead.label ?? lead.key} leads with ${lead.count.toLocaleString("en-IN")}`
   }
   s += `. ${money(Math.round(data.totals.paid_amount))} has been paid`

@@ -19,9 +19,17 @@ STALE_BATCH_AFTER = timedelta(minutes=5)
 
 
 def run_monthly_batch(batch_id: str) -> str:
+    from core.models import BatchStatus, MonthlyBatch
     from core.services.monthly_processor import process_batch
 
     process_batch(batch_id)
+    batch = MonthlyBatch.objects.select_related("created_by").filter(pk=batch_id).first()
+    if batch is not None and batch.status == BatchStatus.DONE:
+        tell_import_result(batch.created_by, f"Batch finished: {batch.name}",
+                           "Every row has been checked.", f"/batches/{batch.id}")
+    elif batch is not None and batch.status == BatchStatus.FAILED:
+        tell_import_result(batch.created_by, f"Batch failed: {batch.name}",
+                           (batch.error_message or "It stopped part-way.")[:240], f"/batches/{batch.id}")
     return batch_id
 
 
@@ -54,7 +62,17 @@ def run_erp_import(
         User,
     )
 
-    call_command("import_erp_excel", saved_path, **options)
+    actor = User.objects.filter(pk=actor_id).first() if actor_id else None
+    try:
+        call_command("import_erp_excel", saved_path, **options)
+    except Exception as exc:
+        # The person who uploaded it is waiting on the answer; they poll a job
+        # page, and a failure there is easy to miss. The file is kept.
+        tell_import_result(
+            actor, "The ERP import did not finish",
+            f"{exc.__class__.__name__}: {str(exc)[:200]}. The file is kept, so it can be run again.", "/imports",
+        )
+        raise
     synced = None
     if sync_users:
         out = io.StringIO()
@@ -70,7 +88,6 @@ def run_erp_import(
         "snip": SnipSource.objects.count(),
         "users": User.objects.count(),
     }
-    actor = User.objects.filter(pk=actor_id).first() if actor_id else None
     AuditLog.objects.create(
         actor=actor,
         action="ERP_XLSX_IMPORT",
@@ -81,20 +98,49 @@ def run_erp_import(
         os.unlink(saved_path)
     except OSError:
         pass
+    tell_import_result(
+        actor, "The ERP import is done",
+        f"{stats['claims']} claims ({stats['claims_paid']} paid), {stats['paid_ledger']} ledger rows, "
+        f"{stats['users']} accounts.", "/imports",
+    )
     return {"ok": True, "stats": stats, "sync_tail": synced}
+
+
+def tell_import_result(actor, title: str, body: str, href: str) -> None:
+    """Tell whoever started an import or a batch how it ended. Never raises:
+    the import has already run, and an alert that cannot be written is not a
+    reason to call it failed."""
+    if actor is None:
+        return
+    try:
+        from core.services.notify import notify
+
+        notify(actor, "import_result", title, body, href)
+    except Exception:  # noqa: BLE001
+        logger.exception("import_result_notice_failed user=%s", getattr(actor, "pk", None))
 
 
 def run_bulk_verify(claim_ids: list[str], actor_id: str | None = None) -> dict:
     """Scopus verification over a list of claims — each call is 2–4 external
     requests, so a list of any size has no business inside one HTTP request."""
-    from core.api import _verify_claim
-    from core.api.common import OWN_PAPER
-    from core.models import Claim, ClaimAction, User
-    from core.services import rbac
+    from core.models import User
+    from core.services import user_keys
 
     actor = User.objects.filter(pk=actor_id).first() if actor_id else None
     done: list[str] = []
     failed: list[dict[str, str]] = []
+    # The person who asked for the check spends their own Scopus key, if they brought one.
+    with user_keys.acting_as(actor):
+        _verify_each(claim_ids, actor, done, failed)
+    return {"verified": done, "failed": failed}
+
+
+def _verify_each(claim_ids, actor, done, failed) -> None:
+    from core.api import _verify_claim
+    from core.api.common import OWN_PAPER
+    from core.models import Claim, ClaimAction
+    from core.services import rbac
+
     for cid in claim_ids:
         claim = Claim.objects.filter(pk=cid).first()
         if claim is None:
@@ -118,7 +164,6 @@ def run_bulk_verify(claim_ids: list[str], actor_id: str | None = None) -> dict:
         except Exception as e:  # keep going: one bad claim must not sink the rest
             logger.exception("bulk_verify_failed id=%s", cid)
             failed.append({"id": cid, "reason": str(e)[:200]})
-    return {"verified": done, "failed": failed}
 
 
 def run_claim_file_check(claim_id: str, force: bool = True) -> dict:
@@ -230,6 +275,21 @@ def rematch_authors(actor_id: str | None = None) -> dict:
     out["people_with_metrics"] = publications.refresh_metrics()
     AuditLog.objects.create(actor_id=actor_id, action="AUTHOR_MATCH_DONE", entity="Publication",
                             detail_json=json.dumps(out, default=str))
+    return out
+
+
+def run_data_fill(actor_id: str | None = None, source: str = "", keys: list[str] | None = None) -> dict:
+    """Every safe data fill (core.services.data_fill), as one job: queued after
+    a faculty-list or settled-claims import is applied, and once after deploy."""
+    from core.models import SystemSetting, User
+    from core.services import data_fill
+
+    actor = User.objects.filter(pk=actor_id).first() if actor_id else None
+    out = data_fill.run_safe_fills(actor, source, keys)
+    if source.startswith("deploy:"):
+        SystemSetting.objects.update_or_create(
+            key=data_fill.DEPLOY_KEY, defaults={"value": {"run_id": source[7:], "state": "done", "summary": out}}
+        )
     return out
 
 

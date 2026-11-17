@@ -247,7 +247,7 @@ def _found_part(user: User, now) -> dict[str, Any] | None:
         "count": count,
         "papers": [{"title": p.title or "Untitled", "year": p.year, "venue": p.venue}
                    for p in qs[:FOUND_SHOWN]],
-        "href": "/record",
+        "href": "/papers",
     }
 
 

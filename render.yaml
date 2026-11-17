@@ -52,6 +52,10 @@ services:
         value: "true"
       - key: DJANGO_MEDIA_STORAGE
         value: db
+      # Fill blank departments, journals and author matches from the college's own
+      # files once after this deploy. The id is remembered; change it to run again.
+      - key: DATA_FILL_ON_DEPLOY
+        value: "2026-11-17"
       - key: APP_BASE_URL
         value: https://saveetha-publications.onrender.com
       - key: LOG_FORMAT

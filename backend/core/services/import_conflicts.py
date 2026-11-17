@@ -9,6 +9,13 @@ overwrite it. Both of their steps (the check and the import) hand that list to
 * one already settled stays settled, unless the file now says something
   different from what it said when the person decided, which reopens it.
 
+A third kind, `double_payment`, is not a difference but a flag: the settled-claims
+import wrote two payments of one paper to one person (both are on the ledger, as
+the sheet lists them) and asks the office to say whether both were right
+("confirmed") or the extra money is to be recovered ("mark_error"). Neither
+changes an amount; each records the decision, the note and an audit entry. A
+decision reopens if a further payment of that paper appears.
+
 `resolve` is what the office's buttons call. Each action changes one thing,
 refuses when the record no longer matches what the file was compared with,
 writes one audit entry with what it was and what it became (never a password),
@@ -30,7 +37,7 @@ from django.db.models.functions import Replace, Upper
 from django.utils import timezone
 
 from core.models import AuditLog, ImportConflict, PaidLedger, PriorPayment, Role, User
-from core.services import heads
+from core.services import double_payments, heads
 from core.services.fyp_roster import staff_key
 from core.services.normalize import normalize_title
 from core.services.scopus import author_profile_url
@@ -39,10 +46,13 @@ from core.services.scopus_profiles import normalize_scopus_id
 log = logging.getLogger(__name__)
 
 FACULTY, AMOUNT = ImportConflict.Kind.FACULTY.value, ImportConflict.Kind.AMOUNT.value
+DOUBLE = ImportConflict.Kind.DOUBLE_PAYMENT.value
 OPEN, RESOLVED = ImportConflict.Status.OPEN.value, ImportConflict.Status.RESOLVED.value
 
 FACULTY_ACTIONS = ("use_list", "keep_app", "pause_account", "reactivate")
 AMOUNT_ACTIONS = ("update_ledger", "keep_ledger")
+#: Neither changes a rupee: each records the office's decision about a paper paid more than once.
+DOUBLE_ACTIONS = ("confirmed", "mark_error")
 
 FIELD_LABEL = {"email": "Email", "scopus_author_id": "Scopus author ID", "staff_id": "Staff ID"}
 _CHUNK = 400
@@ -66,6 +76,8 @@ def conflict_key(kind: str, row: dict[str, Any]) -> str:
     if kind == FACULTY:
         return f"faculty:{who}:{row.get('field') or ''}"[:191]
     digest = hashlib.sha1(normalize_title(row.get("title") or "")[:512].encode("utf-8")).hexdigest()[:16]
+    if kind == DOUBLE:
+        return f"double_payment:{who or 'n:' + (row.get('name') or '').casefold()}:{digest}"[:191]
     return f"amount:{who}:{digest}:{row.get('month') or 'none'}"[:191]
 
 
@@ -84,6 +96,8 @@ def _incoming_changed(kind: str, old: dict[str, Any], new: dict[str, Any]) -> bo
     if kind == FACULTY:
         field = new.get("field") or ""
         return _norm_value(field, old.get("incoming")) != _norm_value(field, new.get("incoming"))
+    if kind == DOUBLE:
+        return double_payments.signature(old.get("payments") or []) != double_payments.signature(new.get("payments") or [])
     a, b = old.get("file_amount"), new.get("file_amount")
     if a is None or b is None:
         return a != b
@@ -254,15 +268,19 @@ def resolve(actor: User, conflict_id: str, action: str, note: str, protect: Prot
     first = ImportConflict.objects.filter(pk=conflict_id).first()
     if first is None:
         raise ConflictError(404, "That conflict is not in the list any more.")
-    allowed = FACULTY_ACTIONS if first.kind == FACULTY else AMOUNT_ACTIONS
+    allowed = {FACULTY: FACULTY_ACTIONS, DOUBLE: DOUBLE_ACTIONS}.get(first.kind, AMOUNT_ACTIONS)
     if action not in allowed:
         raise ConflictError(400, "That choice is not available for this kind of difference.")
     # Before the transaction: a refusal writes its own audit entry, which a rollback would take back.
-    _guard(first, action, protect)
+    # A paid-twice decision moves no money and touches no account, so it needs no such guard.
+    if first.kind != DOUBLE:
+        _guard(first, action, protect)
     with transaction.atomic():
         c = ImportConflict.objects.select_for_update().get(pk=conflict_id)
         if c.kind == FACULTY:
             return _faculty(actor, c, action, note)
+        if c.kind == DOUBLE:
+            return _double(actor, c, action, note)
         return _amount(actor, c, action, note)
 
 
@@ -522,6 +540,33 @@ def _amount(actor: User, c: ImportConflict, action: str, note: str) -> dict[str,
     return _done(c, f"Ledger amount changed from ₹{before['amount']:,.0f} to ₹{row.amount:,.0f}.", changed=True)
 
 
+def _double(actor: User, c: ImportConflict, action: str, note: str) -> dict[str, Any]:
+    """Record the office's decision about a paper paid more than once. No amount is changed.
+
+    "confirmed": both payments were right. "mark_error": the paper should not
+    have been paid again, so the extra money is to be recovered; the note says
+    what went wrong. The ledger keeps both payments either way.
+    """
+    p = c.payload
+    again = _settled_as(c, action)
+    if again:
+        return again
+    if action == "mark_error" and not note:
+        raise ConflictError(400, "Say what went wrong, so the money can be recovered.")
+    now = [d for d in double_payments.find() if conflict_key(DOUBLE, d) == c.key]
+    if not now or double_payments.signature(now[0]["payments"]) != double_payments.signature(p.get("payments") or []):
+        raise ConflictError(409, "The payments for this paper have changed since it was flagged. Check the file again, then decide.")
+    _settle(c, actor, action, note)
+    _audit(actor, "IMPORT_CONFLICT_RESOLVE", "PaidLedger", None, {
+        "conflict": c.id, "key": c.key, "action": action, "note": note, "title": p.get("title"),
+        "staff_id": p.get("staff_id"), "payments": p.get("payments"), "total": p.get("total"),
+        "before": {"total": p.get("total")}, "after": {"total": p.get("total")},
+    })
+    if action == "confirmed":
+        return _done(c, "Recorded: both payments were right. Nothing was changed.", changed=False)
+    return _done(c, "Marked as an error to recover. Nothing was changed on the ledger.", changed=False)
+
+
 # --------------------------------------------------------------------------- reading
 
 
@@ -529,9 +574,12 @@ def counts() -> dict[str, int]:
     week = timezone.now() - timedelta(days=7)
     open_faculty = ImportConflict.objects.filter(status=OPEN, kind=FACULTY).count()
     open_amount = ImportConflict.objects.filter(status=OPEN, kind=AMOUNT).count()
+    open_double = ImportConflict.objects.filter(status=OPEN, kind=DOUBLE).count()
     return {
-        "open": open_faculty + open_amount,
+        "open": open_faculty + open_amount + open_double,
         "open_faculty": open_faculty,
         "open_amount": open_amount,
+        "open_double_payment": open_double,
+        "to_recover": ImportConflict.objects.filter(kind=DOUBLE, status=RESOLVED, resolution="mark_error").count(),
         "resolved_week": ImportConflict.objects.filter(status=RESOLVED, resolved_at__gte=week).count(),
     }

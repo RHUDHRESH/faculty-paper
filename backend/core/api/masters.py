@@ -262,6 +262,18 @@ def scopus_ids_link(request: HttpRequest, file: UploadedFile = File(...), dry_ru
     return result
 
 
+def _queue_fills(user, source: str) -> dict:
+    """After an applied import: every safe fill, as one queued job. The card
+    follows the job (GET /admin/jobs/{id}) and shows its counts. A failure to
+    queue never undoes the import."""
+    from core.services import data_fill
+
+    try:
+        return data_fill.queue_fills(user, f"import:{source}")
+    except Exception as exc:  # noqa: BLE001
+        return {"queued": False, "error": str(exc)[:200]}
+
+
 @api.post("/admin/faculty-list/import", auth=session_auth)
 def faculty_list_import(request: HttpRequest, file: UploadedFile = File(...), dry_run: bool = Form(True)):
     """Faculty_List.xlsx: check first (dry_run true, writes nothing), then import.
@@ -284,6 +296,7 @@ def faculty_list_import(request: HttpRequest, file: UploadedFile = File(...), dr
             detail_json=json.dumps({**result["counts"], "updated_fields": result["updated_fields"],
                                     "not_in_list": result["not_in_list"], "file": (file.name or "")[:120]}),
         )
+        result["fill"] = _queue_fills(user, "faculty list")
     return result
 
 
@@ -309,6 +322,7 @@ def settled_claims_import(request: HttpRequest, file: UploadedFile = File(...), 
             detail_json=json.dumps({"rows": result["rows"], **result["counts"],
                                     "new_total_amount": result["new_total_amount"], "file": (file.name or "")[:120]}),
         )
+        result["fill"] = _queue_fills(user, "settled claims")
     return result
 
 
@@ -352,7 +366,11 @@ def erp_stats(request: HttpRequest):
         raise HttpError(403, "Forbidden")
     return {
         "faculty_master": FacultyMaster.objects.count(),
-        "claims": Claim.objects.count(),
+        # Papers claimed are the ones somebody filed. A draft is not yet a claim
+        # (Home, Papers and Reports all leave drafts out), so it is counted
+        # beside, not in, the figure.
+        "claims": Claim.objects.exclude(status=ClaimStatus.DRAFT).count(),
+        "claim_drafts": Claim.objects.filter(status=ClaimStatus.DRAFT).count(),
         "claims_paid": Claim.objects.filter(status=ClaimStatus.PAID).count(),
         "prior_payments": PriorPayment.objects.count(),
         "paid_ledger": PaidLedger.objects.count(),

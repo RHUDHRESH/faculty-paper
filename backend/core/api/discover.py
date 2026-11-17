@@ -10,6 +10,7 @@ from __future__ import annotations
 from core.api.common import _hod_scope, _require_may_see_money, api, rate_limit, session_auth
 from core.api.deps import claim_to_dict
 from core.api.common import require_user
+from core.api import journal_faculty
 from core.api.journals import _journal_reference
 from core.api.dashboard import _split_subjects
 
@@ -24,7 +25,7 @@ from ninja import File, Schema
 from django.conf import settings
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimStatus, ResearchInterest, Role, User
-from core.services import ai, discover as discover_service, research_search, trends
+from core.services import ai, discover as discover_service, research_search, trends, user_keys
 from core.services import rbac
 from core.services.normalize import normalize_issn
 from core.services.search import KINDS as SEARCH_KINDS, search as run_search
@@ -337,7 +338,7 @@ def discover_venues_stream(request: HttpRequest, payload: VenueIn):
                 _log_venue_search(user, title, value)
                 yield _ndjson({"event": "result", "elapsed": since(), "data": value})
 
-    response = StreamingHttpResponse(events(), content_type="application/x-ndjson")
+    response = StreamingHttpResponse(user_keys.scoped(user, events()), content_type="application/x-ndjson")
     # Nothing between here and the browser may hold this back waiting for a
     # complete body -- buffering a progress stream turns it back into the
     # silence it exists to replace.
@@ -646,19 +647,27 @@ def discover_directions(request: HttpRequest):
 def journal_report(request: HttpRequest, title: str):
     """One journal: what it is, and what the college has published in it.
 
+    A faculty account gets the read-only facts and its own claims only.
     A head of department sees the same record narrowed to their own staff and
     with the money taken out, which is the rule everywhere else they look.
     """
     user = require_user(request)
     is_head = user.role == Role.HOD
+    name = (title or "").strip()
     if not (
         is_head
         or rbac.can_view_reports(user.role)
         or rbac.can_manage_users(user.role)
     ):
-        raise HttpError(403, "Forbidden")
+        # Faculty get the journal's own facts and their own claims in it, and
+        # nothing about anybody else's (`journal_faculty`).
+        if not name:
+            raise HttpError(400, "Name a journal.")
+        record = journal_faculty.faculty_record(user, name)
+        if record is None:
+            raise HttpError(404, "No publication on record names that journal.")
+        return record
 
-    name = (title or "").strip()
     if not name:
         raise HttpError(400, "Name a journal.")
 
